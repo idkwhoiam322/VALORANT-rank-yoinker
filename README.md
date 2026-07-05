@@ -46,9 +46,9 @@
 
 ### Compiling from source:
 
-1) `pip install cx_Freeze`
-2) `python setup.py build`
-3)  Open the new Build folder and find vRY.exe.
+1) `pip install pyinstaller`
+2) `pyinstaller vry.spec`
+3)  Open the new `dist/vry` folder and find vRY.exe. It launches the desktop UI and the backend together -- no separate console step needed.
 
 > `-` You can change the desired weapon by editing the gun in `config.json`, or by deleting the file for vRY re-prompt you.
 

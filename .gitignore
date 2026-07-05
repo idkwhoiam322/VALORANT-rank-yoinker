@@ -31,6 +31,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+*.spec.bak
 
 # Installer logs
 pip-log.txt
@@ -146,8 +147,15 @@ config.json
 # logs
 /logs/
 /chat_logs/
+scripts/api_dump.log
 
 env/
 tempCodeRunnerFile.py
 vRY.lnk
 node_modules
+
+# Editor/OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

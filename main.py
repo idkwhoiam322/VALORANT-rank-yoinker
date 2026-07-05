@@ -39,6 +39,8 @@ from src.account_manager.account_manager import AccountManager
 from src.account_manager.account_config import AccountConfig
 from src.account_manager.account_auth import AccountAuth
 
+from custom.gui.webui import print_webui_link
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 os.system(f"title VALORANT rank yoinker v{version}")
@@ -130,7 +132,7 @@ try:
 
     ErrorSRC = Error(log, acc_manager)
 
-    Requests.check_version(version, Requests.copy_run_update_script)
+    # Requests.check_version(version, Requests.copy_run_update_script)
     Requests.check_status()
     Requests = Requests(version, log, ErrorSRC)
 
@@ -376,6 +378,8 @@ try:
                 color(f"- {inventories_link}", fore=(255, 127, 80)),
             )
 
+            print_webui_link(PROJECT_ROOT)
+
     richConsole = RichConsole()
 
     firstTime = True
@@ -581,7 +585,8 @@ try:
                 isRange = False
                 playersLoaded = 1
 
-                heartbeat_data["map"] = (map_urls[coregame_stats["MapID"].lower()],)
+                heartbeat_data["map"] = current_map_name
+                heartbeat_data["server"] = get_short_server_name(server) if server else ""
                 with richConsole.status("Loading Players...") as status:
                     partyOBJ = menu.get_party_json(
                         namesClass.get_players_puuid(Players), presence
@@ -805,6 +810,7 @@ try:
                             "rank": playerRank["rank"],
                             "peakRank": playerRank["peakrank"],
                             "peakRankAct": peakRankAct,
+                            "previousRank": previousPlayerRank["rank"],
                             "rr": rr,
                             "kd": ppstats["kd"],
                             "headshotPercentage": ppstats["hs"],
@@ -887,6 +893,8 @@ try:
                 loadouts = loadouts_arr[0]
                 loadouts_data = loadouts_arr[1]
                 playersLoaded = 1
+                heartbeat_data["map"] = current_map_name
+                heartbeat_data["server"] = get_short_server_name(server) if server else ""
                 with richConsole.status("Loading Players...") as status:
                     presence = presences.get_presence()
                     partyOBJ = menu.get_party_json(
@@ -1087,6 +1095,7 @@ try:
                             "rank": playerRank["rank"],
                             "peakRank": playerRank["peakrank"],
                             "peakRankAct": peakRankAct,
+                            "previousRank": previousPlayerRank["rank"],
                             "level": player_level,
                             "rr": rr,
                             "kd": ppstats["kd"],
@@ -1234,6 +1243,7 @@ try:
                                 "rank": playerRank["rank"],
                                 "peakRank": playerRank["peakrank"],
                                 "peakRankAct": peakRankAct,
+                                "previousRank": previousPlayerRank["rank"],
                                 "level": player_level,
                                 "rr": rr,
                                 "kd": ppstats["kd"],
@@ -1290,6 +1300,7 @@ try:
                 )
 
                 table.set_caption(f"VALORANT rank yoinker v{version}")
+                heartbeat_data["alreadyPlayedWith"] = already_played_with
                 heartbeat_data["rankIcons"] = rankIcons
                 Server.send_payload("heartbeat", heartbeat_data)
                 table.display()
@@ -1303,7 +1314,13 @@ try:
                             print(stats.format_encounter_summary(played))
                 already_played_with = []
         if cfg.cooldown == 0:
-            input("Press enter to fetch again...")
+            try:
+                # Only prompt if stdin is interactive
+                if hasattr(sys, "stdin") and sys.stdin is not None and sys.stdin.isatty():
+                    input("Press enter to fetch again...")
+            except EOFError:
+                # stdin not available; continue without blocking
+                pass
         else:
             # time.sleep(cfg.cooldown)
             pass
@@ -1319,5 +1336,9 @@ except:
             fore=(255, 0, 0),
         )
     )
-    input("press enter to exit...\n")
+    try:
+        if hasattr(sys, "stdin") and sys.stdin is not None and sys.stdin.isatty():
+            input("press enter to exit...\n")
+    except EOFError:
+        pass
     os._exit(1)

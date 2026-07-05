@@ -17,15 +17,30 @@ class Server:
 
     def start_server(self):
         try:
-            # print(self.lastMessage)
             with open(os.path.join(PROJECT_ROOT, "config.json"), "r") as conf:
                 port = json.load(conf)["port"]
             self.server = WebsocketServer(host="0.0.0.0", port=port)
-            # server = websocket.WebSocketApp("wss://localhost:1100", on_open=on_open, on_message=on_message, on_close=on_close)
+            
+            def on_message_received(client, server, message):
+                import sys
+                import os
+                import json
+                try:
+                    data = json.loads(message)
+                    if data.get("action") == "restart_application":
+                        print("\n[INFO] Force Refresh requested. Restarting...")
+                        os.execv(sys.executable, ['python'] + sys.argv)
+                except Exception:
+                    pass
+
+            self.server.set_fn_message_received(on_message_received)
+
             self.server.set_fn_new_client(self.handle_new_client)
-            self.server.run_forever(threaded=True)
+            self.server.run_forever(threaded=True) # Now the server is ready to listen
         except Exception as e:
             self.Error.PortError(port)
+        
+        
 
     def handle_new_client(self, client, server):
         self.send_payload("version",{
