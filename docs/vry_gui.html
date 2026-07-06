@@ -192,6 +192,38 @@
         transform: translateY(0);
     }
 
+    .toast.is-success {
+        border-color: var(--green, #2ecc71);
+        background: #0d2b1a;
+        color: #6fcf97;
+    }
+
+    .screenshot-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--line-strong);
+        background: var(--panel-strong);
+        color: var(--text);
+        font-weight: 800;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .screenshot-btn:hover {
+        box-shadow: 0 0 0 1px var(--gold), 0 8px 24px rgba(241, 199, 102, 0.18);
+        transform: translateY(-1px);
+    }
+
+    .screenshot-btn:disabled {
+        opacity: 0.55;
+        cursor: progress;
+    }
+
     /* --- stat chips inside details panel --- */
     .stat-bar {
         display: flex;
@@ -311,6 +343,7 @@
 
     .team-section h3 {
         transition: color 0.15s ease;
+        margin-bottom: 6px;
     }
 
     .team-section h3.is-my-team {
@@ -623,6 +656,7 @@
         color: var(--muted);
     }
 </style>
+<script defer src="html2canvas.min.js"></script>
 </head>
 <body>
     <div id="loadingOverlay">
@@ -644,6 +678,7 @@
             </div>
             <div class="topbar-actions">
                 <span id="statusPill" class="status-pill pending"><span class="status-dot"></span><span id="statusText">Connecting</span></span>
+                <button id="screenshotButton" class="screenshot-btn" type="button" title="Screenshot teams to clipboard">Screenshot</button>
                 <button id="refreshButton" class="refresh-btn" type="button" title="Force-refresh all data by restarting vRY">
                     <span class="refresh-icon"></span>
                     Refresh
@@ -854,6 +889,7 @@
             jsonCopyBtnEmpty: document.getElementById("jsonCopyBtnEmpty"),
             defHeader: document.getElementById("defHeader"),
             atkHeader: document.getElementById("atkHeader"),
+            screenshotButton: document.getElementById("screenshotButton"),
             playedWithEmpty: document.getElementById("playedWithEmpty"),
             playedWithTable: document.getElementById("playedWithTable"),
             playedWithBody: document.getElementById("playedWithBody"),
@@ -1000,6 +1036,92 @@
             showToast._t = setTimeout(function () {
                 els.toast.classList.remove("show");
             }, 3200);
+        }
+
+        function takeScreenshot() {
+            if (typeof html2canvas === "undefined") {
+                showToast("Screenshot library not loaded yet.");
+                return;
+            }
+            els.screenshotButton.disabled = true;
+            var target = document.querySelector(".teams-layout");
+            if (!target) {
+                showToast("No teams layout found.");
+                els.screenshotButton.disabled = false;
+                return;
+            }
+
+            var cleanup = [];
+
+            function suppressOverlays() {
+                var s = document.createElement("style");
+                s.id = "tmp-scr";
+                s.textContent =
+                    "body::before { display: none !important; }" +
+                    ".player-button { background: rgba(10, 14, 24, 0.92) !important; }" +
+                    ".player-button::after { display: none !important; }" +
+                    ".player-button.is-blue," +
+                    ".player-button.is-red  { background: rgba(10, 14, 24, 0.92) !important; }" +
+                    ".player-button.is-blue," +
+                    ".player-button.is-red  { box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }" +
+                    ".player-button:hover," +
+                    ".player-button:focus-visible," +
+                    ".player-button.is-selected { transform: none !important; }" +
+                    "* { animation: none !important; }";
+                document.head.appendChild(s);
+                cleanup.push(function () {
+                    var el = document.getElementById("tmp-scr");
+                    if (el) el.remove();
+                });
+            }
+
+            function hideDetailsPanel() {
+                var panel = els.detailsPanel;
+                if (!panel.hidden) {
+                    panel.hidden = true;
+                    cleanup.push(function () {
+                        panel.hidden = false;
+                    });
+                }
+            }
+
+            suppressOverlays();
+            hideDetailsPanel();
+
+            html2canvas(target, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: "#0f1115",
+            }).then(function (canvas) {
+                cleanup.forEach(function (fn) { fn(); });
+                canvas.toBlob(function (blob) {
+                    if (!blob) {
+                        showToast("Screenshot failed.");
+                        els.screenshotButton.disabled = false;
+                        return;
+                    }
+                    if (navigator.clipboard && navigator.clipboard.write) {
+                        navigator.clipboard.write([
+                            new ClipboardItem({ "image/png": blob })
+                        ]).then(function () {
+                            els.toast.classList.add("is-success");
+                            showToast("Screenshot copied!");
+                            setTimeout(function () {
+                                els.toast.classList.remove("is-success");
+                            }, 600);
+                        }).catch(function () {
+                            showToast("Copy failed. Try refreshing.");
+                        });
+                    } else {
+                        showToast("Clipboard API unavailable.");
+                    }
+                    els.screenshotButton.disabled = false;
+                }, "image/png");
+            }).catch(function () {
+                cleanup.forEach(function (fn) { fn(); });
+                showToast("Screenshot failed.");
+                els.screenshotButton.disabled = false;
+            });
         }
 
         function setStatus(text, cls) {
@@ -1739,6 +1861,8 @@
 
         els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
         els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
+
+        els.screenshotButton.addEventListener("click", takeScreenshot);
 
         // ---- boot ----
         var cached = null;
