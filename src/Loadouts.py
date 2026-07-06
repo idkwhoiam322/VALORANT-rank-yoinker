@@ -3,6 +3,7 @@ import requests
 from src.colors import color
 from src.constants import sockets, hide_names
 
+_VAL_API_CACHE = {}
 
 class Loadouts:
     def __init__(self, Requests, log, colors, Server, current_map):
@@ -13,13 +14,22 @@ class Loadouts:
         self.Server = Server
         self.current_map = current_map
 
+    def _get_valo_api(self, endpoint):
+        if endpoint not in _VAL_API_CACHE:
+            resp = requests.get(f"https://valorant-api.com/v1/{endpoint}")
+            _VAL_API_CACHE[endpoint] = resp.json()
+            self.log(f"fetch: url: 'valorant-api', endpoint: /v1/{endpoint}, method: get,"
+                    f" response code: {resp.status_code}")
+        else:
+            self.log(f"valorant-api: {endpoint} -> cache")
+        return _VAL_API_CACHE[endpoint]
+
     def get_pregame_loadouts(self, match_id):
         return self.Requests.fetch("glz", f"/pregame/v1/matches/{match_id}/loadouts", "get")
 
     def get_match_loadouts(self, match_id, players, weaponChoose, valoApiSkins, names, state="game"):
         weaponLists = {}
-        valApiWeapons = requests.get(
-            "https://valorant-api.com/v1/weapons").json()
+        valApiWeapons = self._get_valo_api("weapons")
         if state == "game":
             team_id = "Blue"
             PlayerInventorys = self.Requests.fetch(
@@ -49,13 +59,11 @@ class Loadouts:
                     skin_id = \
                         inv["Items"][weapon["uuid"].lower()]["Sockets"]["bcef87d6-209b-46c6-8b19-fbe40bd95abc"]["Item"][
                             "ID"]
-                    json_data = valoApiSkins.json()
-
-                    if "data" not in json_data:
+                    if "data" not in valoApiSkins:
                         self.log("Skins API response missing 'data'.")
                         return None
 
-                    for skin in json_data["data"]:
+                    for skin in valoApiSkins["data"]:
                         if skin_id.lower() == skin["uuid"].lower():
                             rgb_color = self.colors.get_rgb_color_from_skin(
                                 skin["uuid"].lower(), valoApiSkins)
@@ -74,17 +82,13 @@ class Loadouts:
 
     # this will convert valorant loadouts to json with player names
     def convertLoadoutToJsonArray(self, PlayerInventorys, players, state, names, team_id=None):
-        # get agent dict from main in future
-        # names = self.namesClass.get_names_from_puuids(players)
-        valoApiSprays = requests.get("https://valorant-api.com/v1/sprays")
-        valoApiFlex = requests.get("https://valorant-api.com/v1/flex")
-        valoApiWeapons = requests.get("https://valorant-api.com/v1/weapons")
-        valoApiBuddies = requests.get("https://valorant-api.com/v1/buddies")
-        valoApiAgents = requests.get("https://valorant-api.com/v1/agents")
-        valoApiTitles = requests.get(
-            "https://valorant-api.com/v1/playertitles")
-        valoApiPlayerCards = requests.get(
-            "https://valorant-api.com/v1/playercards")
+        valoApiSprays = self._get_valo_api("sprays")
+        valoApiFlex = self._get_valo_api("flex")
+        valoApiWeapons = self._get_valo_api("weapons")
+        valoApiBuddies = self._get_valo_api("buddies")
+        valoApiAgents = self._get_valo_api("agents")
+        valoApiTitles = self._get_valo_api("playertitles")
+        valoApiPlayerCards = self._get_valo_api("playercards")
 
         final_final_json = {"Players": {},
                             "time": int(time.time()),
@@ -135,7 +139,7 @@ class Loadouts:
             # creates name field
             if hide_names:
                 if state == "game":
-                    for agent in valoApiAgents.json()["data"]:
+                    for agent in valoApiAgents["data"]:
                         if agent["uuid"].lower() == character_id:
                             final_json[subject].update(
                                 {"Name": agent["displayName"]})
@@ -158,17 +162,17 @@ class Loadouts:
             final_json[subject].update(
                 {"Level": player.get("PlayerIdentity", {}).get("AccountLevel")})
 
-            for title in valoApiTitles.json()["data"]:
+            for title in valoApiTitles["data"]:
                 if title["uuid"] == player.get("PlayerIdentity", {}).get("PlayerTitleID"):
                     final_json[subject].update(
                         {"Title": title["titleText"]})
 
-            for PCard in valoApiPlayerCards.json()["data"]:
+            for PCard in valoApiPlayerCards["data"]:
                 if PCard["uuid"] == player.get("PlayerIdentity", {}).get("PlayerCardID"):
                     final_json[subject].update(
                         {"PlayerCard": PCard["largeArt"]})
 
-            for agent in valoApiAgents.json()["data"]:
+            for agent in valoApiAgents["data"]:
                 if agent["uuid"].lower() == character_id:
                     final_json[subject].update(
                         {"AgentArtworkName": agent["displayName"] + "Artwork"})
@@ -178,12 +182,12 @@ class Loadouts:
 
             sprays_by_uuid = {
                 s["uuid"].lower(): s
-                for s in valoApiSprays.json().get("data", [])
+                for s in valoApiSprays.get("data", [])
                 if isinstance(s, dict) and s.get("uuid")
             }
             flex_by_uuid = {
                 f["uuid"].lower(): f
-                for f in valoApiFlex.json().get("data", [])
+                for f in valoApiFlex.get("data", [])
                 if isinstance(f, dict) and f.get("uuid")
             }
             expression_selections = PlayerInventory.get("Expressions", {}).get("AESSelections", [])
@@ -232,7 +236,7 @@ class Loadouts:
                 # buddies
                 for socket in PlayerInventory["Items"][skin]["Sockets"]:
                     if sockets["skin_buddy"] == socket:
-                        for buddy in valoApiBuddies.json()["data"]:
+                        for buddy in valoApiBuddies["data"]:
                             if buddy["uuid"] == PlayerInventory["Items"][skin]["Sockets"][socket]["Item"]["ID"]:
                                 final_json[subject]["Weapons"][skin].update(
                                     {
@@ -241,7 +245,7 @@ class Loadouts:
                                 )
 
                 # append names to field
-                for weapon in valoApiWeapons.json()["data"]:
+                for weapon in valoApiWeapons["data"]:
                     if skin == weapon["uuid"]:
                         final_json[subject]["Weapons"][skin].update(
                             {

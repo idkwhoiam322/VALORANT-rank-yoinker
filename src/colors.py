@@ -55,14 +55,12 @@ class Colors:
             Teamcolor = color(orig_name, fore=(221, 224, 41))
         return Teamcolor
 
-    def get_rgb_color_from_skin(self, skin_id, valoApiSkins):
-        json_data = valoApiSkins.json()
-        
-        if "data" not in json_data:
+    def get_rgb_color_from_skin(self, skin_id, skins_data):
+        if "data" not in skins_data:
             self.log("Skins API response missing 'data'.")
             return None
         
-        for skin in json_data["data"]:
+        for skin in skins_data["data"]:
             if skin_id == skin["uuid"]:
                 return self.tier_dict.get(skin.get('contentTierUuid'))
 

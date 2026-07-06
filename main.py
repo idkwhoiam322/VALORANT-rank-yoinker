@@ -179,7 +179,12 @@ try:
 
     log(f"VALORANT rank yoinker v{version}")
 
-    valoApiSkins = requests.get("https://valorant-api.com/v1/weapons/skins")
+    # Pre-fetch all static game data at startup; these never change mid-session.
+    for ep in ("sprays", "flex", "weapons", "buddies", "agents", "playertitles", "playercards", "weapons/skins"):
+        loadoutsClass._get_valo_api(ep)
+
+    valoApiSkins = loadoutsClass._get_valo_api("weapons/skins")
+
     gameContent = content.get_content()
     seasonID = content.get_latest_season_id(gameContent)
     previousSeasonID = content.get_previous_season_id(gameContent)
