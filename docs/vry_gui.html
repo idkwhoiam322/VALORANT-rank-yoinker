@@ -356,6 +356,38 @@
         cursor: text;
     }
 
+    .trn-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 0.5rem;
+    }
+    .trn-link {
+        font-size: 0.75rem;
+        color: #4CC9F0;
+        text-decoration: none;
+        opacity: 0.85;
+        transition: opacity 0.15s;
+    }
+    .trn-link:hover {
+        opacity: 1;
+        text-decoration: underline;
+    }
+    .trn-copy-btn {
+        background: none;
+        border: none;
+        color: #F4CB6C;
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 0 2px;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+        line-height: 1;
+    }
+    .trn-copy-btn:hover {
+        opacity: 1;
+    }
+
     /* --- last played with table --- */
     .played-with-empty {
         color: var(--muted);
@@ -746,6 +778,10 @@
                         <aside class="right-rail">
                             <section class="player-card-section" aria-label="Player card">
                                 <h2>Player Card</h2>
+                                <div class="trn-row">
+                                    <a id="trnLink" class="trn-link" href="#" target="_blank" rel="noopener">View on tracker.gg &#8599;</a>
+                                    <button id="trnCopyBtn" class="trn-copy-btn" type="button" title="Copy link">&#x2398;</button>
+                                </div>
                                 <div id="playerCardPreview" class="player-card-preview">
                                     <span id="selectedLevel">Level</span>
                                     <strong id="selectedName">Player</strong>
@@ -864,6 +900,8 @@
             selectedAgent: document.getElementById("selectedAgent"),
             selectedTeam: document.getElementById("selectedTeam"),
             selectedName: document.getElementById("selectedName"),
+            trnLink: document.getElementById("trnLink"),
+            trnCopyBtn: document.getElementById("trnCopyBtn"),
             selectedCardTitle: document.getElementById("selectedCardTitle"),
             selectedModalName: document.getElementById("selectedModalName"),
             selectedLevel: document.getElementById("selectedLevel"),
@@ -1536,6 +1574,18 @@
             els.selectedAgent.hidden = !selected.agentImgLink;
             els.selectedAgent.alt = selected.agent || "";
             els.selectedName.textContent = txt(selected.name, "Unknown Player");
+
+            // Update TRN (tracker.gg) link
+            var trnName = selected.name;
+            if (trnName && trnName.indexOf("#") !== -1) {
+                els.trnLink.href = "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(trnName) + "/overview";
+                els.trnLink.hidden = false;
+                els.trnCopyBtn.hidden = false;
+            } else {
+                els.trnLink.hidden = true;
+                els.trnCopyBtn.hidden = true;
+            }
+
             els.selectedCardTitle.textContent = selected.title || "";
             els.selectedCardTitle.hidden = !selected.title;
             els.selectedModalName.textContent = txt(selected.agent, "Agent " + NA);
@@ -1783,6 +1833,24 @@
             }
         }
 
+        function copyText(text, button, label) {
+            var done = function () {
+                var original = button.textContent;
+                button.textContent = label || "\u2713";
+                button.classList.add("copied");
+                setTimeout(function () {
+                    button.textContent = original;
+                    button.classList.remove("copied");
+                }, 1500);
+            };
+            if (!text) { showToast("Nothing to copy."); return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text, done); });
+            } else {
+                fallbackCopy(text, done);
+            }
+        }
+
         function fallbackCopy(text, done) {
             var ta = document.createElement("textarea");
             ta.value = text;
@@ -1861,6 +1929,7 @@
 
         els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
         els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
+        els.trnCopyBtn.addEventListener("click", function () { copyText(els.trnLink.href, els.trnCopyBtn); });
 
         els.screenshotButton.addEventListener("click", takeScreenshot);
 
