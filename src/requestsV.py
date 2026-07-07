@@ -1,6 +1,7 @@
 import base64
 import json
 import time
+from collections import deque
 from json.decoder import JSONDecodeError
 import requests
 from src.colors import color
@@ -20,6 +21,12 @@ class Requests:
         self.headers = {}
         self.log = log
 
+        self._request_history = {
+            "pd": deque(),
+            "glz": deque(),
+            "local": deque(),
+            "custom": deque(),
+        }
 
         self.lockfile = self.get_lockfile()
         self.region = self.get_region()
@@ -34,6 +41,19 @@ class Requests:
             self.log("Invalid URI format, invalid lockfile, going back to menu")
             self.get_lockfile(ignoreLockfile=True)
         
+
+    _MAX_RATES = {"pd": 8, "glz": 5, "local": 20, "custom": 5}
+
+    def _throttle(self, url_type):
+        now = time.time()
+        history = self._request_history[url_type]
+        while history and history[0] <= now - 1:
+            history.popleft()
+        if len(history) >= self._MAX_RATES.get(url_type, 5):
+            wait = history[0] + 1 - now
+            if wait > 0:
+                time.sleep(wait)
+        self._request_history[url_type].append(time.time())
 
     @staticmethod
     def check_version(version, copy_run_update_script):
@@ -101,6 +121,7 @@ class Requests:
     def fetch(self, url_type: str, endpoint: str, method: str, rate_limit_seconds=5, body=None):
         try:
             if url_type == "glz":
+                self._throttle(url_type)
                 response = requests.request(method, self.glz_url + endpoint, headers=self.get_headers(), verify=False)
                 self.log(f"fetch: url: '{url_type}', endpoint: {endpoint}, method: {method},"
                     f" response code: {response.status_code}")
@@ -125,6 +146,7 @@ class Requests:
                     self.fetch(url_type, endpoint, method)
                 return response.json()
             elif url_type == "pd":
+                self._throttle(url_type)
                 response = requests.request(method, self.pd_url + endpoint, headers=self.get_headers(), verify=False)
                 self.log(
                     f"fetch: url: '{url_type}', endpoint: {endpoint}, method: {method},"
@@ -150,6 +172,7 @@ class Requests:
                     return self.fetch(url_type, endpoint, method, rate_limit_seconds=rate_limit_seconds+5)
                 return response
             elif url_type == "local":
+                self._throttle(url_type)
                 local_headers = {'Authorization': 'Basic ' + base64.b64encode(
                     ('riot:' + self.lockfile['password']).encode()).decode()}
 
@@ -173,6 +196,7 @@ class Requests:
 
                 return None
             elif url_type == "custom":
+                self._throttle(url_type)
                 response = requests.request(method, f"{endpoint}", headers=self.get_headers(), verify=False)
                 self.log(
                     f"fetch: url: '{url_type}', endpoint: {endpoint}, method: {method},"
