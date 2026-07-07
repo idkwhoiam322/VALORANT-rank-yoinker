@@ -434,6 +434,12 @@
         margin-top: 2px;
     }
 
+    .rank-icon {
+        height: 1em;
+        width: auto;
+        vertical-align: -0.125em;
+    }
+
     .card-stats {
         grid-column: 1 / -1;
         display: grid;
@@ -917,6 +923,7 @@
             selectedPuuid: null,
             reconnectTimer: null,
             lastRenderKey: null,
+            rankIcons: null,
         };
 
         var els = {
@@ -1061,7 +1068,7 @@
             return parts.length ? parts.join(" / ") : NA;
         }
 
-        function setStatChip(container, label, value, isNA, chipClass, textColor) {
+        function setStatChip(container, label, value, isNA, chipClass, textColor, iconUrl) {
             var chip = document.createElement("div");
             chip.className = chipClass || "stat-chip";
             var l = document.createElement("span");
@@ -1069,7 +1076,15 @@
             l.textContent = label;
             var v = document.createElement("span");
             v.className = "stat-value" + (isNA ? " na" : "");
-            v.textContent = value;
+            if (iconUrl) {
+                var img = document.createElement("img");
+                img.className = "rank-icon";
+                img.src = iconUrl;
+                img.loading = "lazy";
+                v.append(img);
+                v.append(" ");
+            }
+            v.append(document.createTextNode(value));
             if (textColor && !isNA) v.style.color = textColor;
             chip.append(l, v);
             container.append(chip);
@@ -1082,13 +1097,13 @@
             setStatChip(grid, "K/D", txt(player.kd), isEmpty(player.kd), "card-stat");
             setStatChip(grid, "HS%", isEmpty(player.headshotPercentage) ? NA : (player.headshotPercentage + "%"), isEmpty(player.headshotPercentage), "card-stat");
             setStatChip(grid, "RR", txt(player.rr), isEmpty(player.rr), "card-stat");
-            setStatChip(grid, "Rank", rankName(player.rank, true), isEmpty(player.rank), "card-stat", rankColor(player.rank));
+            setStatChip(grid, "Rank", rankName(player.rank, true), isEmpty(player.rank), "card-stat", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
 
             var peak = rankName(player.peakRank, true);
             if (peak !== NA && player.peakRankAct) peak += String(player.peakRankAct).trim();
-            setStatChip(grid, "Peak Rank", peak, isEmpty(player.peakRank), "card-stat", rankColor(player.peakRank));
+            setStatChip(grid, "Peak Rank", peak, isEmpty(player.peakRank), "card-stat", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
 
-            setStatChip(grid, "Last Act", rankName(player.previousRank, true), isEmpty(player.previousRank), "card-stat", rankColor(player.previousRank));
+            setStatChip(grid, "Last Act", rankName(player.previousRank, true), isEmpty(player.previousRank), "card-stat", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
             setStatChip(grid, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "card-stat");
             setStatChip(grid, "Level", txt(player.level), isEmpty(player.level), "card-stat");
             setStatChip(grid, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "card-stat");
@@ -1336,6 +1351,7 @@
             // screenshot reads straight from state.payload), even when
             // skipping the render below.
             state.payload = payload;
+            state.rankIcons = payload && payload.rankIcons;
 
             if (shouldCache) {
                 try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)); } catch (e) { /* storage full/unavailable */ }
@@ -1515,7 +1531,16 @@
                 metaRow.className = "player-meta-row";
                 var rankBadge = document.createElement("span");
                 rankBadge.className = "player-meta";
-                rankBadge.textContent = rankName(player.rank, true);
+                var rankIconUrl = state.rankIcons && state.rankIcons[player.rank];
+                if (rankIconUrl) {
+                    var rankImg = document.createElement("img");
+                    rankImg.className = "rank-icon";
+                    rankImg.src = rankIconUrl;
+                    rankImg.loading = "lazy";
+                    rankBadge.append(rankImg);
+                    rankBadge.append(" ");
+                }
+                rankBadge.append(document.createTextNode(rankName(player.rank, true)));
                 var badgeColor = rankColor(player.rank);
                 if (badgeColor) rankBadge.style.color = badgeColor;
                 metaRow.append(rankBadge);
@@ -1650,13 +1675,13 @@
             setStatChip(els.statBar, "K/D", txt(player.kd), isEmpty(player.kd), "stat-chip");
             setStatChip(els.statBar, "HS%", isEmpty(player.headshotPercentage) ? NA : (player.headshotPercentage + "%"), isEmpty(player.headshotPercentage), "stat-chip");
             setStatChip(els.statBar, "RR", txt(player.rr), isEmpty(player.rr), "stat-chip");
-            setStatChip(els.statBar, "Rank", rankName(player.rank, false), isEmpty(player.rank), "stat-chip", rankColor(player.rank));
+            setStatChip(els.statBar, "Rank", rankName(player.rank, false), isEmpty(player.rank), "stat-chip", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
 
             var peak = rankName(player.peakRank, false);
             if (peak !== NA && player.peakRankAct) peak += String(player.peakRankAct).trim();
-            setStatChip(els.statBar, "Peak Rank", peak, isEmpty(player.peakRank), "stat-chip", rankColor(player.peakRank));
+            setStatChip(els.statBar, "Peak Rank", peak, isEmpty(player.peakRank), "stat-chip", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
 
-            setStatChip(els.statBar, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank));
+            setStatChip(els.statBar, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
             setStatChip(els.statBar, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "stat-chip");
             setStatChip(els.statBar, "Level", txt(player.level), isEmpty(player.level), "stat-chip");
             setStatChip(els.statBar, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "stat-chip");
