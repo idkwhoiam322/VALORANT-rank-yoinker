@@ -817,6 +817,7 @@ try:
                             "winPercentage": f"{playerRank['wr']} ({playerRank['numberofgames']})",
                             "lastActive": last_active,
                             "level": player_level,
+                            "leaderboard": leaderboard,
                             "agentImgLink": loadouts_data["Players"][
                                 player["Subject"]
                             ].get("Agent", None),
@@ -1097,6 +1098,7 @@ try:
                             "peakRankAct": peakRankAct,
                             "previousRank": previousPlayerRank["rank"],
                             "level": player_level,
+                            "leaderboard": leaderboard,
                             "rr": rr,
                             "kd": ppstats["kd"],
                             "headshotPercentage": ppstats["hs"],
@@ -1245,6 +1247,7 @@ try:
                                 "peakRankAct": peakRankAct,
                                 "previousRank": previousPlayerRank["rank"],
                                 "level": player_level,
+                                "leaderboard": leaderboard,
                                 "rr": rr,
                                 "kd": ppstats["kd"],
                                 "headshotPercentage": ppstats["hs"],
