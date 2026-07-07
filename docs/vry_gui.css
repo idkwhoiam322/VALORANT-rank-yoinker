@@ -521,6 +521,12 @@
         gap: 16px !important;
     }
 
+    .preview-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* ---- compact roster: shrink everything in the default (non-expanded)
        view so all 10 players (5 + 5) fit on screen without scrolling ---- */
     .players-grid {
@@ -611,7 +617,7 @@
 
     .preview-name {
         font-size: 0.66rem !important;
-        -webkit-line-clamp: 1 !important;
+        white-space: nowrap !important;
     }
 
     .top-info {
