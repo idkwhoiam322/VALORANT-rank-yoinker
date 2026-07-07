@@ -1920,6 +1920,11 @@
             closeModal();
             setRefreshButtonsBusy(true);
             try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* noop */ }
+            state.payload = null;
+            state.players = [];
+            state.lastRenderKey = null;
+            state.selectedPuuid = null;
+            render();
 
             var sent = sendAction("restart_application");
             if (sent) {
