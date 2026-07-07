@@ -1919,6 +1919,7 @@
         function requestRestart() {
             closeModal();
             setRefreshButtonsBusy(true);
+            try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* noop */ }
 
             var sent = sendAction("restart_application");
             if (sent) {
