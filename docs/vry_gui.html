@@ -921,7 +921,7 @@
         var DEFAULT_PORT = "1100";
         var DEF_HEADER_BASE = "DEF (BLUE)";
         var ATK_HEADER_BASE = "ATK (RED)";
-        var PREVIEW_WEAPONS = ["Vandal", "Phantom", "Sheriff"];
+        var PREVIEW_WEAPONS = ["Vandal", "Phantom", "Melee"];
 
         var state = {
             socket: null,
@@ -1609,7 +1609,7 @@
                 var name = document.createElement("span");
                 name.className = "preview-name";
                 var skinLabel = weapon ? (weapon.skinDisplayName || weapon.weapon || weaponName) : NA;
-                if (weapon && weapon.skinDisplayName) {
+                if (weapon && weapon.skinDisplayName && weaponName !== "Melee") {
                     skinLabel = stripWeaponName(skinLabel, weaponName);
                 }
                 name.textContent = skinLabel;
