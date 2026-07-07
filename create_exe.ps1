@@ -30,7 +30,9 @@
 
 [CmdletBinding()]
 param(
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$NoRestart,
+    [switch]$Start
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,6 +84,7 @@ if (-not (Test-Path ".\vry.spec")) {
     Fail "vry.spec not found in $PSScriptRoot. Run this script from the project root."
 }
 
+$wasRunning = $null -ne (Get-Process -Name "vry" -ErrorAction SilentlyContinue)
 Stop-VryProcesses
 
 Write-Step "Checking for Python"
@@ -112,6 +115,11 @@ if ($LASTEXITCODE -ne 0) {
 $exePath = Join-Path $PSScriptRoot "dist\vry\vry.exe"
 if (-not (Test-Path $exePath)) {
     Fail "Build finished but $exePath wasn't produced. Check the PyInstaller output above."
+}
+
+if ($Start -or ($wasRunning -and -not $NoRestart)) {
+    Write-Step "Re-launching vry.exe (was running before build)"
+    Start-Process -FilePath $exePath
 }
 
 Write-Step "Done"
