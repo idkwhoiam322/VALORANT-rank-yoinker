@@ -1511,10 +1511,6 @@
                 agent.textContent = txt(player.agent, "Agent " + NA);
                 agent.title = agent.textContent;
 
-                var meta = document.createElement("span");
-                meta.className = "player-meta";
-                meta.textContent = txt(player.team, "Unknown Team");
-
                 var metaRow = document.createElement("span");
                 metaRow.className = "player-meta-row";
                 var rankBadge = document.createElement("span");
@@ -1536,7 +1532,7 @@
 
                 identity.append(name);
                 if (youBadge) identity.append(youBadge);
-                identity.append(agent, meta, metaRow, action);
+                identity.append(agent, metaRow, action);
                 button.append(avatar, identity, buildCardStats(player), buildPreviewRow(player));
 
                 var grid = (!isSingleTeam && player.team === "Red") ? els.redGrid : els.blueGrid;
