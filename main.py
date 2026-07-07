@@ -566,7 +566,7 @@ try:
                 server = coregame_stats.get("GamePodID", "")
                 map_id = coregame_stats.get("MapID", "").lower()
                 current_map_name = map_urls.get(map_id)
-                presences.wait_for_presence(namesClass.get_players_puuid(Players))
+                # presences.wait_for_presence(namesClass.get_players_puuid(Players))
                 names = namesClass.get_names_from_puuids(Players)
                 loadouts_arr = loadoutsClass.get_match_loadouts(
                     coregame_match_id,
@@ -873,7 +873,7 @@ try:
                             Players.append({"Subject": l["Subject"], "CharacterID": "", "CharacterSelectionState": "", "PlayerIdentity": {"AccountLevel": 0, "Incognito": False, "HideAccountLevel": True}, "TeamID": enemy_team_id})
                 except: pass
 
-                presences.wait_for_presence(namesClass.get_players_puuid(Players))
+                # presences.wait_for_presence(namesClass.get_players_puuid(Players))
                 names = namesClass.get_names_from_puuids(Players)
                 ensure_match_player_cache(pregame_match_id)
                 loadouts_arr = loadoutsClass.get_match_loadouts(
