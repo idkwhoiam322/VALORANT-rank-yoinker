@@ -673,12 +673,6 @@
             var badgeColor = rankColor(player.rank);
             if (badgeColor) rankBadge.style.color = badgeColor;
             metaRow.append(rankBadge);
-            if (player.partyNumber) {
-                var party = document.createElement("span");
-                party.className = "party-badge";
-                party.textContent = "Party " + player.partyNumber;
-                metaRow.append(party);
-            }
 
             var action = document.createElement("span");
             action.className = "player-action";
@@ -820,7 +814,6 @@
         setStatChip(els.statBar, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
         setStatChip(els.statBar, "Level", txt(player.level), isEmpty(player.level), "stat-chip");
         setStatChip(els.statBar, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "stat-chip");
-        setStatChip(els.statBar, "Party", player.partyNumber ? "#" + player.partyNumber : NA, !player.partyNumber, "stat-chip");
     }
 
     function renderExpressions(player) {
