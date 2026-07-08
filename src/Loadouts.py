@@ -240,7 +240,8 @@ class Loadouts:
                             if buddy["uuid"] == PlayerInventory["Items"][skin]["Sockets"][socket]["Item"]["ID"]:
                                 final_json[subject]["Weapons"][skin].update(
                                     {
-                                        "buddy_displayIcon": buddy["displayIcon"]
+                                        "buddy_displayIcon": buddy["displayIcon"],
+                                        "buddy_displayName": buddy["displayName"]
                                     }
                                 )
 

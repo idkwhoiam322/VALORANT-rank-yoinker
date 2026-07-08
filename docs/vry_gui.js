@@ -645,9 +645,19 @@
             button.className = "player-button " + teamClass(player.team);
             button.classList.toggle("self-card", player.isSelf);
             button.classList.toggle("is-selected", player.puuid === state.selectedPuuid);
+            button.title = txt(player.name, "Unknown Player");
             button.addEventListener("click", function () {
                 state.selectedPuuid = player.puuid;
                 render();
+            });
+            button.addEventListener("contextmenu", function (e) {
+                e.preventDefault();
+                var text = e.target.title || button.title;
+                navigator.clipboard.writeText(text).then(function () {
+                    showToast('Copied: ' + text);
+                }, function () {
+                    showToast('Failed to copy.');
+                });
             });
 
             var avatar = buildAgentAvatar(player.agentImgLink, player.agent);
@@ -919,6 +929,16 @@
             copy.append(name, type);
             tile.append(art, copy);
             els.expressionGrid.append(tile);
+
+            tile.addEventListener("contextmenu", function (e) {
+                e.preventDefault();
+                var text = e.target.title || tile.title;
+                navigator.clipboard.writeText(text).then(function () {
+                    showToast("Copied: " + text);
+                }, function () {
+                    showToast("Failed to copy.");
+                });
+            });
         });
     }
 
@@ -984,12 +1004,33 @@
         copy.append(label, name);
         tile.append(art, copy);
 
+        tile.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            var text = e.target.title || tile.title;
+            navigator.clipboard.writeText(text).then(function () {
+                showToast("Copied: " + text);
+            }, function () {
+                showToast("Failed to copy.");
+            });
+        });
+
         if (weapon && weapon.buddy_displayIcon) {
             tile.classList.add("has-buddy");
             var buddy = document.createElement("img");
             buddy.className = "buddy";
             buddy.src = weapon.buddy_displayIcon;
-            buddy.alt = "Buddy";
+            buddy.alt = weapon.buddy_displayName || "Buddy";
+            buddy.title = weapon.buddy_displayName || "Buddy";
+            buddy.addEventListener("contextmenu", function (e) {
+                e.stopPropagation();
+                e.preventDefault();
+                var text = e.target.title || buddy.title;
+                navigator.clipboard.writeText(text).then(function () {
+                    showToast("Copied: " + text);
+                }, function () {
+                    showToast("Failed to copy.");
+                });
+            });
             tile.append(buddy);
         }
 
