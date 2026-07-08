@@ -47,7 +47,7 @@ class Server:
             "core": version
         })
         for key in self.lastMessages:
-            if key not in ["chat","version"]:
+            if key not in ["chat", "version", "state_change"]:
                 self.send_message(self.lastMessages[key])
 
     def send_message(self, message):

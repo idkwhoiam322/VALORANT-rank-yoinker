@@ -485,6 +485,8 @@ try:
             time.sleep(cfg.cooldown)
             continue
 
+        if lastGameState:
+            Server.send_payload("state_change", {"state": game_state})
         if True:
             log(f"getting new {game_state} scoreboard")
             lastGameState = game_state

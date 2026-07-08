@@ -56,6 +56,7 @@
         reconnectTimer: null,
         lastRenderKey: null,
         rankIcons: null,
+        lastGameState: null,
     };
 
     var els = {
@@ -428,10 +429,16 @@
             } catch (e) {
                 return;
             }
+            if (payload.type === "state_change") {
+                if (payload.state === state.lastGameState) return;
+                renderStateTransition(payload.state);
+                return;
+            }
             if (!payload || (payload.type && payload.type !== "heartbeat")) {
                 return;
             }
             if (payload.players) {
+                state.lastGameState = payload.state;
                 setPayload(payload, true);
             }
         });
@@ -550,6 +557,17 @@
         MENUS: "state-menus",
         DISCONNECTED: "state-disconnected",
     };
+
+    function renderStateTransition(newState) {
+        var label = STATE_LABELS[newState] || newState || "Unknown";
+        els.matchMeta.replaceChildren();
+        var chip = document.createElement("span");
+        chip.className = "meta-chip";
+        var spinner = document.createElement("span");
+        spinner.className = "meta-spinner";
+        chip.append(spinner, document.createTextNode("Loading " + label + " Data\u2026"));
+        els.matchMeta.append(chip);
+    }
 
     function renderMeta() {
         var payload = state.payload;
