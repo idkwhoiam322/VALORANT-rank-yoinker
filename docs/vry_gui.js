@@ -44,8 +44,6 @@
     var NA = "N/A";
     var CACHE_KEY = "vry.testPage.cache";
     var DEFAULT_PORT = "1100";
-    var DEF_HEADER_BASE = "DEF (BLUE)";
-    var ATK_HEADER_BASE = "ATK (RED)";
     var PREVIEW_WEAPONS = ["Vandal", "Phantom", "Melee"];
 
     var state = {
@@ -98,6 +96,9 @@
         jsonCopyBtnEmpty: document.getElementById("jsonCopyBtnEmpty"),
         defHeader: document.getElementById("defHeader"),
         atkHeader: document.getElementById("atkHeader"),
+        defSection: document.getElementById("defSection"),
+        atkSection: document.getElementById("atkSection"),
+        teamDivider: document.getElementById("teamDivider"),
         screenshotButton: document.getElementById("screenshotButton"),
         playedWithEmpty: document.getElementById("playedWithEmpty"),
         playedWithTable: document.getElementById("playedWithTable"),
@@ -636,11 +637,6 @@
 
         renderTeamHeaders();
 
-        var teams = {};
-        state.players.forEach(function (p) { if (p.team) teams[p.team] = true; });
-        var isSingleTeam = Object.keys(teams).length <= 1;
-        document.querySelector(".teams-layout").classList.toggle("is-unified", isSingleTeam);
-
         state.players.forEach(function (player) {
             var button = document.createElement("button");
             button.type = "button";
@@ -701,23 +697,68 @@
             identity.append(agent, metaRow, action);
             button.append(avatar, identity, buildCardStats(player), buildPreviewRow(player));
 
-            var grid = (!isSingleTeam && player.team === "Red") ? els.redGrid : els.blueGrid;
+            var grid = (player.team === "Red") ? els.redGrid : els.blueGrid;
             grid.append(button);
         });
     }
 
     function myTeam(payload) {
-        if (!payload || !payload.puuid || !payload.players) return null;
-        var me = payload.players[payload.puuid];
-        return me ? me.team : null;
+        if (!payload || !payload.players) return null;
+        for (var k in payload.players) {
+            if (payload.players[k].isSelf) return payload.players[k].team;
+        }
+        return null;
     }
 
     function renderTeamHeaders() {
-        var team = myTeam(state.payload);
-        els.defHeader.textContent = DEF_HEADER_BASE + (team === "Blue" ? " - My Team" : "");
-        els.atkHeader.textContent = ATK_HEADER_BASE + (team === "Red" ? " - My Team" : "");
-        els.defHeader.classList.toggle("is-my-team", team === "Blue");
-        els.atkHeader.classList.toggle("is-my-team", team === "Red");
+        var payload = state.payload;
+        if (!payload || payload.state === "MENUS" || payload.state === "DISCONNECTED") {
+            els.defHeader.textContent = "PARTY";
+            els.defHeader.classList.toggle("is-my-team", true);
+            els.defSection.hidden = false;
+            els.atkSection.hidden = true;
+            els.teamDivider.hidden = true;
+            document.querySelector(".teams-layout").classList.add("is-unified");
+            return;
+        }
+
+        var hasBlue = false, hasRed = false;
+        var blueHasSelf = false, redHasSelf = false;
+        for (var k in payload.players) {
+            var p = payload.players[k];
+            if (p.team === "Blue") hasBlue = true;
+            if (p.team === "Red") hasRed = true;
+            if (p.isSelf) {
+                if (p.team === "Blue") blueHasSelf = true;
+                if (p.team === "Red") redHasSelf = true;
+            }
+        }
+
+        var singleTeam = (hasBlue && !hasRed) || (!hasBlue && hasRed);
+        document.querySelector(".teams-layout").classList.toggle("is-unified", singleTeam);
+
+        if (singleTeam) {
+            els.teamDivider.hidden = true;
+            if (hasBlue) {
+                els.atkSection.hidden = true;
+                els.defSection.hidden = false;
+                els.defHeader.textContent = (blueHasSelf ? "ALLY" : "ENEMY") + " (DEF)";
+                els.defHeader.classList.toggle("is-my-team", blueHasSelf);
+            } else {
+                els.defSection.hidden = true;
+                els.atkSection.hidden = false;
+                els.atkHeader.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
+                els.atkHeader.classList.toggle("is-my-team", redHasSelf);
+            }
+        } else {
+            els.defSection.hidden = false;
+            els.atkSection.hidden = false;
+            els.teamDivider.hidden = false;
+            els.defHeader.textContent = (blueHasSelf ? "ALLY" : "ENEMY") + " (DEF)";
+            els.atkHeader.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
+            els.defHeader.classList.toggle("is-my-team", blueHasSelf);
+            els.atkHeader.classList.toggle("is-my-team", redHasSelf);
+        }
     }
 
     function buildPreviewRow(player) {
@@ -805,7 +846,7 @@
         els.selectedCardTitle.hidden = !selected.title;
         els.selectedModalName.textContent = txt(selected.agent, "Agent " + NA);
         els.selectedLevel.textContent = isEmpty(selected.level) ? "Level " + NA : ("Level " + selected.level);
-        els.selectedTeam.textContent = txt(selected.team, "Unknown");
+        els.selectedTeam.textContent = selected.team ? ((myTeam(state.payload) === selected.team) ? "ALLY" : "ENEMY") : "Unknown";
         els.selectedTeam.className = "team-pill " + teamClass(selected.team);
 
         if (selected.playerCard) {
