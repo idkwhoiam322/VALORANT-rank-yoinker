@@ -273,8 +273,10 @@
                 "body::before { display: none !important; }" +
                 ".player-button { background: rgba(10, 14, 24, 0.92) !important; }" +
                 ".player-button::after { display: none !important; }" +
+                ".player-button.self-card," +
                 ".player-button.is-blue," +
                 ".player-button.is-red  { background: rgba(10, 14, 24, 0.92) !important; }" +
+                ".player-button.self-card," +
                 ".player-button.is-blue," +
                 ".player-button.is-red  { box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }" +
                 ".player-button:hover," +
