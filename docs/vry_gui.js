@@ -68,9 +68,7 @@
         selectedTeam: document.getElementById("selectedTeam"),
         selectedName: document.getElementById("selectedName"),
         trnLink: document.getElementById("trnLink"),
-        trnCopyBtn: document.getElementById("trnCopyBtn"),
         vtlLink: document.getElementById("vtlLink"),
-        vtlCopyBtn: document.getElementById("vtlCopyBtn"),
         selectedCardTitle: document.getElementById("selectedCardTitle"),
         selectedModalName: document.getElementById("selectedModalName"),
         selectedLevel: document.getElementById("selectedLevel"),
@@ -842,16 +840,12 @@
             els.trnLink.href = trnHref;
             els.trnLink.title = trnHref;
             els.trnLink.hidden = false;
-            els.trnCopyBtn.hidden = false;
             els.vtlLink.href = vtlHref;
             els.vtlLink.title = vtlHref;
             els.vtlLink.hidden = false;
-            els.vtlCopyBtn.hidden = false;
         } else {
             els.trnLink.hidden = true;
-            els.trnCopyBtn.hidden = true;
             els.vtlLink.hidden = true;
-            els.vtlCopyBtn.hidden = true;
         }
 
         els.selectedCardTitle.textContent = selected.title || "";
@@ -1228,8 +1222,24 @@
 
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
     els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
-    els.trnCopyBtn.addEventListener("click", function () { copyText(els.trnLink.href, els.trnCopyBtn); });
-    els.vtlCopyBtn.addEventListener("click", function () { copyText(els.vtlLink.href, els.vtlCopyBtn); });
+    els.trnLink.addEventListener("contextmenu", function (e) {
+        e.preventDefault();
+        var text = this.title;
+        navigator.clipboard.writeText(text).then(function () {
+            showToast("Copied: " + text);
+        }, function () {
+            showToast("Failed to copy.");
+        });
+    });
+    els.vtlLink.addEventListener("contextmenu", function (e) {
+        e.preventDefault();
+        var text = this.title;
+        navigator.clipboard.writeText(text).then(function () {
+            showToast("Copied: " + text);
+        }, function () {
+            showToast("Failed to copy.");
+        });
+    });
 
     els.screenshotButton.addEventListener("click", takeScreenshot);
 

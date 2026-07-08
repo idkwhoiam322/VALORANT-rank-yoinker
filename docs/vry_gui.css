@@ -382,26 +382,6 @@
     .trn-link:hover {
         text-decoration: underline;
     }
-    .trn-copy-btn {
-        background: none;
-        border: none;
-        color: #F4CB6C;
-        cursor: pointer;
-        font-size: 0.85rem;
-        padding: 0 2px;
-        opacity: 0.7;
-        transition: opacity 0.15s;
-        line-height: 1;
-        position: relative;
-        top: 2px;
-    }
-    .trn-copy-btn:hover {
-        opacity: 1;
-    }
-    .trn-copy-btn.copied {
-        color: var(--green);
-    }
-
     /* --- last played with table --- */
     .played-with-empty {
         color: var(--muted);
