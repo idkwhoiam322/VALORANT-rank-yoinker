@@ -1,6 +1,9 @@
 (function () {
     "use strict";
 
+    var COPY_HINT = " (Right-click to copy)";
+    var stripHint = function (t) { return t ? t.replace(COPY_HINT, "") : ""; };
+
     // ---- static lookup tables (mirrors src/constants.py NUMBERTORANKS / SHORT_NUMBERTORANKS) ----
     var RANK_NAMES_FULL = [
         "Unranked", "Unranked", "Unranked",
@@ -643,14 +646,14 @@
             button.className = "player-button " + teamClass(player.team);
             button.classList.toggle("self-card", player.isSelf);
             button.classList.toggle("is-selected", player.puuid === state.selectedPuuid);
-            button.title = txt(player.name, "Unknown Player");
+            button.title = txt(player.name, "Unknown Player") + COPY_HINT;
             button.addEventListener("click", function () {
                 state.selectedPuuid = player.puuid;
                 render();
             });
             button.addEventListener("contextmenu", function (e) {
                 e.preventDefault();
-                var text = e.target.title || button.title;
+                var text = stripHint(e.target.title || button.title);
                 navigator.clipboard.writeText(text).then(function () {
                     showToast('Copied: ' + text);
                 }, function () {
@@ -666,7 +669,7 @@
             var name = document.createElement("span");
             name.className = "player-name";
             name.textContent = txt(player.name, "Unknown Player");
-            name.title = name.textContent;
+            name.title = name.textContent + COPY_HINT;
 
             var youBadge = null;
             if (player.isSelf) {
@@ -838,10 +841,10 @@
             var trnHref = "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(selected.name) + "/overview";
             var vtlHref = "https://vtl.lol/id/" + encodeURIComponent(selected.name.replace("#", "_"));
             els.trnLink.href = trnHref;
-            els.trnLink.title = trnHref;
+            els.trnLink.title = trnHref + COPY_HINT;
             els.trnLink.hidden = false;
             els.vtlLink.href = vtlHref;
-            els.vtlLink.title = vtlHref;
+            els.vtlLink.title = vtlHref + COPY_HINT;
             els.vtlLink.hidden = false;
         } else {
             els.trnLink.hidden = true;
@@ -896,7 +899,7 @@
         slots.forEach(function (expression, index) {
             var tile = document.createElement("div");
             tile.className = "expression-tile expression-slot-" + index;
-            tile.title = expression ? (expression.displayName || "Expression") : ("Empty slot " + (index + 1));
+            tile.title = (expression ? (expression.displayName || "Expression") : ("Empty slot " + (index + 1))) + COPY_HINT;
             tile.setAttribute("aria-label", tile.title);
             if (expression && expression.type === "flex") tile.classList.add("is-flex");
 
@@ -926,7 +929,7 @@
 
             tile.addEventListener("contextmenu", function (e) {
                 e.preventDefault();
-                var text = e.target.title || tile.title;
+                var text = stripHint(e.target.title || tile.title);
                 navigator.clipboard.writeText(text).then(function () {
                     showToast("Copied: " + text);
                 }, function () {
@@ -970,9 +973,9 @@
         var tile = document.createElement("div");
         tile.className = "weapon-tile";
         tile.classList.toggle("is-empty", !weapon);
-        tile.title = weapon
+        tile.title = (weapon
             ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin"))
-            : (weaponName + ": " + NA);
+            : (weaponName + ": " + NA)) + COPY_HINT;
 
         var art = document.createElement("div");
         art.className = "weapon-art";
@@ -993,14 +996,14 @@
 
         var name = document.createElement("strong");
         name.textContent = weapon ? (weapon.skinDisplayName || weapon.weapon || weaponName) : NA;
-        name.title = name.textContent;
+        name.title = name.textContent + COPY_HINT;
 
         copy.append(label, name);
         tile.append(art, copy);
 
         tile.addEventListener("contextmenu", function (e) {
             e.preventDefault();
-            var text = e.target.title || tile.title;
+            var text = stripHint(e.target.title || tile.title);
             navigator.clipboard.writeText(text).then(function () {
                 showToast("Copied: " + text);
             }, function () {
@@ -1014,11 +1017,11 @@
             buddy.className = "buddy";
             buddy.src = weapon.buddy_displayIcon;
             buddy.alt = weapon.buddy_displayName || "Buddy";
-            buddy.title = weapon.buddy_displayName || "Buddy";
+            buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
             buddy.addEventListener("contextmenu", function (e) {
                 e.stopPropagation();
                 e.preventDefault();
-                var text = e.target.title || buddy.title;
+                var text = stripHint(e.target.title || buddy.title);
                 navigator.clipboard.writeText(text).then(function () {
                     showToast("Copied: " + text);
                 }, function () {
@@ -1224,7 +1227,7 @@
     els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
     els.trnLink.addEventListener("contextmenu", function (e) {
         e.preventDefault();
-        var text = this.title;
+        var text = stripHint(this.title);
         navigator.clipboard.writeText(text).then(function () {
             showToast("Copied: " + text);
         }, function () {
@@ -1233,7 +1236,7 @@
     });
     els.vtlLink.addEventListener("contextmenu", function (e) {
         e.preventDefault();
-        var text = this.title;
+        var text = stripHint(this.title);
         navigator.clipboard.writeText(text).then(function () {
             showToast("Copied: " + text);
         }, function () {
