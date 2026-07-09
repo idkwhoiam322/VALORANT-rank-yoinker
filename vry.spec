@@ -46,9 +46,13 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter', 'turtle', 'unittest', 'xmlrpc', 'ftplib', 'imaplib',
+        'poplib', 'smtplib', 'telnetlib', 'nntplib', 'pdb', 'doctest',
+        'distutils', 'lib2to3', 'test', 'turtledemo',
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 
