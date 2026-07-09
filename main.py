@@ -180,11 +180,18 @@ try:
     log(f"VALORANT rank yoinker v{version}")
 
     # Pre-fetch all static game data at startup; these never change mid-session.
-    for ep in ("sprays", "flex", "weapons", "buddies", "agents", "playertitles", "playercards", "weapons/skins"):
+    for ep in ("sprays", "flex", "weapons", "buddies", "agents", "playertitles", "playercards", "weapons/skins", "competitivetiers"):
         loadoutsClass._get_valo_api(ep)
 
     valoApiSkins = loadoutsClass._get_valo_api("weapons/skins")
 
+    rankIcons = []
+    try:
+        tiers_data = loadoutsClass._get_valo_api("competitivetiers")
+        for t in tiers_data["data"][-1]["tiers"]:
+            rankIcons.append(t.get("smallIcon"))
+    except (KeyError, IndexError) as e:
+        log(f"failed to parse competitive tiers for rank icons: {e}")
     gameContent = content.get_content()
     seasonID = content.get_latest_season_id(gameContent)
     previousSeasonID = content.get_previous_season_id(gameContent)
@@ -1283,6 +1290,7 @@ try:
                 )
 
                 table.set_caption(f"VALORANT rank yoinker v{version}")
+                heartbeat_data["rankIcons"] = rankIcons
                 Server.send_payload("heartbeat", heartbeat_data)
                 table.display()
                 firstPrint = False
