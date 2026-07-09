@@ -3,6 +3,7 @@
 
     var COPY_HINT = " (Right-click to copy)";
     var stripHint = function (t) { return t ? t.replace(COPY_HINT, "") : ""; };
+    var chromaColor = function (name) { var m = name && name.match(/\(Variant \d+ (.+)\)$/); return m ? m[1] : ""; };
 
     // ---- static lookup tables (mirrors src/constants.py NUMBERTORANKS / SHORT_NUMBERTORANKS) ----
     var RANK_NAMES_FULL = [
@@ -973,8 +974,10 @@
         var tile = document.createElement("div");
         tile.className = "weapon-tile";
         tile.classList.toggle("is-empty", !weapon);
+        var varColor = chromaColor(weapon && weapon.chromaDisplayName);
+        varColor = varColor ? " (" + varColor + ")" : "";
         tile.title = (weapon
-            ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin"))
+            ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin") + varColor)
             : (weaponName + ": " + NA)) + COPY_HINT;
 
         var art = document.createElement("div");
@@ -996,7 +999,7 @@
 
         var name = document.createElement("strong");
         name.textContent = weapon ? (weapon.skinDisplayName || weapon.weapon || weaponName) : NA;
-        name.title = name.textContent + COPY_HINT;
+        name.title = name.textContent + varColor + COPY_HINT;
 
         copy.append(label, name);
         tile.append(art, copy);

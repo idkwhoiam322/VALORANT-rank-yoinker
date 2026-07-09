@@ -262,6 +262,7 @@ class Loadouts:
                                 )
                                 for chroma in skinValApi["chromas"]:
                                     if chroma["uuid"] == PlayerInventory["Items"][skin]["Sockets"][sockets["skin_chroma"]]["Item"]["ID"]:
+                                        final_json[subject]["Weapons"][skin]["chromaDisplayName"] = chroma["displayName"]
                                         if chroma["displayIcon"] != None:
                                             final_json[subject]["Weapons"][skin].update(
                                                 {
