@@ -525,6 +525,7 @@
             .sort(function (a, b) {
                 var t = teamRank(a.team) - teamRank(b.team);
                 if (t !== 0) return t;
+                if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
                 return String(a.name || "").localeCompare(String(b.name || ""));
             });
     }
