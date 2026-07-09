@@ -505,6 +505,7 @@
 
         state.lastRenderKey = renderKey;
         state.players = normalizePlayers(payload);
+        state.myTeam = myTeam(payload);
         if (!state.players.some(function (p) { return p.puuid === state.selectedPuuid; })) {
             state.selectedPuuid = null;
         }
@@ -712,7 +713,10 @@
             identity.append(agent, metaRow, action);
             button.append(avatar, identity, buildCardStats(player), buildPreviewRow(player));
 
-            var grid = (player.team === "Red") ? els.redGrid : els.blueGrid;
+            var team = player.team;
+            var grid = (team === "Red")
+                ? (state.myTeam === "Red" ? els.blueGrid : els.redGrid)
+                : (state.myTeam === "Red" ? els.redGrid : els.blueGrid);
             grid.append(button);
         });
     }
@@ -738,18 +742,17 @@
         }
 
         var hasBlue = false, hasRed = false;
-        var blueHasSelf = false, redHasSelf = false;
         for (var k in payload.players) {
             var p = payload.players[k];
             if (p.team === "Blue") hasBlue = true;
             if (p.team === "Red") hasRed = true;
-            if (p.isSelf) {
-                if (p.team === "Blue") blueHasSelf = true;
-                if (p.team === "Red") redHasSelf = true;
-            }
         }
 
         var singleTeam = (hasBlue && !hasRed) || (!hasBlue && hasRed);
+        var myTeam = state.myTeam;
+        var blueHasSelf = myTeam === "Blue";
+        var redHasSelf = myTeam === "Red";
+
         document.querySelector(".teams-layout").classList.toggle("is-unified", singleTeam);
 
         if (singleTeam) {
@@ -760,19 +763,28 @@
                 els.defHeader.textContent = (blueHasSelf ? "ALLY" : "ENEMY") + " (DEF)";
                 els.defHeader.classList.toggle("is-my-team", blueHasSelf);
             } else {
-                els.defSection.hidden = true;
-                els.atkSection.hidden = false;
-                els.atkHeader.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
-                els.atkHeader.classList.toggle("is-my-team", redHasSelf);
+                var showDef = myTeam === "Red";
+                els.atkSection.hidden = showDef;
+                els.defSection.hidden = !showDef;
+                var header = showDef ? els.defHeader : els.atkHeader;
+                header.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
+                header.classList.toggle("is-my-team", redHasSelf);
             }
         } else {
             els.defSection.hidden = false;
             els.atkSection.hidden = false;
             els.teamDivider.hidden = false;
-            els.defHeader.textContent = (blueHasSelf ? "ALLY" : "ENEMY") + " (DEF)";
-            els.atkHeader.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
-            els.defHeader.classList.toggle("is-my-team", blueHasSelf);
-            els.atkHeader.classList.toggle("is-my-team", redHasSelf);
+            if (myTeam === "Red") {
+                els.defHeader.textContent = "ALLY (ATK)";
+                els.atkHeader.textContent = "ENEMY (DEF)";
+                els.defHeader.classList.toggle("is-my-team", true);
+                els.atkHeader.classList.toggle("is-my-team", false);
+            } else {
+                els.defHeader.textContent = (blueHasSelf ? "ALLY" : "ENEMY") + " (DEF)";
+                els.atkHeader.textContent = (redHasSelf ? "ALLY" : "ENEMY") + " (ATK)";
+                els.defHeader.classList.toggle("is-my-team", blueHasSelf);
+                els.atkHeader.classList.toggle("is-my-team", redHasSelf);
+            }
         }
     }
 
