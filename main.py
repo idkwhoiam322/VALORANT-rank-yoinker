@@ -835,6 +835,12 @@ try:
                             "playerCard": loadouts_data["Players"][
                                 player["Subject"]
                             ].get("PlayerCard", None),
+                            "playerCardName": loadouts_data["Players"][
+                                player["Subject"]
+                            ].get("PlayerCardName", None),
+                            "titleName": loadouts_data["Players"][
+                                player["Subject"]
+                            ].get("TitleName", None),
                             "weapons": loadouts_data["Players"][player["Subject"]].get(
                                 "Weapons", None
                             ),
@@ -1111,6 +1117,8 @@ try:
                             "sprays": player_loadout.get("Sprays", None),
                             "title": player_loadout.get("Title", None),
                             "playerCard": player_loadout.get("PlayerCard", None),
+                            "playerCardName": player_loadout.get("PlayerCardName", None),
+                            "titleName": player_loadout.get("TitleName", None),
                             "weapons": player_loadout.get("Weapons", None),
                         }
 

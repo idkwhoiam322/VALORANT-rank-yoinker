@@ -165,12 +165,14 @@ class Loadouts:
             for title in valoApiTitles["data"]:
                 if title["uuid"] == player.get("PlayerIdentity", {}).get("PlayerTitleID"):
                     final_json[subject].update(
-                        {"Title": title["titleText"]})
+                        {"Title": title["titleText"],
+                         "TitleName": title.get("displayName", title["titleText"])})
 
             for PCard in valoApiPlayerCards["data"]:
                 if PCard["uuid"] == player.get("PlayerIdentity", {}).get("PlayerCardID"):
                     final_json[subject].update(
-                        {"PlayerCard": PCard["largeArt"]})
+                        {"PlayerCard": PCard["largeArt"],
+                         "PlayerCardName": PCard.get("displayName", "")})
 
             for agent in valoApiAgents["data"]:
                 if agent["uuid"].lower() == character_id:

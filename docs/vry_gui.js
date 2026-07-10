@@ -848,6 +848,7 @@
         els.selectedAgent.hidden = !selected.agentImgLink;
         els.selectedAgent.alt = selected.agent || "";
         els.selectedName.textContent = txt(selected.name, "Unknown Player");
+        els.selectedName.title = txt(selected.name, "Unknown Player") + COPY_HINT;
 
         // Update external profile links
         var hasName = selected.name && selected.name.indexOf("#") !== -1;
@@ -867,6 +868,7 @@
 
         els.selectedCardTitle.textContent = selected.title || "";
         els.selectedCardTitle.hidden = !selected.title;
+        els.selectedCardTitle.title = (selected.title || "Title") + COPY_HINT;
         els.selectedModalName.textContent = txt(selected.agent, "Agent " + NA);
         els.selectedLevel.textContent = isEmpty(selected.level) ? "Level " + NA : ("Level " + selected.level);
         els.selectedTeam.textContent = selected.team ? ((myTeam(state.payload) === selected.team) ? "ALLY" : "ENEMY") : "Unknown";
@@ -874,8 +876,10 @@
 
         if (selected.playerCard) {
             els.playerCardPreview.style.backgroundImage = "url(\"" + selected.playerCard + "\")";
+            els.playerCardPreview.title = (selected.playerCardName || "Player Card") + COPY_HINT;
         } else {
             els.playerCardPreview.style.backgroundImage = "";
+            els.playerCardPreview.title = "Player Card";
         }
 
         renderStatBar(selected);
