@@ -1264,6 +1264,20 @@
         });
     });
 
+    [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var text = stripHint(this.title || this.textContent);
+            navigator.clipboard.writeText(text).then(function () {
+                showToast("Copied: " + text);
+            }, function () {
+                showToast("Failed to copy.");
+            });
+        });
+    });
+
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
     // ---- boot ----

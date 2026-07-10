@@ -342,12 +342,6 @@
         color: var(--gold);
     }
 
-    /* --- single-player loadout view: selectable player name --- */
-    #selectedName {
-        user-select: text;
-        cursor: text;
-    }
-
     .detail-controls {
         align-items: center;
     }
