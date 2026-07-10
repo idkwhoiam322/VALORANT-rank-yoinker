@@ -1,0 +1,847 @@
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::core::state_machine::AppServices;
+use crate::models::auth::Entitlements;
+use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
+use crate::models::match_data::CoregamePlayer;
+use crate::models::presences::GameState;
+use crate::services::encounters::EncounterRecord;
+
+pub async fn build_heartbeat(
+    svc: &AppServices,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    state: GameState,
+) -> HeartbeatPayload {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let mut payload = HeartbeatPayload {
+        time: now,
+        state: state.as_str().to_string(),
+        r#type: "heartbeat".into(),
+        mode: None,
+        puuid: puuid.to_string(),
+        map: None,
+        server: None,
+        players: HashMap::new(),
+        rank_icons: svc.content.rank_icons.clone(),
+        already_played_with: vec![],
+    };
+
+    // Resolve mode from presence data at top level (matches Python behavior)
+    if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
+        if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
+            if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+                // Check for custom game via provisioningFlow (matches Python behavior)
+                let is_custom = private
+                    .get("provisioningFlow")
+                    .and_then(|v| v.as_str())
+                    == Some("CustomGame")
+                    || private
+                        .get("partyPresenceData")
+                        .and_then(|ppd| ppd.get("partyState"))
+                        .and_then(|v| v.as_str())
+                        == Some("CUSTOM_GAME_SETUP")
+                    || private
+                        .get("partyState")
+                        .and_then(|v| v.as_str())
+                        == Some("CUSTOM_GAME_SETUP");
+                if is_custom {
+                    payload.mode = Some("Custom Game".into());
+                } else if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
+                    if !qid.is_empty() {
+                        payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    match state {
+        GameState::INGAME => {
+            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+        }
+        GameState::PREGAME => {
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+        }
+        GameState::MENUS => {
+            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+        }
+        GameState::DISCONNECTED => {}
+    }
+
+    payload
+}
+
+/// Returns (match_id, my_team) for the active match, or None if not in a match.
+/// Fetches the match data to find the player's team (matches Python's approach
+/// of iterating Players array to find self's TeamID).
+pub async fn get_match_context(
+    svc: &AppServices,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    state: GameState,
+) -> Option<(String, String)> {
+    let headers = entitlements.build_headers(client_version);
+    match state {
+        GameState::INGAME => {
+            let player_endpoint = format!("/core-game/v1/players/{}", puuid);
+            let resp = svc.client.fetch(crate::api::client::UrlType::Glz, &player_endpoint, &headers, None).await.ok()?;
+            let text = resp.text().await.unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+            let match_id = json["MatchID"].as_str()?;
+            if match_id.is_empty() { return None; }
+
+            // Fetch match data to find self's team from Players array
+            let match_endpoint = format!("/core-game/v1/matches/{}", match_id);
+            let match_resp = svc.client.fetch(crate::api::client::UrlType::Glz, &match_endpoint, &headers, None).await.ok()?;
+            let match_text = match_resp.text().await.unwrap_or_default();
+            let match_json: serde_json::Value = serde_json::from_str(&match_text).ok()?;
+
+            let my_team = match_json["Players"].as_array()?
+                .iter()
+                .find(|p| p["Subject"].as_str() == Some(puuid))
+                .and_then(|p| p["TeamID"].as_str())?;
+
+            Some((match_id.to_string(), my_team.to_string()))
+        }
+        GameState::PREGAME => {
+            let endpoint = format!("/pregame/v1/players/{}", puuid);
+            let resp = svc.client.fetch(crate::api::client::UrlType::Glz, &endpoint, &headers, None).await.ok()?;
+            let text = resp.text().await.unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+            let match_id = json["MatchID"].as_str()?;
+            if match_id.is_empty() { return None; }
+
+            // Fetch match data to find self's team
+            let match_endpoint = format!("/pregame/v1/matches/{}", match_id);
+            let match_resp = svc.client.fetch(crate::api::client::UrlType::Glz, &match_endpoint, &headers, None).await.ok()?;
+            let match_text = match_resp.text().await.unwrap_or_default();
+            let match_json: serde_json::Value = serde_json::from_str(&match_text).ok()?;
+
+            let my_team = match_json["AllyTeam"]["TeamID"].as_str()?;
+            Some((match_id.to_string(), my_team.to_string()))
+        }
+        _ => None,
+    }
+}
+
+async fn build_ingame_payload(
+    svc: &AppServices,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    payload: &mut HeartbeatPayload,
+) {
+    let headers = entitlements.build_headers(client_version);
+
+    // Fetch coregame match data
+    let player_endpoint = format!("/core-game/v1/players/{}", puuid);
+    let player_resp = svc
+        .client
+        .fetch(
+            crate::api::client::UrlType::Glz,
+            &player_endpoint,
+            &headers,
+            None,
+        )
+        .await;
+
+    let match_id = match player_resp {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            json["MatchID"].as_str().map(|s| s.to_string())
+        }
+        Err(_) => None,
+    };
+
+    let match_id = match match_id {
+        Some(id) if !id.is_empty() => id,
+        _ => return,
+    };
+
+    let match_endpoint = format!("/core-game/v1/matches/{}", match_id);
+    let match_resp = svc
+        .client
+        .fetch(
+            crate::api::client::UrlType::Glz,
+            &match_endpoint,
+            &headers,
+            None,
+        )
+        .await;
+
+    let match_data = match match_resp {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()
+        }
+        Err(_) => return,
+    };
+
+    payload.map = match_data["MapID"]
+        .as_str()
+        .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
+        .cloned();
+
+    if payload.mode.is_none() {
+        if let Some(queue_id) = match_data["QueueID"].as_str() {
+            if !queue_id.is_empty() {
+                payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
+            }
+        }
+    }
+
+    payload.server = match_data["GamePodID"]
+        .as_str()
+        .map(|s| {
+            let lower = s.to_lowercase();
+            if let Some(idx) = lower.find("gp-") {
+                let after = &lower[idx + 3..];
+                if let Some(dash) = after.find('-') {
+                    after[..dash].to_uppercase()
+                } else {
+                    s.to_string()
+                }
+            } else {
+                s.to_string()
+            }
+        });
+
+    // Fallback mode detection if QueueID empty/absent
+    if payload.mode.is_none() {
+        // Try presence data (Deathmatch etc. may not have QueueID in coregame response)
+        if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
+            if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
+                if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+                    if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
+                        if !qid.is_empty() {
+                            payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Map-based fallback (Deathmatch, practice range, custom games)
+    if payload.mode.is_none() {
+        if let Some(map_id) = match_data["MapID"].as_str() {
+            let lower = map_id.to_lowercase();
+            if lower.contains("/game/maps/triad/triad") {
+                payload.mode = Some("Deathmatch".into());
+            } else if lower.contains("/game/maps/jam/jam") || lower.contains("poveglia") {
+                payload.mode = Some("Custom Game".into());
+            }
+        }
+    }
+
+    // Parse players
+    let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].clone())
+    {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    // Get names for all players
+    let puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
+    let names = svc
+        .names
+        .get_names_from_puuids(entitlements, client_version, &puuids)
+        .await
+        .unwrap_or_default();
+
+    // Find ally team
+    let ally_team = players
+        .iter()
+        .find(|p| p.subject.as_deref() == Some(puuid))
+        .and_then(|p| p.team_id.clone());
+
+    // Get loadouts
+    let cfg_weapon = svc.config.get().weapon.clone();
+    let (_weapon_lists, loadout_json) = svc
+        .loadouts
+        .get_match_loadouts(
+            entitlements,
+            client_version,
+            &match_id,
+            &players,
+            &cfg_weapon,
+            &svc.content,
+            &names,
+            "game",
+        )
+        .await
+        .unwrap_or_default();
+
+    #[cfg(debug_assertions)]
+    println!("payload: loadout_json has {} players, {} total match players",
+        loadout_json.players.len(), players.len());
+
+    for player in &players {
+        let subject = player.subject.clone().unwrap_or_default();
+
+        let player_rank = svc
+            .rank
+            .get_rank(
+                entitlements,
+                client_version,
+                &subject,
+                &svc.season_id,
+                svc.previous_season_id.as_deref(),
+                &svc.content,
+            )
+            .await;
+
+        let player_stats = svc
+            .stats
+            .get_stats(entitlements, client_version, &subject)
+            .await;
+
+        let previous_rank = match svc.previous_season_id.as_deref() {
+            Some(prev_sid) => {
+                svc.rank
+                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
+                    .await
+                    .rank
+            }
+            None => 0,
+        };
+
+        let agent_name = player
+            .character_id
+            .as_ref()
+            .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
+            .cloned();
+
+        let player_loadout = loadout_json.players.get(&subject.to_lowercase());
+
+        let heartbeat_player = PlayerHeartbeat {
+            puuid: subject.clone(),
+            name: names.get(&subject).cloned(),
+            party_number: 0,
+            agent: agent_name,
+            rank: player_rank.rank,
+            peak_rank: player_rank.peak_rank,
+            peak_rank_act: player_rank.peak_rank_act,
+            previous_rank,
+            rr: player_rank.rr,
+            kd: player_stats.kd,
+            headshot_percentage: player_stats.hs,
+            win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+            last_active: format_last_active(player_stats.last_active_epoch),
+            level: player
+                .player_identity
+                .as_ref()
+                .and_then(|pi| pi.account_level),
+            leaderboard: player_rank.leaderboard,
+            agent_img_link: player.character_id.as_ref().map(|cid| {
+                format!("https://media.valorant-api.com/agents/{}/displayicon.png", cid.to_lowercase())
+            }),
+            team: player.team_id.clone(),
+            sprays: player_loadout.and_then(|p| p.sprays.clone()),
+            title: player_loadout.and_then(|p| p.title.clone()),
+            title_name: player_loadout.and_then(|p| p.title_name.clone()),
+            player_card: player_loadout.and_then(|p| p.player_card.clone()),
+            player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
+            weapons: player_loadout.and_then(|p| p.weapons.clone()),
+            earned_rr: Some(player_stats.ranked_rating_earned.clone()),
+        };
+
+        payload
+            .players
+            .insert(subject.clone(), heartbeat_player);
+    }
+
+    // Save encounters and populate already_played_with
+    for player in &players {
+        let subject = match player.subject.as_ref() {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+        // Skip self-player in encounters
+        if subject == puuid {
+            continue;
+        }
+        let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
+        let team = player.team_id.clone().unwrap_or_else(|| "Unknown".into());
+        let agent_name = player.character_id.as_ref()
+            .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
+            .cloned();
+
+        svc.encounters.save_encounter(&subject, EncounterRecord {
+            name: Some(name.clone()),
+            agent: agent_name.clone(),
+            map: payload.map.clone(),
+            rank: None,
+            rr: None,
+            match_id: Some(match_id.clone()),
+            epoch: Some(payload.time as f64),
+            relation: Some(if team == ally_team.as_deref().unwrap_or("") { "ally" } else { "enemy" }.into()),
+            team: Some(team),
+            my_team: ally_team.clone(),
+            result: None,
+            score: None,
+        });
+
+        if let Some(entry) = svc.encounters.build_encounter_summary(
+            &subject,
+            &match_id,
+            &name,
+            None,
+        ) {
+            payload.already_played_with.push(entry);
+        }
+    }
+}
+
+async fn build_pregame_payload(
+    svc: &AppServices,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    payload: &mut HeartbeatPayload,
+) {
+    let headers = entitlements.build_headers(client_version);
+
+    let player_endpoint = format!("/pregame/v1/players/{}", puuid);
+    let pregame_resp = svc
+        .client
+        .fetch(
+            crate::api::client::UrlType::Glz,
+            &player_endpoint,
+            &headers,
+            None,
+        )
+        .await;
+
+    let match_id = match pregame_resp {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            json["MatchID"].as_str().map(|s| s.to_string())
+        }
+        Err(_) => None,
+    };
+
+    let match_id = match match_id {
+        Some(id) if !id.is_empty() => id,
+        _ => return,
+    };
+
+    let match_endpoint = format!("/pregame/v1/matches/{}", match_id);
+    let match_resp = svc
+        .client
+        .fetch(
+            crate::api::client::UrlType::Glz,
+            &match_endpoint,
+            &headers,
+            None,
+        )
+        .await;
+
+    let match_data = match match_resp {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()
+        }
+        Err(_) => return,
+    };
+
+    payload.map = match_data["MapID"]
+        .as_str()
+        .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
+        .cloned();
+
+    payload.server = match_data["GamePodID"]
+        .as_str()
+        .map(|s| {
+            let lower = s.to_lowercase();
+            if let Some(idx) = lower.find("gp-") {
+                let after = &lower[idx + 3..];
+                if let Some(dash) = after.find('-') {
+                    after[..dash].to_uppercase()
+                } else {
+                    s.to_string()
+                }
+            } else {
+                s.to_string()
+            }
+        });
+
+    if payload.mode.is_none() {
+        if let Some(queue_id) = match_data["QueueID"].as_str() {
+            if !queue_id.is_empty() {
+                payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
+            }
+        }
+    }
+
+    // Fallback mode detection if QueueID empty/absent
+    if payload.mode.is_none() {
+        if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
+            if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
+                if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+                    if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
+                        if !qid.is_empty() {
+                            payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Map-based fallback for deathmatch/practice/custom
+    if payload.mode.is_none() {
+        if let Some(map_id) = match_data["MapID"].as_str() {
+            let lower = map_id.to_lowercase();
+            if lower.contains("/game/maps/triad/triad") {
+                payload.mode = Some("Deathmatch".into());
+            } else if lower.contains("/game/maps/jam/jam") || lower.contains("poveglia") {
+                payload.mode = Some("Custom Game".into());
+            }
+        }
+    }
+
+    // Extract ally team players
+    let mut players: Vec<CoregamePlayer> = vec![];
+
+    if let Some(ally_team) = match_data["AllyTeam"].as_object() {
+        let team_id = ally_team["TeamID"].as_str().unwrap_or("Blue");
+        if let Some(ally_players) = ally_team["Players"].as_array() {
+            for p in ally_players {
+                let mut player = CoregamePlayer {
+                    subject: p["Subject"].as_str().map(|s| s.to_string()),
+                    team_id: Some(team_id.to_string()),
+                    character_id: p["CharacterID"].as_str().map(|s| s.to_string()),
+                    player_identity: None,
+                };
+
+                if let Some(identity) = p["PlayerIdentity"].as_object() {
+                    player.player_identity = Some(crate::models::match_data::PlayerIdentity {
+                        account_level: identity["AccountLevel"].as_u64().map(|v| v as u32),
+                        incognito: identity["Incognito"].as_bool(),
+                        hide_account_level: identity["HideAccountLevel"].as_bool(),
+                        player_title_id: identity["PlayerTitleID"].as_str().map(|s| s.to_string()),
+                        player_card_id: identity["PlayerCardID"].as_str().map(|s| s.to_string()),
+                    });
+                }
+                players.push(player);
+            }
+        }
+    }
+
+    // Fetch loadouts once — used for enemy extraction
+    let saved_loadouts_text: Option<String> = if let Ok(loadouts_resp) = svc
+        .client
+        .fetch(
+            crate::api::client::UrlType::Glz,
+            &format!("/pregame/v1/matches/{}/loadouts", match_id),
+            &headers,
+            None,
+        )
+        .await
+    {
+        if let Ok(text) = loadouts_resp.text().await {
+            if let Ok(loadouts_json_value) =
+                serde_json::from_str::<serde_json::Value>(&text)
+            {
+                if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
+                    let ally_puuids: Vec<String> =
+                        players.iter().filter_map(|p| p.subject.clone()).collect();
+                    let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
+                        "Red"
+                    } else {
+                        "Blue"
+                    };
+                    for l in loadouts {
+                        if let Some(l_subject) = l["Subject"].as_str() {
+                            if !ally_puuids.iter().any(|s| s == l_subject) {
+                                players.push(CoregamePlayer {
+                                    subject: Some(l_subject.to_string()),
+                                    team_id: Some(enemy_team_id.to_string()),
+                                    character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
+                                    player_identity: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Some(text)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Get names (now with enemies populated)
+    let puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
+    let names = svc
+        .names
+        .get_names_from_puuids(entitlements, client_version, &puuids)
+        .await
+        .unwrap_or_default();
+
+    // Build loadout_json from saved response (no second HTTP call)
+    let cfg_weapon = svc.config.get().weapon.clone();
+    let loadout_json = if let Some(ref text) = saved_loadouts_text {
+        if let Ok(structured) =
+            serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
+        {
+            let (_wl, lj) = svc.loadouts.build_loadout_json(
+                &structured,
+                &players,
+                &cfg_weapon,
+                &svc.content,
+                &names,
+            );
+            lj
+        } else {
+            Default::default()
+        }
+    } else {
+        Default::default()
+    };
+
+    for player in &players {
+        let subject = player.subject.clone().unwrap_or_default();
+
+        let player_rank = svc
+            .rank
+            .get_rank(
+                entitlements,
+                client_version,
+                &subject,
+                &svc.season_id,
+                svc.previous_season_id.as_deref(),
+                &svc.content,
+            )
+            .await;
+
+        let previous_rank = match svc.previous_season_id.as_deref() {
+            Some(prev_sid) => {
+                svc.rank
+                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
+                    .await
+                    .rank
+            }
+            None => 0,
+        };
+
+                let agent_name = player
+                    .character_id
+                    .as_ref()
+                    .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
+                    .cloned();
+
+                let player_stats = svc
+                    .stats
+                    .get_stats(entitlements, client_version, &subject)
+                    .await;
+
+                let player_loadout = loadout_json.players.get(&subject.to_lowercase());
+
+                let heartbeat_player = PlayerHeartbeat {
+                    puuid: subject.clone(),
+                    name: names.get(&subject).cloned(),
+                    party_number: 0,
+                    agent: agent_name,
+                    rank: player_rank.rank,
+                    peak_rank: player_rank.peak_rank,
+                    peak_rank_act: player_rank.peak_rank_act,
+                    previous_rank,
+                    rr: player_rank.rr,
+                    kd: "N/A".into(),
+                    headshot_percentage: "N/A".into(),
+                    win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+                    last_active: format_last_active(player_stats.last_active_epoch),
+            level: player
+                .player_identity
+                .as_ref()
+                .and_then(|pi| pi.account_level),
+            leaderboard: player_rank.leaderboard,
+            agent_img_link: None,
+            team: player.team_id.clone(),
+            sprays: player_loadout.and_then(|p| p.sprays.clone()),
+            title: player_loadout.and_then(|p| p.title.clone()),
+            title_name: player_loadout.and_then(|p| p.title_name.clone()),
+            player_card: player_loadout.and_then(|p| p.player_card.clone()),
+            player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
+            weapons: player_loadout.and_then(|p| p.weapons.clone()),
+            earned_rr: None,
+        };
+
+        payload
+            .players
+            .insert(subject.clone(), heartbeat_player);
+    }
+}
+
+async fn build_menus_payload(
+    svc: &AppServices,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    payload: &mut HeartbeatPayload,
+) {
+    // Fetch presences
+    let presences = match svc.presences.get_presences(entitlements, client_version).await {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    // Extract self presence data: mode + account level
+    let mut self_level: Option<u32> = None;
+    let own_presence = crate::services::presences::PresenceService::find_own_presence(&presences, puuid);
+    if let Some(own) = own_presence {
+        if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+            // Check for custom game via provisioningFlow or partyState (matching Python behavior)
+            let is_custom = private
+                .get("provisioningFlow")
+                .and_then(|v| v.as_str())
+                == Some("CustomGame")
+                || private
+                    .get("partyPresenceData")
+                    .and_then(|ppd| ppd.get("partyState"))
+                    .and_then(|v| v.as_str())
+                    == Some("CUSTOM_GAME_SETUP")
+                || private
+                    .get("partyState")
+                    .and_then(|v| v.as_str())
+                    == Some("CUSTOM_GAME_SETUP");
+
+            if is_custom {
+                payload.mode = Some("Custom Game".into());
+            } else if let Some(qid) =
+                crate::services::presences::PresenceService::extract_queue_id(&private)
+            {
+                if !qid.is_empty() && payload.mode.is_none() {
+                    payload.mode =
+                        Some(crate::services::config::get_gamemode_name(&qid).to_string());
+                }
+            }
+            self_level =
+                crate::services::presences::PresenceService::extract_account_level(&private);
+        }
+    }
+
+    // Collect puuids to fetch: self + party members
+    let party_puuids = crate::services::presences::PresenceService::find_party_member_puuids(
+        &presences, puuid,
+    );
+
+    let mut all_puuids = vec![puuid.to_string()];
+    all_puuids.extend(party_puuids.iter().filter(|p| *p != puuid).cloned());
+
+    for subject in &all_puuids {
+        let subject = subject.clone();
+
+        let previous_rank = match svc.previous_season_id.as_deref() {
+            Some(prev_sid) => {
+                svc.rank
+                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
+                    .await
+                    .rank
+            }
+            None => 0,
+        };
+
+        let player_rank = svc
+            .rank
+            .get_rank(
+                entitlements,
+                client_version,
+                &subject,
+                &svc.season_id,
+                svc.previous_season_id.as_deref(),
+                &svc.content,
+            )
+            .await;
+
+        let player_stats = if subject == puuid {
+            svc
+                .stats
+                .get_stats(entitlements, client_version, &subject)
+                .await
+        } else {
+            crate::models::mmr::PlayerStats::default_stats()
+        };
+
+        let heartbeat_player = PlayerHeartbeat {
+            puuid: subject.clone(),
+            name: None, // Will be resolved below
+            party_number: 1,
+            agent: None,
+            rank: player_rank.rank,
+            peak_rank: player_rank.peak_rank,
+            peak_rank_act: player_rank.peak_rank_act,
+            previous_rank,
+            rr: player_rank.rr,
+            kd: player_stats.kd.clone(),
+            headshot_percentage: player_stats.hs.clone(),
+            win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+            last_active: format_last_active(player_stats.last_active_epoch),
+            level: if subject == puuid { self_level } else { None },
+            leaderboard: player_rank.leaderboard,
+            agent_img_link: None,
+            team: None,
+            sprays: None,
+            title: None,
+            title_name: None,
+            player_card: None,
+            player_card_name: None,
+            weapons: None,
+            earned_rr: None,
+        };
+
+        payload
+            .players
+            .insert(subject.clone(), heartbeat_player);
+    }
+
+    // Resolve names
+    let puuids: Vec<String> = payload.players.keys().cloned().collect();
+    if let Ok(names) = svc
+        .names
+        .get_names_from_puuids(entitlements, client_version, &puuids)
+        .await
+    {
+        for (puuid, name) in names {
+            if let Some(player) = payload.players.get_mut(&puuid) {
+                player.name = Some(name);
+            }
+        }
+    }
+
+    // Populate already_played_with from stored encounters
+    payload.already_played_with = svc.encounters.get_all_summaries(puuid);
+}
+
+fn format_last_active(epoch: Option<i64>) -> Option<String> {
+    let epoch = epoch?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let diff = (now - epoch).max(0);
+
+    if diff < 60 {
+        Some("now".into())
+    } else if diff < 3600 {
+        Some(format!("{}m ago", diff / 60))
+    } else if diff < 86400 {
+        Some(format!("{}h ago", diff / 3600))
+    } else {
+        Some(format!("{}d ago", diff / 86400))
+    }
+}

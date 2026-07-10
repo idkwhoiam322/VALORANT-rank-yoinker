@@ -1,0 +1,32 @@
+# Rust
+target/
+*.rs.bk
+
+# Tauri build artifacts (auto-generated)
+src-tauri/gen/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime files
+*.log
+logs/
+config.json
+stats/
+
+# Build output
+*.exe
+*.msi
+*.nsh
+*.nsi

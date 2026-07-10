@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VRY - Match Loadouts</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="vry_gui.css">
+<script defer src="html2canvas.min.js"></script>
+</head>
+<body>
+    <div id="loadingOverlay">
+        <span class="loading-spinner"></span>
+        <h2>Starting VRY&hellip;</h2>
+        <p>Waiting for the backend to connect.</p>
+        <button id="loadingRefreshButton" class="refresh-btn" type="button" title="Restart vRY">
+            <span class="refresh-icon"></span>
+            Refresh
+        </button>
+        <pre id="loadingLogTail"></pre>
+    </div>
+
+    <div class="app-shell">
+        <div class="topbar">
+            <div class="top-info">
+                <h2 style="margin:0;">Players</h2>
+                <div class="meta-row" id="matchMeta"></div>
+            </div>
+            <div class="topbar-actions">
+                <span id="statusPill" class="status-pill pending"><span class="status-dot"></span><span id="statusText">Starting</span></span>
+                <button id="screenshotButton" class="screenshot-btn" type="button" title="Screenshot">Screenshot</button>
+                <button id="refreshButton" class="refresh-btn" type="button" title="Restart vRY">
+                    <span class="refresh-icon"></span>
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <section class="players-column" aria-label="Players">
+            <div class="teams-layout">
+                <div id="defSection" class="team-section">
+                    <h3 id="defHeader">DEF (BLUE)</h3>
+                    <div id="blueGrid" class="players-grid"></div>
+                </div>
+                <div id="teamDivider" class="team-divider"></div>
+                <div id="atkSection" class="team-section">
+                    <h3 id="atkHeader">ATK (RED)</h3>
+                    <div id="redGrid" class="players-grid"></div>
+                </div>
+            </div>
+
+            <details class="json-panel" id="playedWithPanel" style="margin-top:16px;">
+                <summary>Last played with</summary>
+                <div class="json-panel-body">
+                    <p id="playedWithEmpty" class="played-with-empty">No recent encounters.</p>
+                    <table id="playedWithTable" class="played-with-table" hidden>
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Current</th>
+                                <th>Times</th>
+                                <th>Last Seen</th>
+                                <th>Record</th>
+                            </tr>
+                        </thead>
+                        <tbody id="playedWithBody"></tbody>
+                    </table>
+                </div>
+            </details>
+
+            <details class="json-panel" id="jsonPanelEmpty" style="margin-top:16px;">
+                <summary id="jsonPanelEmptySummary">Raw heartbeat JSON</summary>
+                <div class="json-panel-body">
+                    <button id="jsonCopyBtnEmpty" class="json-copy-btn" type="button">Copy</button>
+                    <pre id="jsonPreEmpty" class="json-pre">No data yet.</pre>
+                </div>
+            </details>
+        </section>
+
+        <main class="loadout-layout">
+            <section id="detailsPanel" class="details-column" aria-label="Selected player loadout" hidden>
+                <div class="details-window">
+                    <div class="detail-controls">
+                        <div class="trn-row">
+                            <a id="trnLink" class="trn-link" href="#" target="_blank" rel="noopener">TRACKER.GG</a>
+                        </div>
+                        <div class="trn-row">
+                            <a id="vtlLink" class="trn-link" href="#" target="_blank" rel="noopener">VTL.LOL</a>
+                        </div>
+                        <div class="agent-pill">
+                            <img id="selectedAgent" alt="" class="selected-agent">
+                            <span id="selectedTeam" class="team-pill">Team</span>
+                            <strong id="selectedModalName">Agent</strong>
+                        </div>
+                        <button id="closeDetailsButton" class="close-fab" type="button" aria-label="Close">X</button>
+                    </div>
+
+                    <div class="stat-bar" id="statBar"></div>
+
+                    <div class="inventory-screen">
+                        <div id="weaponGroups" class="weapon-groups"></div>
+                        <aside class="right-rail">
+                            <section class="player-card-section" aria-label="Player card">
+                                <h2>Player Card</h2>
+                                <div id="playerCardPreview" class="player-card-preview">
+                                    <span id="selectedLevel">Level</span>
+                                    <strong id="selectedName">Player</strong>
+                                    <em id="selectedCardTitle"></em>
+                                </div>
+                            </section>
+                            <section class="expressions-section" aria-label="Expressions">
+                                <h2>Expressions</h2>
+                                <div id="expressionGrid" class="expression-grid"></div>
+                            </section>
+                        </aside>
+                    </div>
+
+                    <details class="json-panel" id="jsonPanel">
+                        <summary id="jsonPanelSummary">Raw heartbeat JSON</summary>
+                        <div class="json-panel-body">
+                            <button id="jsonCopyBtn" class="json-copy-btn" type="button">Copy</button>
+                            <pre id="jsonPre" class="json-pre">No data yet.</pre>
+                        </div>
+                    </details>
+                </div>
+            </section>
+
+            <section id="emptyState" class="empty-state">
+                <h2 id="emptyStateTitle">No match data</h2>
+                <p id="emptyStateText">Waiting for VRY backend data.</p>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal-backdrop" id="confirmModal" hidden>
+        <div class="modal-card">
+            <h3>Refresh all data?</h3>
+            <p>Refreshing restarts vRY to re-fetch ranks, stats, and loadouts.</p>
+            <div class="modal-actions">
+                <button class="modal-cancel" id="modalCancel" type="button">Cancel</button>
+                <button class="modal-confirm" id="modalConfirm" type="button">Restart</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+<script type="module" src="vry_gui.js"></script>
+</body>
+</html>

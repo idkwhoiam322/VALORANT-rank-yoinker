@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities granting full IPC access for VRY",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default"
+  ]
+}

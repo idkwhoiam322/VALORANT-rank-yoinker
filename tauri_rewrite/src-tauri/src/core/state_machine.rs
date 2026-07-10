@@ -1,0 +1,286 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use tauri::{AppHandle, Emitter};
+use tokio::sync::RwLock;
+
+use crate::api::auth;
+use crate::api::client::ApiClient;
+use crate::api::content::fetch_all_content;
+use crate::core::payload_builder::build_heartbeat;
+use crate::models::auth::Entitlements;
+use crate::models::content::ContentCache;
+use crate::models::presences::GameState;
+use crate::services::config::ConfigManager;
+use crate::services::encounters::EncounterService;
+use crate::services::loadouts::LoadoutService;
+use crate::services::logging::Logger;
+use crate::services::names::NamesService;
+use crate::services::presences::PresenceService;
+use crate::services::rank::RankService;
+use crate::services::stats::StatsService;
+
+pub struct AppServices {
+    pub logger: Logger,
+    pub config: ConfigManager,
+    pub client: Arc<ApiClient>,
+    pub presences: PresenceService,
+    pub rank: RankService,
+    pub stats: StatsService,
+    pub names: NamesService,
+    pub loadouts: LoadoutService,
+    pub encounters: EncounterService,
+    pub entitlements: Option<Entitlements>,
+    pub client_version: String,
+    pub puuid: String,
+    pub content: ContentCache,
+    pub season_id: String,
+    pub previous_season_id: Option<String>,
+}
+
+impl AppServices {
+    pub fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
+        let client = Arc::new(client);
+        let logger = Logger::new(root.clone());
+        let config = ConfigManager::new(root.clone());
+        let encounters = EncounterService::new(root.clone());
+        let presences = PresenceService::new(client.clone());
+        let rank = RankService::new(client.clone());
+        let stats = StatsService::new(client.clone());
+        let names = NamesService::new(client.clone());
+        let loadouts = LoadoutService::new(client.clone());
+
+        Self {
+            logger,
+            config,
+            client,
+            presences,
+            rank,
+            stats,
+            names,
+            loadouts,
+            encounters,
+            entitlements: None,
+            client_version: String::new(),
+            puuid: String::new(),
+            content: ContentCache::empty(),
+            season_id: String::new(),
+            previous_season_id: None,
+        }
+    }
+
+    pub fn log(&self, msg: &str) {
+        self.logger.log(msg);
+    }
+}
+
+pub struct MainLoop {
+    pub services: Arc<RwLock<AppServices>>,
+}
+
+impl MainLoop {
+    pub fn new(root: std::path::PathBuf, pd_url: String, glz_url: String) -> Self {
+        let client = ApiClient::new(pd_url, glz_url);
+        let services = Arc::new(RwLock::new(AppServices::new(root, client)));
+        Self { services }
+    }
+
+    pub async fn run(&self, app: AppHandle) {
+        let services = self.services.clone();
+
+        loop {
+            match self.try_initialize(&app).await {
+                Ok(()) => {
+                    if let Err(e) = self.run_main_loop(&app).await {
+                        let svc = services.read().await;
+                        svc.log(&format!("Main loop error: {}, reconnecting...", e));
+                    }
+                }
+                Err(e) => {
+                    let svc = services.read().await;
+                    svc.log(&format!("Init error: {}, retrying in 5s...", e));
+                    drop(svc);
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+    }
+
+    async fn try_initialize(&self, app: &AppHandle) -> Result<(), String> {
+        let services = self.services.clone();
+        let mut svc = services.write().await;
+        svc.log("Initializing...");
+
+        // 1. Read lockfile
+        let lockfile_path = auth::get_lockfile_path();
+        if !lockfile_path.exists() {
+            return Err("Lockfile not found. Is Riot Client running?".into());
+        }
+        let lockfile = auth::parse_lockfile(&lockfile_path)
+            .map_err(|e| format!("Lockfile parse: {}", e))?;
+
+        // 2. Read region from logs
+        let log_path = auth::get_log_path();
+        let region = auth::parse_region_from_logs(&log_path)
+            .map_err(|e| format!("Region parse: {}", e))?;
+
+        // 3. Update API URLs
+        svc.client.update_urls(region.pd_url(), region.glz_url());
+
+        // 4. Authenticate
+        let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile).await
+            .map_err(|e| format!("Auth: {}", e))?;
+        svc.log(&format!("Authenticated as {}", entitlements.subject));
+        svc.entitlements = Some(entitlements.clone());
+        svc.client_version = client_version.clone();
+        svc.puuid = entitlements.subject.clone();
+
+        // 5. Update local auth on client
+        svc.client.set_local_auth(lockfile.password.clone(), lockfile.port);
+
+        // 6. Fetch all game content (cached for session)
+        let (content, season_id, previous_season_id) =
+            fetch_all_content(&svc.client, &region.shard, &entitlements, &client_version).await;
+        svc.content = content;
+        svc.season_id = season_id;
+        svc.previous_season_id = previous_season_id;
+        svc.log("Content cache initialized");
+
+        // 7. Notify frontend
+        let _ = app.emit("backend_ready", serde_json::json!({
+            "puuid": entitlements.subject,
+        }));
+
+        Ok(())
+    }
+
+    async fn run_main_loop(&self, app: &AppHandle) -> Result<(), String> {
+        let services = self.services.clone();
+        let mut last_state: Option<GameState> = None;
+        let mut last_heartbeat_key: Option<String> = None;
+        let mut match_context: Option<(String, String)> = None;
+
+        loop {
+            let svc = services.read().await;
+
+            let entitlements = match &svc.entitlements {
+                Some(e) => e.clone(),
+                None => {
+                    drop(svc);
+                    return Err("Entitlements cleared — re-initializing".into());
+                }
+            };
+            let cv = svc.client_version.clone();
+            let puuid = svc.puuid.clone();
+            let cooldown = svc.config.get().cooldown;
+
+            // Poll game state
+            let current_state = match svc.presences.detect_game_state_from_poll(
+                &entitlements,
+                &cv,
+                &puuid,
+            ).await {
+                (Some(s), _) => s,
+                (None, Some(reason)) => {
+                    svc.log(&reason);
+                    drop(svc);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+                (None, None) => {
+                    drop(svc);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            };
+
+            // State transition: INGAME -> not INGAME => update encounter results
+            if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
+                if let Some((ref match_id, ref my_team)) = match_context.take() {
+                    svc.log(&format!("Match ended: {} team {}", match_id, my_team));
+                    // Fetch match details to get winning team
+                    let headers = entitlements.build_headers(&cv);
+                    if let Ok(resp) = svc.client.fetch(
+                        crate::api::client::UrlType::Pd,
+                        &format!("/match-details/v1/matches/{}", match_id),
+                        &headers,
+                        None,
+                    ).await {
+                        if let Ok(text) = resp.text().await {
+                            if let Ok(match_data) = serde_json::from_str::<serde_json::Value>(&text) {
+                                let winning_team = match_data["matchInfo"]["winningTeam"]
+                                    .as_str()
+                                    .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
+                                    .or_else(|| {
+                                        match_data["teams"].as_array().and_then(|teams| {
+                                            teams.iter().find(|t| t["won"].as_bool() == Some(true))
+                                                .and_then(|t| {
+                                                    t["teamId"].as_str()
+                                                        .or_else(|| t["teamID"].as_str())
+                                                        .or_else(|| t["TeamID"].as_str())
+                                                })
+                                        })
+                                    });
+                                let score = (|| -> Option<String> {
+                                    let teams = match_data["teams"].as_array()?;
+                                    if teams.len() < 2 { return None; }
+                                    let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
+                                    let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
+                                    Some(format!("{}-{}", t0, t1))
+                                })();
+                                if let Some(winning_team) = winning_team {
+                                    svc.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
+                                    svc.log(&format!("Updated encounter results: winning_team={}, score={:?}", winning_team, score));
+                                } else {
+                                    svc.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // State changed or first run
+            if last_state != Some(current_state) {
+                svc.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
+                let _ = app.emit("state_change", serde_json::json!({
+                    "state": current_state.as_str(),
+                }));
+
+                // Invalidate caches on MENUS
+                if current_state == GameState::MENUS {
+                    svc.rank.invalidate_cache();
+                    svc.stats.clear_cache();
+                }
+
+                if current_state != GameState::DISCONNECTED {
+                    // Fetch data and build heartbeat
+                    let heartbeat = build_heartbeat(
+                        &svc, &entitlements, &cv, &puuid, current_state,
+                    )
+                    .await;
+
+                    let key = heartbeat.time.to_string();
+                    if last_heartbeat_key.as_deref() != Some(&key) {
+                        let _ = app.emit("heartbeat", &heartbeat);
+                        last_heartbeat_key = Some(key);
+                    }
+                }
+
+                // Save match context for INGAME so we can update encounter results on transition
+                if current_state == GameState::INGAME {
+                    if let Some(ctx) = crate::core::payload_builder::get_match_context(
+                        &svc, &entitlements, &cv, &puuid, current_state,
+                    ).await {
+                        match_context = Some(ctx);
+                    }
+                }
+
+                last_state = Some(current_state);
+            }
+
+            drop(svc);
+            tokio::time::sleep(Duration::from_secs(cooldown)).await;
+        }
+    }
+}
