@@ -1,7 +1,10 @@
 # Code Mapping: Python → Rust/Tauri
 
 **Python repo root:** `VALORANT-rank-yoinker/`  
-**Rust repo root:** `VRY_rewrite_tauri_fixed/tauri_rewrite/`
+**Rust repo root:** `VRY_rewrite_tauri_fixed/tauri_rewrite/`  
+**Last verified:** 2026-07-12  
+**Python version:** 2.99 (38 files, ~5391 lines)  
+**Rust version:** 3.0.0 (31 .rs files + JS/CSS, ~5450 lines total)
 
 ---
 
@@ -9,33 +12,42 @@
 
 ### Backend
 
-| Python File | Lines | Rust File | Lines | Coverage |
-|-------------|-------|-----------|-------|----------|
-| `main.py` | 1357 | `core/state_machine.rs` + `core/payload_builder.rs` | 286 + 749 | State machine + heartbeat building |
-| `main.py` (main loop) | 387–1339 | `core/state_machine.rs:157–238` | 81 | Main polling loop |
-| `main.py` (INGAME handler) | 544–867 | `core/payload_builder.rs:106–373` | 267 | INGAME heartbeat assembly |
-| `main.py` (PREGAME handler) | 868–1123 | `core/payload_builder.rs:374–602` | 228 | PREGAME heartbeat assembly |
-| `main.py` (MENUS handler) | 1125–1268 | `core/payload_builder.rs:603–731` | 128 | MENUS heartbeat assembly |
-| `main.py` (helpers) | 52–103 | `core/payload_builder.rs:732–749` | 17 | `format_last_active()` |
-| `src/Loadouts.py` | 295 | `services/loadouts.rs` | 252 | Skin/loadout/spray resolution |
+| Python File | Lines | Rust File(s) | Rust Lines | Coverage |
+|-------------|-------|--------------|------------|----------|
+| `main.py` | 1357 | `core/state_machine.rs` + `core/payload_builder.rs` | 286 + 776 | State machine + heartbeat building |
+| `main.py` (main loop) | 387–1339 | `core/state_machine.rs:157–315` | 158 | Main polling loop |
+| `main.py` (INGAME handler) | 544–867 | `core/payload_builder.rs:180–391` | 211 | INGAME heartbeat assembly |
+| `main.py` (PREGAME handler) | 868–1123 | `core/payload_builder.rs:393–632` | 239 | PREGAME heartbeat assembly |
+| `main.py` (MENUS handler) | 1125–1268 | `core/payload_builder.rs:634–757` | 123 | MENUS heartbeat assembly |
+| `main.py` (helpers) | 52–103 | `core/payload_builder.rs:759–776` | 17 | `format_last_active()` + `parse_server()` |
+| `main.py` (match result queue) | 265–362 | `core/state_machine.rs:222–264` | 42 | Match result processing (Rust: no retry queue) |
+| `main.py` (match player cache) | 208–263 | **Not implemented** | 0 | ⚠️ Match-local rank/stats cache (PREGAME→INGAME reuse) |
+| `src/Loadouts.py` | 295 | `services/loadouts.rs` | 287 | Skin/loadout/spray resolution |
 | `src/rank.py` | 147 | `services/rank.rs` | 172 | MMR, peak rank, win rate |
-| `src/content.py` | 163 | `api/content.rs` + `models/content.rs` | 211 + 311 | Content cache + season parsing helpers |
+| `src/content.py` | 163 | `api/content.rs` + `models/content.rs` | 275 + 307 | Content cache + season parsing helpers |
 | `src/constants.py` | 259 | Scattered across multiple files | — | Constants split by domain |
-| `src/server.py` | 60 | `lib.rs` (Tauri events) | 47 | IPC (Tauri events vs WebSocket) |
+| `src/server.py` | 60 | `commands/config.rs` + `commands/system.rs` + `lib.rs` | 96 | IPC (Tauri events vs WebSocket) |
 | `src/presences.py` | 118 | `services/presences.rs` | 183 | Presence tracking + party detection |
-| `src/names.py` | 42 | `services/names.rs` | 116 | Name resolution |
+| `src/names.py` | 42 | `services/names.rs` | 115 | Name resolution |
 | `src/player_stats.py` | 155 | `services/stats.rs` | 188 | HS%, KD, RR earned, last active |
-| `src/stats.py` | 232 | `services/encounters.rs` | 302 | Encounter tracking |
-| `src/requestsV.py` | 308 | `api/client.rs` + `api/auth.rs` | 275 + 148 | API client + auth |
-| `src/websocket.py` | 161 | `api/websocket.rs` | 142 | Local WebSocket |
-| `src/config.py` | 78 | `services/config.rs` | 239 | Config management |
-| `src/logs.py` | 43 | `services/logging.rs` | 80 | Log file management |
+| `src/stats.py` | 232 | `services/encounters.rs` | 311 | Encounter tracking |
+| `src/requestsV.py` | 308 | `api/client.rs` + `api/auth.rs` | 303 + 147 | API client + auth |
+| `src/websocket.py` | 161 | `api/websocket.rs` (exists but **not wired**) | 142 | WebSocket (presence/chat — Rust uses polling only) |
+| `src/config.py` | 78 | `services/config.rs` | 203 | Config management |
+| `src/logs.py` | 43 | `services/logging.rs` | 93 | Log file management |
 | `src/errors.py` | 38 | `api/client.rs:ApiError` | (inline) | Error types |
 | `src/states/menu.py` | 108 | `services/presences.rs` (party methods) | (inline) | Party logic |
 | `src/states/coregame.py` | 58 | `core/payload_builder.rs` (inline) | (inline) | Inline in builder |
 | `src/states/pregame.py` | 42 | `core/payload_builder.rs` (inline) | (inline) | Inline in builder |
 
-### Not Ported (Console-Only)
+### Commands (Rust-only, Tauri IPC handlers)
+
+| Rust File | Lines | Purpose | Python Equivalent |
+|-----------|-------|---------|-------------------|
+| `commands/config.rs` | 47 | `get_config`, `set_config`, `get_gui_log_tail`, `get_heartbeat_log` | `server.py` `send_payload()` + `config.py` |
+| `commands/system.rs` | 41 | `get_version`, `restart_application`, `get_status` | `main.py` `Requests.get_headers(refresh=True)` |
+
+### Not Ported (Console-Only or Unimplemented)
 
 | Python File | Lines | Reason |
 |-------------|-------|--------|
@@ -43,8 +55,8 @@
 | `src/table.py` | 227 | Rich console table – Tauri is GUI-only |
 | `src/rpc.py` | 378 | Discord RPC – not implemented |
 | `src/configurator.py` | 75 | Interactive config wizard – not implemented |
-| `src/account_manager/*` | 593 | Account management – not implemented |
 | `src/questions.py` | 93 | Config wizard questions – not needed |
+| `src/account_manager/*` | 593 | Account management – not implemented |
 | `src/os_info.py` | 11 | OS detection – not needed |
 
 ### Frontend
@@ -110,14 +122,16 @@
 | PlayerCardName | `PCard.get("displayName", "")` | `card.display_name.clone()` |
 | TitleName | `title.get("displayName", title["titleText"])` | `title_obj.display_name.clone()` |
 | Spray resolution | Check sprays dict, then flex dict | Same in Rust |
+| Skin buddy level socket | Python includes `dd3bf334-...` UUID | **Not in Rust** (only 4 of 5 sockets) |
 
 ### 2.4 Stats Processing
 
 | Step | Python (`src/player_stats.py`) | Rust (`services/stats.rs`) |
 |------|------|------|
+| Conditional fetch check | `_should_fetch_comp_stats()` checks table flags | **Not implemented** — always fetches |
 | Fetch competitive updates | `GET /mmr/v1/players/{puuid}/competitiveupdates?startIndex=0&endIndex=1` | Same endpoint |
 | Get match ID | `match_summary["MatchID"]` | `update.match_id` |
-| Fetch match details | `GET /match-details/v1/matches/{match_id}` | Same endpoint |
+| Fetch match details (`"pd"` URL type) | `GET /match-details/v1/matches/{match_id}` via `"pd"` | Same, `UrlType::Pd` |
 | Calc KD | `kills / deaths` | Same |
 | Calc HS% | `headshots / (legshots+bodyshots+headshots) * 100` | Same |
 | Get RR earned | From competitive update summary | `update.ranked_rating_earned` |
@@ -131,6 +145,7 @@
 | Save encounter | `save_data()`: normalizes history, dedup by match_id | `save_encounter()`: same dedup logic |
 | Build summary | `build_encounter_summary()`: count ally/enemy wins/losses | Same in `build_encounter_summary()` |
 | Update result | `update_match_result()`: sets result by relation | Same in `update_match_result()` |
+| All summaries | N/A (no frontend use in Python) | `get_all_summaries()` for MENUS heartbeat |
 
 ### 2.6 Presence Tracking
 
@@ -151,19 +166,32 @@
 |------|------|------|
 | Local API | POST `/player-account/lookup/v2/namesets-for-puuids` | Same |
 | Parse names | `alias["GameName"] + "#" + alias["TagLine"]` | Same |
-| PD fallback | PUT `/name-service/v2/players` | Same |
+| PD fallback | PUT `/name-service/v2/players` with PUUID array | Same |
+| **Caching** | **No cache** (fetches every heartbeat) | **No cache** (same — both re-fetch every state transition) |
 
-### 2.8 Client API
+### 2.8 Match Player Cache (Python-only, not in Rust)
+
+| Step | Python (`main.py:239–263`) | Rust |
+|------|---------------------------|------|
+| Cache init | `reset_match_player_cache(match_id)` on new match | **Not implemented** |
+| Cache lookup | `match_player_cache["players"].get(puuid)` | Always re-fetches rank+stats |
+| Cache fill | Stores `(playerRank, previousPlayerRank, ppstats)` per match | N/A |
+| TTL cleanup | 300s safety TTL per entry | N/A |
+
+### 2.9 Client API
 
 | Feature | Python (`src/requestsV.py`) | Rust (`api/client.rs`) |
 |---------|------|------|
-| Rate limiting | `_throttle()` rolling 1s window | `RateLimiter` with `check_rate()` + `record_request()` |
+| Rate limiting | `_throttle()` rolling 1s window per URL type | `RateLimiter` with `check_rate()` + `record_request()` |
 | Auth headers | `get_headers()` → Authorization, X-Riot-Entitlements-JWT, etc. | `build_headers()` → same 5 headers |
 | Lockfile | `get_lockfile()` → parses `:` delimited file | `parse_lockfile()` → same |
 | Region parsing | `get_region()` → scans ShooterGame.log | `parse_region_from_logs()` → same |
 | Version parsing | `get_current_version()` → "CI server version:" | `parse_client_version()` → same |
-| Authenticate | POST `/entitlements/v1/token` → accessToken, token, subject | Same in `authenticate()` |
+| Authenticate | GET `/entitlements/v1/token` → accessToken, token, subject | Same in `authenticate()` |
 | Error handling | `BAD_CLAIMS` retry, 429 backoff, RPC_ERROR retry | Same error handling in `fetch_with_method()` |
+| **Deceive detection** | `is_deceive_running()` tasklist check | **Not implemented** |
+| **Version check** | `check_version()` hits GitHub API | **Not implemented** |
+| **Auto-update** | `copy_run_update_script()` | **Not implemented** |
 
 ---
 
@@ -173,16 +201,17 @@
 
 | Python Payload Field | Rust `HeartbeatPayload` Field | Frontend Usage |
 |---------------------|------------------------------|----------------|
-| `type` | (not sent, Tauri event type) | Event routing |
+| `type` | `r#type: String` ("heartbeat") | Event routing |
 | `puuid` | `puuid: String` | Self identification |
 | `state` | `state: String` | State chip, headers |
 | `mode` | `mode: Option<String>` | Meta chip |
 | `map` | `map: Option<String>` | Meta chip |
 | `server` | `server: Option<String>` | Meta chip |
 | `time` | `time: i64` | "Updated" timestamp |
-| `rankIcons` | `rank_icons: Vec<Option<String>>` | Rank icon URLs |
+| `rankIcons` | `rank_icons: Arc<Vec<Option<String>>>` | Rank icon URLs |
 | `players` | `players: HashMap<String, PlayerHeartbeat>` | Player data |
 | `alreadyPlayedWith` | `already_played_with: Vec<EncounterEntry>` | Encounter table |
+| `version` | **Rust-only** `version: u64` | Not used by frontend |
 
 ### Per-Player Fields
 
@@ -211,7 +240,8 @@
 | `titleName` | `title_name: Option<String>` | Title name |
 | `sprays` | `sprays: Option<HashMap<String, SprayEntry>>` | Expression wheel |
 | `weapons` | `weapons: Option<HashMap<String, WeaponEntry>>` | Weapon inventory |
-| `earnedRR` | `earned_rr: Option<String>` | Not displayed |
+| `earnedRR` | `earned_rr: Option<String>` | **Rust-only** — not in Python payload |
+| `agentImgLink` source | From valapi `displayIcon` | Rust: constructed URL `https://media.valorant-api.com/agents/{cid}/displayicon.png` |
 
 ---
 
@@ -237,32 +267,74 @@
 
 ## 5. Config Cross-Reference
 
-| Python Config Key | Rust `AppConfig` Field | Default |
-|-------------------|----------------------|---------|
-| `cooldown` | `cooldown: u64` | 10 |
-| `port` | `port: u16` | 1100 |
-| `weapon` | `weapon: String` | "Vandal" |
-| `chat_limit` | `chat_limit: u32` | 5 |
-| `table.skin` | `table.skin: bool` | true |
-| `table.rr` | `table.rr: bool` | true |
-| `table.earned_rr` | `table.earned_rr: bool` | false |
-| `table.peakrank` | `table.peakrank: bool` | true |
-| `table.previousrank` | `table.previousrank: bool` | false |
-| `table.leaderboard` | `table.leaderboard: bool` | true |
-| `table.headshot_percent` | `table.headshot_percent: bool` | false |
-| `table.winrate` | `table.winrate: bool` | true |
-| `table.kd` | `table.kd: bool` | false |
-| `table.level` | `table.level: bool` | true |
-| `table.last_active` | `table.last_active: bool` | true |
-| `flags.last_played` | `flags.last_played: bool` | true |
-| `flags.auto_hide_leaderboard` | `flags.auto_hide_leaderboard: bool` | true |
-| `flags.pre_cls` | `flags.pre_cls: bool` | true |
-| `flags.game_chat` | `flags.game_chat: bool` | true |
-| `flags.peak_rank_act` | `flags.peak_rank_act: bool` | true |
-| `flags.discord_rpc` | `flags.discord_rpc: bool` | true |
-| `flags.aggregate_rank_rr` | `flags.aggregate_rank_rr: bool` | true |
-| `flags.server_id` | `flags.server_id: bool` | true |
-| `flags.short_ranks` | `flags.short_ranks: bool` | false |
-| `flags.truncate_skins` | `flags.truncate_skins: bool` | false |
-| `flags.truncate_names` | `flags.truncate_names: bool` | false |
-| `flags.starting_side` | `flags.starting_side: bool` | false |
+### Config Flags — Implementation Status
+
+| Config Flag | Python Default | Rust Default | Python Uses It | Rust Implements It? |
+|-------------|---------------|--------------|----------------|---------------------|
+| `cooldown` | 10 | 10 | Poll interval | ✅ Same |
+| `port` | 1100 | 1100 | WebSocket port | ✅ Stored but unused (Tauri IPC, no WS) |
+| `weapon` | Vandal | Vandal | Preview weapon | ✅ Same |
+| `chat_limit` | 5 | 5 | Chat display | ✅ Stored (chat not implemented) |
+| `table.skin` | true | true | Column display | ✅ Frontend uses |
+| `table.rr` | true | true | Column display | ✅ Frontend uses |
+| `table.earned_rr` | false | false | Column display | ✅ Frontend uses |
+| `table.peakrank` | true | true | Column display | ✅ Frontend uses |
+| `table.previousrank` | false | false | Column display | ✅ Frontend uses |
+| `table.leaderboard` | true | true | Column display | ✅ Frontend uses |
+| `table.headshot_percent` | false | false | Column display | ✅ Frontend uses |
+| `table.winrate` | true | true | Column display | ✅ Frontend uses |
+| `table.kd` | false | false | Column display | ✅ Frontend uses |
+| `table.level` | true | true | Column display | ✅ Frontend uses |
+| `table.last_active` | true | true | Column display | ✅ Frontend uses |
+| `flags.discord_rpc` | false | false | Discord RPC init | ❌ Not implemented (no RPC at all) |
+| `flags.aggregate_rank_rr` | true | true | Appends RR to rank string | ❌ Stored, never referenced |
+| `flags.peak_rank_act` | true | true | Toggles peak rank act display | ❌ Stored, never referenced |
+| `flags.auto_hide_leaderboard` | true | true | Hides LB column when no one has rank | ❌ Stored, never referenced |
+| `flags.game_chat` | false | false | Chat WebSocket | ❌ Not implemented |
+| `flags.last_played` | true | true | Prints encounter summary to console | ❌ N/A (GUI-only) |
+| `flags.pre_cls` | false | false | Clears console before print | ❌ N/A (GUI-only) |
+| `flags.server_id` | false | false | Server ID in title bar | ❌ Stored, never referenced |
+| `flags.short_ranks` | false | false | Abbreviated rank names | ❌ Stored, never referenced |
+| `flags.truncate_skins` | true | true | Cuts long skin names | ❌ Stored, never referenced |
+| `flags.truncate_names` | false | false | Cuts long player names | ❌ Stored, never referenced |
+| `flags.starting_side` | true | true | Shows DEF/ATK indicator | ❌ Stored, never referenced |
+
+---
+
+## 6. Tauri Commands (Rust IPC)
+
+| Command | Rust File | Purpose | Python Equivalent |
+|---------|-----------|---------|-------------------|
+| `get_config` | `commands/config.rs:10` | Returns `AppConfig` as JSON | `config.py` read |
+| `set_config` | `commands/config.rs:18` | Updates config, saves to disk | `config.py` write |
+| `get_gui_log_tail` | `commands/config.rs:29` | Returns last 50 log lines | `logs.py` read (via pywebview) |
+| `get_heartbeat_log` | `commands/config.rs:37` | Returns heartbeat JSONL file | Not in Python |
+| `get_version` | `commands/system.rs:9` | Returns version string | `constants.py` version var |
+| `restart_application` | `commands/system.rs:14` | Resets backend state, reconnects | `Requests.get_headers(refresh=True)` |
+| `get_status` | `commands/system.rs:32` | Returns connection status JSON | Not in Python |
+
+---
+
+## 7. Key Mapping Notices
+
+### Fixed in Rust vs Python
+
+| Fix | Python Issue | Rust |
+|-----|-------------|------|
+| Last active epoch | Mixed `MatchStartTime` / `gameStartMillis` sources | Both sources tried, adds `gameLengthMillis` |
+| Encounter score/result | Multi-casing iteration for team fields | `.or_else()` chaining handles same variants |
+| Spray icon fallback | `fullTransparentIcon` check | Same `full_transparent_icon.or_else(display_icon)` |
+
+### Regressions / Gaps in Rust
+
+| Gap | Impact | Suggested Fix |
+|-----|--------|---------------|
+| No conditional stats fetching | +2 API calls per player when stat columns hidden | Port `_should_fetch_comp_stats()` |
+| No match player cache | +~15 API calls per PREGAME→INGAME transition | Port `get_or_fetch_rank_and_stats()` |
+| No names cache | 1-2 API calls per heartbeat | Add TTL cache matching `RankService` pattern |
+| No retry queue for match results | Single attempt, no retry on transient failure | Port `process_pending_match_results()` |
+| No Deceive detection | Deceive users stuck in DISCONNECTED | Port `is_deceive_running()` |
+| Missing buddy_level socket | Missing weapon buddy level display | Add `dd3bf334-...` socket UUID |
+| 8 config flags stored but unimplemented | Frontend cosmetic features inactive | Wire flags into payload/frontend |
+| `opt-level = 0` in release profile | All Rust performance benefits negated | Change to `opt-level = 2` |
+| RwLock held across entire main loop | UI commands block during heartbeat assembly | Narrow read-lock scope |
