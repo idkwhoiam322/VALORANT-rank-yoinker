@@ -72,6 +72,7 @@ pub async fn build_heartbeat(
     client_version: &str,
     puuid: &str,
     state: GameState,
+    known_match_id: Option<&str>,
 ) -> HeartbeatPayload {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -109,10 +110,10 @@ pub async fn build_heartbeat(
 
     match state {
         GameState::INGAME => {
-            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id).await;
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id).await;
         }
         GameState::MENUS => {
             build_menus_payload(svc, entitlements, client_version, puuid, &mut payload).await;
@@ -183,28 +184,40 @@ async fn build_ingame_payload(
     client_version: &str,
     puuid: &str,
     payload: &mut HeartbeatPayload,
+    known_match_id: Option<&str>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
-    // Fetch coregame match data
-    let player_endpoint = format!("/core-game/v1/players/{}", puuid);
-    let player_resp = svc
-        .client
-        .fetch(
-            crate::api::client::UrlType::Glz,
-            &player_endpoint,
-            &headers,
-            None,
-        )
-        .await;
+    // Fetch coregame match data (skip player lookup if match_id is already known)
+    let match_id = {
+        let id = match known_match_id {
+            Some(id) if !id.is_empty() => Some(id.to_string()),
+            _ => None,
+        };
+        match id {
+            Some(id) => Some(id),
+            None => {
+                let player_endpoint = format!("/core-game/v1/players/{}", puuid);
+                let player_resp = svc
+                    .client
+                    .fetch(
+                        crate::api::client::UrlType::Glz,
+                        &player_endpoint,
+                        &headers,
+                        None,
+                    )
+                    .await;
 
-    let match_id = match player_resp {
-        Ok(resp) => {
-            let text = resp.text().await.unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-            json["MatchID"].as_str().map(|s| s.to_string())
+                match player_resp {
+                    Ok(resp) => {
+                        let text = resp.text().await.unwrap_or_default();
+                        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                        json["MatchID"].as_str().map(|s| s.to_string())
+                    }
+                    Err(_) => None,
+                }
+            }
         }
-        Err(_) => None,
     };
 
     let match_id = match match_id {
@@ -393,27 +406,39 @@ async fn build_pregame_payload(
     client_version: &str,
     puuid: &str,
     payload: &mut HeartbeatPayload,
+    known_match_id: Option<&str>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
-    let player_endpoint = format!("/pregame/v1/players/{}", puuid);
-    let pregame_resp = svc
-        .client
-        .fetch(
-            crate::api::client::UrlType::Glz,
-            &player_endpoint,
-            &headers,
-            None,
-        )
-        .await;
+    let match_id = {
+        let id = match known_match_id {
+            Some(id) if !id.is_empty() => Some(id.to_string()),
+            _ => None,
+        };
+        match id {
+            Some(id) => Some(id),
+            None => {
+                let player_endpoint = format!("/pregame/v1/players/{}", puuid);
+                let pregame_resp = svc
+                    .client
+                    .fetch(
+                        crate::api::client::UrlType::Glz,
+                        &player_endpoint,
+                        &headers,
+                        None,
+                    )
+                    .await;
 
-    let match_id = match pregame_resp {
-        Ok(resp) => {
-            let text = resp.text().await.unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-            json["MatchID"].as_str().map(|s| s.to_string())
+                match pregame_resp {
+                    Ok(resp) => {
+                        let text = resp.text().await.unwrap_or_default();
+                        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                        json["MatchID"].as_str().map(|s| s.to_string())
+                    }
+                    Err(_) => None,
+                }
+            }
         }
-        Err(_) => None,
     };
 
     let match_id = match match_id {

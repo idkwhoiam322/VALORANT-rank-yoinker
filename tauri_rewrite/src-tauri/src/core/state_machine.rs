@@ -342,10 +342,29 @@ impl MainLoop {
                 }
 
                 if current_state != GameState::DISCONNECTED {
+                    // Fetch match context first (for INGAME/PREGAME) to avoid redundant
+                    // player-endpoint calls in build_heartbeat.
+                    let match_ctx = match current_state {
+                        GameState::INGAME | GameState::PREGAME => {
+                            crate::core::payload_builder::get_match_context(
+                                &snap, &entitlements, &cv, &puuid, current_state,
+                            ).await
+                        }
+                        _ => None,
+                    };
+                    let known_match_id = match_ctx.as_ref().map(|(id, _)| id.as_str());
+
                     let mut heartbeat = build_heartbeat(
-                        &snap, &entitlements, &cv, &puuid, current_state,
+                        &snap, &entitlements, &cv, &puuid, current_state, known_match_id,
                     )
                     .await;
+
+                    // Save match context for state-transition detection
+                    if current_state == GameState::INGAME {
+                        if let Some(ctx) = match_ctx {
+                            match_context = Some(ctx);
+                        }
+                    }
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {
@@ -358,15 +377,6 @@ impl MainLoop {
                         snap.log_heartbeat(&heartbeat);
                         let _ = app.emit("heartbeat", &heartbeat);
                         last_heartbeat_key = Some(key);
-                    }
-                }
-
-                // Save match context for INGAME so we can update encounter results on transition
-                if current_state == GameState::INGAME {
-                    if let Some(ctx) = crate::core::payload_builder::get_match_context(
-                        &snap, &entitlements, &cv, &puuid, current_state,
-                    ).await {
-                        match_context = Some(ctx);
                     }
                 }
 
