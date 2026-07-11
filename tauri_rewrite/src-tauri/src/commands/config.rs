@@ -32,3 +32,16 @@ pub async fn get_gui_log_tail(
     let svc = services.read().await;
     Ok(svc.logger.get_tail(50))
 }
+
+#[tauri::command]
+pub async fn get_heartbeat_log(
+    services: State<'_, Arc<RwLock<AppServices>>>,
+) -> Result<String, String> {
+    let svc = services.read().await;
+    let path = &svc.heartbeat_log_path;
+    if path.exists() {
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read heartbeat log: {}", e))
+    } else {
+        Ok(String::new())
+    }
+}

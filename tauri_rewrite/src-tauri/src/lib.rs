@@ -31,6 +31,7 @@ pub fn run() {
             commands::config::get_config,
             commands::config::set_config,
             commands::config::get_gui_log_tail,
+            commands::config::get_heartbeat_log,
             commands::system::get_version,
             commands::system::restart_application,
             commands::system::get_status,

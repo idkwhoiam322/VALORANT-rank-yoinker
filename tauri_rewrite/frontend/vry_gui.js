@@ -109,7 +109,14 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         playedWithBody: document.getElementById("playedWithBody"),
         logPanel: document.getElementById("logPanel"),
         logPre: document.getElementById("logPre"),
+        logCopyBtn: document.getElementById("logCopyBtn"),
+        logRefreshBtn: document.getElementById("logRefreshBtn"),
         logInterval: null,
+        hbPanel: document.getElementById("hbPanel"),
+        hbPre: document.getElementById("hbPre"),
+        hbCopyBtn: document.getElementById("hbCopyBtn"),
+        hbRefreshBtn: document.getElementById("hbRefreshBtn"),
+        hbInterval: null,
     };
 
     var WEAPON_COLUMNS = [
@@ -825,8 +832,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         if (els.jsonPanelEmptySummary) els.jsonPanelEmptySummary.textContent = "Raw heartbeat JSON";
     }
 
-    function copyJson(button) {
-        var text = state.payload ? JSON.stringify(state.payload, null, 2) : "";
+    function copyText(text, button) {
         if (!text) { showToast("Nothing to copy yet."); return; }
         var done = function () {
             var original = button.textContent;
@@ -839,6 +845,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         } else { fallbackCopy(text, done); }
     }
 
+    function copyJson(button) {
+        var text = state.payload ? JSON.stringify(state.payload, null, 2) : "";
+        copyText(text, button);
+    }
+
     function renderLogTail() {
         tauriInvoke("get_gui_log_tail").then(function (text) {
             var displayText = text || "(empty log)";
@@ -848,6 +859,19 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         }).catch(function () {
             if (els.logPre.textContent !== "Failed to fetch log.") {
                 els.logPre.textContent = "Failed to fetch log.";
+            }
+        });
+    }
+
+    function renderHeartbeatTail() {
+        tauriInvoke("get_heartbeat_log").then(function (text) {
+            var displayText = text || "(no heartbeat data yet)";
+            if (els.hbPre.textContent !== displayText) {
+                els.hbPre.textContent = displayText;
+            }
+        }).catch(function () {
+            if (els.hbPre.textContent !== "Failed to fetch heartbeat log.") {
+                els.hbPre.textContent = "Failed to fetch heartbeat log.";
             }
         });
     }
@@ -928,6 +952,20 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             els.logInterval = null;
         }
     });
+    els.logCopyBtn.addEventListener("click", function () { copyText(els.logPre.textContent, els.logCopyBtn); });
+    els.logRefreshBtn.addEventListener("click", renderLogTail);
+
+    els.hbPanel.addEventListener("toggle", function () {
+        if (els.hbPanel.open) {
+            renderHeartbeatTail();
+            els.hbInterval = setInterval(renderHeartbeatTail, 1000);
+        } else {
+            clearInterval(els.hbInterval);
+            els.hbInterval = null;
+        }
+    });
+    els.hbCopyBtn.addEventListener("click", function () { copyText(els.hbPre.textContent, els.hbCopyBtn); });
+    els.hbRefreshBtn.addEventListener("click", renderHeartbeatTail);
 
     // ---- boot ----
     var cached = null;
