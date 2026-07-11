@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use std::sync::Arc;
 
@@ -7,11 +9,17 @@ use crate::models::auth::Entitlements;
 
 pub struct NamesService {
     client: Arc<ApiClient>,
+    cache: Mutex<HashMap<String, (String, Instant)>>,
+    cache_ttl: Duration,
 }
 
 impl NamesService {
     pub fn new(client: Arc<ApiClient>) -> Self {
-        Self { client }
+        Self {
+            client,
+            cache: Mutex::new(HashMap::new()),
+            cache_ttl: Duration::from_secs(300),
+        }
     }
 
     pub async fn get_names_from_puuids(
@@ -24,92 +32,93 @@ impl NamesService {
             return Ok(HashMap::new());
         }
 
-        let mut names = HashMap::new();
+        // Separate cached (fresh) from uncached / expired PUUIDs
+        let mut cached_names = HashMap::new();
+        let mut missing = Vec::new();
 
-        // Try local API first
-        let headers = entitlements.build_headers(client_version);
-        let body = serde_json::json!({ "puuids": puuids });
-        match self
-            .client
-            .fetch_json_with_body::<serde_json::Value>(
-                UrlType::Local,
-                "/player-account/lookup/v2/namesets-for-puuids",
-                &headers,
-                body,
-            )
-            .await
         {
-            Ok(val) => {
-                #[cfg(debug_assertions)]
-                println!("names: local API raw response: {}", serde_json::to_string(&val).unwrap_or_default().chars().take(500).collect::<String>());
-                if let Some(entries) = val.get("namesets").and_then(|v| v.as_array()) {
-                    for entry in entries {
-                        let puuid = entry.get("puuid").and_then(|v| v.as_str());
-                        let alias = entry.get("alias");
-                        if let (Some(puuid), Some(alias)) = (puuid, alias) {
-                            let game_name = alias.get("gameName").or_else(|| alias.get("game_name")).or_else(|| alias.get("GameName")).and_then(|v| v.as_str());
-                            let tag_line = alias.get("tagLine").or_else(|| alias.get("tag_line")).or_else(|| alias.get("TagLine")).and_then(|v| v.as_str());
-                            if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
-                                names.insert(puuid.to_string(), format!("{}#{}", game_name, tag_line));
+            let cache = self.cache.lock().unwrap();
+            for p in puuids {
+                if let Some((name, time)) = cache.get(p) {
+                    if time.elapsed() < self.cache_ttl {
+                        cached_names.insert(p.clone(), name.clone());
+                        continue;
+                    }
+                }
+                missing.push(p.clone());
+            }
+        }
+
+        if !missing.is_empty() {
+            // Resolve via local API then PD fallback
+            let headers = entitlements.build_headers(client_version);
+            let body = serde_json::json!({ "puuids": missing });
+            match self
+                .client
+                .fetch_json_with_body::<serde_json::Value>(
+                    UrlType::Local,
+                    "/player-account/lookup/v2/namesets-for-puuids",
+                    &headers,
+                    body,
+                )
+                .await
+            {
+                Ok(val) => {
+                    if let Some(entries) = val.get("namesets").and_then(|v| v.as_array()) {
+                        for entry in entries {
+                            let puuid = entry.get("puuid").and_then(|v| v.as_str());
+                            let alias = entry.get("alias");
+                            if let (Some(puuid), Some(alias)) = (puuid, alias) {
+                                let game_name = alias.get("gameName").or_else(|| alias.get("game_name")).or_else(|| alias.get("GameName")).and_then(|v| v.as_str());
+                                let tag_line = alias.get("tagLine").or_else(|| alias.get("tag_line")).or_else(|| alias.get("TagLine")).and_then(|v| v.as_str());
+                                if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
+                                    cached_names.insert(puuid.to_string(), format!("{}#{}", game_name, tag_line));
+                                }
                             }
                         }
                     }
                 }
+                Err(_e) => {}
             }
-            Err(_e) => {
-                #[cfg(debug_assertions)]
-                println!("names: local API failed: {_e:?}");
-            }
-        }
 
-        // Fallback: fetch missing via PD name-service
-        let failed: Vec<String> = puuids
-            .iter()
-            .filter(|p| !names.contains_key(*p))
-            .cloned()
-            .collect();
+            // Fallback: fetch remaining via PD name-service
+            let still_missing: Vec<String> = missing
+                .iter()
+                .filter(|p| !cached_names.contains_key(*p))
+                .cloned()
+                .collect();
 
-        if !failed.is_empty() {
-            #[cfg(debug_assertions)]
-            println!("names: falling back to PD for {} puuids", failed.len());
-            let resp = self
-                .client
-                .fetch_put_json_with_body::<serde_json::Value>(
-                    UrlType::Pd,
-                    "/name-service/v2/players",
-                    &headers,
-                    serde_json::json!(failed),
-                )
-                .await;
-
-            match resp {
-                Ok(val) => {
+            if !still_missing.is_empty() {
+                if let Ok(val) = self
+                    .client
+                    .fetch_put_json_with_body::<serde_json::Value>(
+                        UrlType::Pd,
+                        "/name-service/v2/players",
+                        &headers,
+                        serde_json::json!(still_missing),
+                    )
+                    .await
+                {
                     if let Some(arr) = val.as_array() {
-                        #[cfg(debug_assertions)]
-                        println!("names: PD fallback returned {} players", arr.len());
                         for player in arr {
                             let subject = player.get("Subject").or_else(|| player.get("subject")).and_then(|v| v.as_str());
                             let game_name = player.get("GameName").or_else(|| player.get("game_name")).and_then(|v| v.as_str());
                             let tag_line = player.get("TagLine").or_else(|| player.get("tag_line")).and_then(|v| v.as_str());
                             if let (Some(subject), Some(game_name), Some(tag_line)) = (subject, game_name, tag_line) {
-                                names.insert(subject.to_string(), format!("{}#{}", game_name, tag_line));
+                                cached_names.insert(subject.to_string(), format!("{}#{}", game_name, tag_line));
                             }
                         }
-                    } else {
-                        #[cfg(debug_assertions)]
-                        println!("names: PD fallback returned non-array: {}", serde_json::to_string(&val).unwrap_or_default().chars().take(300).collect::<String>());
                     }
                 }
-                Err(_e) => {
-                    #[cfg(debug_assertions)]
-                    println!("names: PD fallback failed: {_e:?}");
-                }
+            }
+
+            // Store newly resolved names in cache
+            let mut cache = self.cache.lock().unwrap();
+            for (p, name) in &cached_names {
+                cache.insert(p.clone(), (name.clone(), Instant::now()));
             }
         }
 
-        #[cfg(debug_assertions)]
-        println!("names: resolved {} of {} puuids", names.len(), puuids.len());
-
-        Ok(names)
+        Ok(cached_names)
     }
 }
