@@ -87,6 +87,7 @@ pub async fn build_heartbeat(
         map: None,
         server: None,
         players: HashMap::new(),
+        version: 0,
         rank_icons: svc.content.rank_icons.clone(),
         already_played_with: vec![],
     };

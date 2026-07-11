@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -93,13 +94,14 @@ impl AppServices {
 
 pub struct MainLoop {
     pub services: Arc<RwLock<AppServices>>,
+    heartbeat_version: AtomicU64,
 }
 
 impl MainLoop {
     pub fn new(root: std::path::PathBuf, pd_url: String, glz_url: String) -> Self {
         let client = ApiClient::new(pd_url, glz_url);
         let services = Arc::new(RwLock::new(AppServices::new(root, client)));
-        Self { services }
+        Self { services, heartbeat_version: AtomicU64::new(1) }
     }
 
     pub async fn run(&self, app: AppHandle) {
@@ -272,14 +274,16 @@ impl MainLoop {
 
                 if current_state != GameState::DISCONNECTED {
                     // Fetch data and build heartbeat
-                    let heartbeat = build_heartbeat(
+                    let mut heartbeat = build_heartbeat(
                         &svc, &entitlements, &cv, &puuid, current_state,
                     )
                     .await;
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {
-                        svc.log(&format!("Emitting heartbeat state={} mode={} map={}",
+                        heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
+                        svc.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
+                            heartbeat.version,
                             heartbeat.state,
                             heartbeat.mode.as_deref().unwrap_or("unknown"),
                             heartbeat.map.as_deref().unwrap_or("unknown")));

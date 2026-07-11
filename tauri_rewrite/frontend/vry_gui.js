@@ -338,10 +338,6 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     // ---- state / rendering ----
-    function payloadRenderKey(payload) {
-        return JSON.stringify(payload, function (key, value) { return key === "time" ? undefined : value; });
-    }
-
     function bumpTimestampOnly(payload) {
         if (!payload || !payload.time) return;
         var chip = els.metaUpdatedChip;
@@ -349,13 +345,13 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     function setPayload(payload, shouldCache) {
-        var renderKey = payloadRenderKey(payload);
-        var unchanged = renderKey === state.lastRenderKey;
+        var version = payload && payload.version;
+        var unchanged = version !== undefined && version === state.lastRenderKey;
         state.payload = payload;
         state.rankIcons = payload && payload.rankIcons;
-        if (shouldCache) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) {} }
+        if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) {} }
         if (unchanged) { bumpTimestampOnly(payload); return; }
-        state.lastRenderKey = renderKey;
+        state.lastRenderKey = version;
         state.players = normalizePlayers(payload);
         if (!state.players.some(function (p) { return p.puuid === state.selectedPuuid; })) { state.selectedPuuid = null; }
         render();

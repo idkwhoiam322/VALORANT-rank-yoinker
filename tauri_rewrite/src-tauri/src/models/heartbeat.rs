@@ -18,6 +18,8 @@ pub struct HeartbeatPayload {
     pub players: HashMap<String, PlayerHeartbeat>,
     #[serde(default, rename = "rankIcons")]
     pub rank_icons: Arc<Vec<Option<String>>>,
+    #[serde(default)]
+    pub version: u64,
     #[serde(default, rename = "alreadyPlayedWith")]
     pub already_played_with: Vec<EncounterEntry>,
 }
