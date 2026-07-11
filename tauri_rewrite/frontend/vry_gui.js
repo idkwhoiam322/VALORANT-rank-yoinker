@@ -388,12 +388,30 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function render() { renderMeta(); renderPlayers(); renderPlayedWith(); renderDetails(); renderJson(); }
 
+    // ---- targeted rendering for click interactions ----
+    function selectPlayer(puuid) {
+        state.selectedPuuid = puuid;
+        updateSelection();
+        renderDetails();
+    }
+
+    function deselectPlayer() {
+        state.selectedPuuid = null;
+        renderDetails();
+        updateSelection();
+    }
+
+    function updateSelection() {
+        document.querySelectorAll(".player-button").forEach(function (btn) {
+            btn.classList.toggle("is-selected", btn.dataset.puuid === state.selectedPuuid);
+        });
+    }
+
     // ---- event delegation ----
     function handlePlayerGridClick(e) {
         var button = e.target.closest(".player-button");
         if (!button) return;
-        state.selectedPuuid = button.dataset.puuid;
-        render();
+        selectPlayer(button.dataset.puuid);
     }
 
     function handlePlayerGridContextMenu(e) {
@@ -948,10 +966,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.blueGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
     els.redGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
 
-    els.closeDetailsButton.addEventListener("click", function () { state.selectedPuuid = null; render(); });
-    els.detailsPanel.addEventListener("click", function (e) { if (e.target === els.detailsPanel) { state.selectedPuuid = null; render(); } });
+    els.closeDetailsButton.addEventListener("click", deselectPlayer);
+    els.detailsPanel.addEventListener("click", function (e) { if (e.target === els.detailsPanel) { deselectPlayer(); } });
     window.addEventListener("keydown", function (e) {
-        if (e.key === "Escape") { if (!els.confirmModal.hidden) { closeModal(); return; } if (state.selectedPuuid) { state.selectedPuuid = null; render(); } }
+        if (e.key === "Escape") { if (!els.confirmModal.hidden) { closeModal(); return; } if (state.selectedPuuid) { deselectPlayer(); } }
     });
     els.refreshButton.addEventListener("click", openModal);
     els.loadingRefreshButton.addEventListener("click", openModal);
