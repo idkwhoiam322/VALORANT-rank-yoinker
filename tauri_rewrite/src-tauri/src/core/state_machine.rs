@@ -247,7 +247,7 @@ impl MainLoop {
                                 })();
                                 if let Some(winning_team) = winning_team {
                                     svc.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
-                                    svc.log(&format!("Updated encounter results: winning_team={}, score={:?}", winning_team, score));
+                                    svc.log(&format!("Updated encounter results: winning_team={}, score={}", winning_team, score.as_deref().unwrap_or("unknown")));
                                 } else {
                                     svc.log("Match ended but could not determine winning team (match details may not be ready yet)");
                                 }
@@ -279,8 +279,10 @@ impl MainLoop {
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {
-                        svc.log(&format!("Emitting heartbeat state={} mode={:?} map={:?}",
-                            heartbeat.state, heartbeat.mode, heartbeat.map));
+                        svc.log(&format!("Emitting heartbeat state={} mode={} map={}",
+                            heartbeat.state,
+                            heartbeat.mode.as_deref().unwrap_or("unknown"),
+                            heartbeat.map.as_deref().unwrap_or("unknown")));
                         svc.log_heartbeat(&heartbeat);
                         let _ = app.emit("heartbeat", &heartbeat);
                         last_heartbeat_key = Some(key);
