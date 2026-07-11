@@ -388,6 +388,22 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function render() { renderMeta(); renderPlayers(); renderPlayedWith(); renderDetails(); renderJson(); }
 
+    // ---- event delegation ----
+    function handlePlayerGridClick(e) {
+        var button = e.target.closest(".player-button");
+        if (!button) return;
+        state.selectedPuuid = button.dataset.puuid;
+        render();
+    }
+
+    function handlePlayerGridContextMenu(e) {
+        var button = e.target.closest(".player-button");
+        if (!button) return;
+        e.preventDefault();
+        var text = stripHint(e.target.title || button.title);
+        navigator.clipboard.writeText(text).then(function () { showToast('Copied: ' + text); }, function () { showToast('Failed to copy.'); });
+    }
+
     var STATE_LABELS = { INGAME: "In-Game", PREGAME: "Agent Select", MENUS: "In-Menus", DISCONNECTED: "Disconnected" };
     var STATE_CLASSES = { INGAME: "state-ingame", PREGAME: "state-pregame", MENUS: "state-menus", DISCONNECTED: "state-disconnected" };
 
@@ -496,12 +512,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             button.classList.toggle("self-card", player.isSelf);
             button.classList.toggle("is-selected", player.puuid === state.selectedPuuid);
             button.title = txt(player.name, "Unknown Player") + COPY_HINT;
-            button.addEventListener("click", function () { state.selectedPuuid = player.puuid; render(); });
-            button.addEventListener("contextmenu", function (e) {
-                e.preventDefault();
-                var text = stripHint(e.target.title || button.title);
-                navigator.clipboard.writeText(text).then(function () { showToast('Copied: ' + text); }, function () { showToast('Failed to copy.'); });
-            });
+            button.dataset.puuid = player.puuid;
             var avatar = buildAgentAvatar(player.agentImgLink, player.agent);
             var identity = document.createElement("div");
             identity.className = "player-main";
@@ -931,6 +942,12 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     // ---- wiring ----
+    // Event delegation for player grids
+    els.blueGrid.addEventListener("click", handlePlayerGridClick);
+    els.redGrid.addEventListener("click", handlePlayerGridClick);
+    els.blueGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
+    els.redGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
+
     els.closeDetailsButton.addEventListener("click", function () { state.selectedPuuid = null; render(); });
     els.detailsPanel.addEventListener("click", function (e) { if (e.target === els.detailsPanel) { state.selectedPuuid = null; render(); } });
     window.addEventListener("keydown", function (e) {
