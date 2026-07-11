@@ -107,6 +107,9 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         playedWithEmpty: document.getElementById("playedWithEmpty"),
         playedWithTable: document.getElementById("playedWithTable"),
         playedWithBody: document.getElementById("playedWithBody"),
+        logPanel: document.getElementById("logPanel"),
+        logPre: document.getElementById("logPre"),
+        logInterval: null,
     };
 
     var WEAPON_COLUMNS = [
@@ -821,6 +824,14 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         } else { fallbackCopy(text, done); }
     }
 
+    function renderLogTail() {
+        tauriInvoke("get_gui_log_tail").then(function (text) {
+            els.logPre.textContent = text || "(empty log)";
+        }).catch(function () {
+            els.logPre.textContent = "Failed to fetch log.";
+        });
+    }
+
     function fallbackCopy(text, done) {
         var ta = document.createElement("textarea");
         ta.value = text;
@@ -887,6 +898,16 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         });
     });
     els.screenshotButton.addEventListener("click", takeScreenshot);
+
+    els.logPanel.addEventListener("toggle", function () {
+        if (els.logPanel.open) {
+            renderLogTail();
+            els.logInterval = setInterval(renderLogTail, 1000);
+        } else {
+            clearInterval(els.logInterval);
+            els.logInterval = null;
+        }
+    });
 
     // ---- boot ----
     var cached = null;
