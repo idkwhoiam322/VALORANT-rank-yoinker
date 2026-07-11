@@ -56,6 +56,16 @@ fn resolve_mode_from_map(map_id: &str, payload: &mut HeartbeatPayload) {
     }
 }
 
+fn is_custom_game(private: &serde_json::Value) -> bool {
+    private.get("provisioningFlow").and_then(|v| v.as_str()) == Some("CustomGame")
+        || private
+            .get("partyPresenceData")
+            .and_then(|ppd| ppd.get("partyState"))
+            .and_then(|v| v.as_str())
+            == Some("CUSTOM_GAME_SETUP")
+        || private.get("partyState").and_then(|v| v.as_str()) == Some("CUSTOM_GAME_SETUP")
+}
+
 pub async fn build_heartbeat(
     svc: &AppServices,
     entitlements: &Entitlements,
@@ -85,21 +95,7 @@ pub async fn build_heartbeat(
     if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
         if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
             if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
-                // Check for custom game via provisioningFlow (matches Python behavior)
-                let is_custom = private
-                    .get("provisioningFlow")
-                    .and_then(|v| v.as_str())
-                    == Some("CustomGame")
-                    || private
-                        .get("partyPresenceData")
-                        .and_then(|ppd| ppd.get("partyState"))
-                        .and_then(|v| v.as_str())
-                        == Some("CUSTOM_GAME_SETUP")
-                    || private
-                        .get("partyState")
-                        .and_then(|v| v.as_str())
-                        == Some("CUSTOM_GAME_SETUP");
-                if is_custom {
+                if is_custom_game(&private) {
                     payload.mode = Some("Custom Game".into());
                 } else if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
                     if !qid.is_empty() {
@@ -652,22 +648,7 @@ async fn build_menus_payload(
     let own_presence = crate::services::presences::PresenceService::find_own_presence(&presences, puuid);
     if let Some(own) = own_presence {
         if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
-            // Check for custom game via provisioningFlow or partyState (matching Python behavior)
-            let is_custom = private
-                .get("provisioningFlow")
-                .and_then(|v| v.as_str())
-                == Some("CustomGame")
-                || private
-                    .get("partyPresenceData")
-                    .and_then(|ppd| ppd.get("partyState"))
-                    .and_then(|v| v.as_str())
-                    == Some("CUSTOM_GAME_SETUP")
-                || private
-                    .get("partyState")
-                    .and_then(|v| v.as_str())
-                    == Some("CUSTOM_GAME_SETUP");
-
-            if is_custom {
+            if is_custom_game(&private) {
                 payload.mode = Some("Custom Game".into());
             } else if let Some(qid) =
                 crate::services::presences::PresenceService::extract_queue_id(&private)
