@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::heartbeat::HeartbeatPayload;
+use crate::models::mmr::{PlayerRank, PlayerStats};
 use crate::models::presences::GameState;
 use crate::services::config::ConfigManager;
 use crate::services::encounters::EncounterService;
@@ -42,6 +44,8 @@ pub struct ServiceSnapshot {
     pub previous_season_id: Option<String>,
     pub cooldown: u64,
     pub weapon_name: String,
+    /// Match-scoped cache keyed by PUUID, cleared on MENUS transition.
+    pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
 }
 
 impl ServiceSnapshot {
@@ -54,6 +58,10 @@ impl ServiceSnapshot {
                 let _ = writeln!(f, "{line}");
             }
         }
+    }
+
+    pub fn clear_match_player_cache(&self) {
+        self.match_player_cache.lock().unwrap().clear();
     }
 }
 
@@ -77,6 +85,7 @@ pub struct AppServices {
     pub content: Arc<ContentCache>,
     pub season_id: String,
     pub previous_season_id: Option<String>,
+    pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
 }
 
 impl AppServices {
@@ -111,6 +120,7 @@ impl AppServices {
             content: Arc::new(ContentCache::empty()),
             season_id: String::new(),
             previous_season_id: None,
+            match_player_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -132,6 +142,7 @@ impl AppServices {
             previous_season_id: self.previous_season_id.clone(),
             cooldown: self.config.get().cooldown,
             weapon_name: self.config.get().weapon.clone(),
+            match_player_cache: self.match_player_cache.clone(),
         }
     }
 
@@ -327,6 +338,7 @@ impl MainLoop {
                 if current_state == GameState::MENUS {
                     snap.rank.invalidate_cache();
                     snap.stats.clear_cache();
+                    snap.clear_match_player_cache();
                 }
 
                 if current_state != GameState::DISCONNECTED {

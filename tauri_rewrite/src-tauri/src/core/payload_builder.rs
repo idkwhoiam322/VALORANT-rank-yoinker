@@ -287,22 +287,29 @@ async fn build_ingame_payload(
         };
         let subject_lower = subject.to_lowercase();
 
-        let player_rank = svc
-            .rank
-            .get_rank(
-                entitlements,
-                client_version,
-                &subject,
-                &svc.season_id,
-                svc.previous_season_id.as_deref(),
-                &svc.content,
-            )
-            .await;
-
-        let player_stats = svc
-            .stats
-            .get_stats(entitlements, client_version, &subject)
-            .await;
+        // Check match-scoped cache first (locked scope only for the lookup)
+        let cached = { svc.match_player_cache.lock().unwrap().get(&subject).cloned() };
+        let (player_rank, player_stats) = if let Some(entry) = cached {
+            entry
+        } else {
+            let rank = svc
+                .rank
+                .get_rank(
+                    entitlements,
+                    client_version,
+                    &subject,
+                    &svc.season_id,
+                    svc.previous_season_id.as_deref(),
+                    &svc.content,
+                )
+                .await;
+            let stats = svc
+                .stats
+                .get_stats(entitlements, client_version, &subject)
+                .await;
+            svc.match_player_cache.lock().unwrap().insert(subject.clone(), (rank.clone(), stats.clone()));
+            (rank, stats)
+        };
 
         let previous_rank = player_rank.previous_rank;
 
