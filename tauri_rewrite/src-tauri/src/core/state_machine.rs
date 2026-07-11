@@ -282,6 +282,12 @@ impl MainLoop {
                 }
             };
 
+            // During INGAME steady state: suppress all heartbeat/API processing
+            if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
+                tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
+                continue;
+            }
+
             // State transition: INGAME -> not INGAME => update encounter results
             if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
