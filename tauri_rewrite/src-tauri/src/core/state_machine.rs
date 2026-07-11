@@ -107,6 +107,11 @@ impl MainLoop {
     pub async fn run(&self, app: AppHandle) {
         let services = self.services.clone();
 
+        {
+            let svc = services.read().await;
+            svc.logger.set_app_handle(app.clone());
+        }
+
         loop {
             match self.try_initialize(&app).await {
                 Ok(()) => {

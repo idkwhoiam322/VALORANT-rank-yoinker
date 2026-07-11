@@ -305,6 +305,21 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         tauriListen("backend_ready", function () {
             setStatus("Connected", "live");
         }).then(function (fn) { unlisteners.push(fn); });
+
+        tauriListen("log_update", function (event) {
+            var line = event.payload || "";
+            if (els.loadingLogTail) {
+                var existing = els.loadingLogTail.textContent;
+                var lines = existing ? existing.split("\n") : [];
+                lines.push(line);
+                if (lines.length > 200) lines.splice(0, lines.length - 200);
+                els.loadingLogTail.textContent = lines.join("\n");
+                els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
+            }
+            if (els.logPanel && els.logPanel.open) {
+                renderLogTail();
+            }
+        }).then(function (fn) { unlisteners.push(fn); });
     }
 
     function cleanupTauriListeners() {
@@ -313,28 +328,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     // ---- loading overlay ----
-    var loadingLogPollTimer = null;
-
-    function pollLoadingLogs() {
-        tauriInvoke("get_gui_log_tail").then(function (text) {
-            if (els.loadingLogTail) {
-                var displayText = text || "";
-                if (els.loadingLogTail.textContent !== displayText) {
-                    els.loadingLogTail.textContent = displayText;
-                    els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
-                }
-            }
-        }).catch(function () {});
-    }
-
     function updateLoadingOverlay(cls) {
-        var isLive = cls === "live";
-        els.loadingOverlay.hidden = isLive;
-        if (isLive && loadingLogPollTimer) { clearInterval(loadingLogPollTimer); loadingLogPollTimer = null; return; }
-        if (!isLive && !loadingLogPollTimer) {
-            pollLoadingLogs();
-            loadingLogPollTimer = setInterval(pollLoadingLogs, 1000);
-        }
+        els.loadingOverlay.hidden = cls === "live";
     }
 
     // ---- state / rendering ----

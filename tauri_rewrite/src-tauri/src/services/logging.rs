@@ -5,11 +5,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use chrono::Local;
+use tauri::AppHandle;
+use tauri::Emitter;
 
 pub struct Logger {
     log_path: PathBuf,
     buffer: Mutex<VecDeque<String>>,
     max_buffer: usize,
+    app_handle: Mutex<Option<AppHandle>>,
 }
 
 impl Logger {
@@ -24,6 +27,7 @@ impl Logger {
             log_path,
             buffer: Mutex::new(VecDeque::with_capacity(100)),
             max_buffer: 500,
+            app_handle: Mutex::new(None),
         };
 
         logger.log("Logger initialized");
@@ -71,6 +75,14 @@ impl Logger {
 
         #[cfg(debug_assertions)]
         println!("{}", line);
+
+        if let Some(handle) = self.app_handle.lock().unwrap().as_ref() {
+            let _ = handle.emit("log_update", &line);
+        }
+    }
+
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        *self.app_handle.lock().unwrap() = Some(handle);
     }
 
     pub fn get_tail(&self, count: usize) -> String {
