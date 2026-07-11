@@ -111,12 +111,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         logPre: document.getElementById("logPre"),
         logCopyBtn: document.getElementById("logCopyBtn"),
         logRefreshBtn: document.getElementById("logRefreshBtn"),
-        logInterval: null,
         hbPanel: document.getElementById("hbPanel"),
         hbPre: document.getElementById("hbPre"),
         hbCopyBtn: document.getElementById("hbCopyBtn"),
         hbRefreshBtn: document.getElementById("hbRefreshBtn"),
-        hbInterval: null,
     };
 
     var WEAPON_COLUMNS = [
@@ -944,25 +942,13 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
     els.logPanel.addEventListener("toggle", function () {
-        if (els.logPanel.open) {
-            renderLogTail();
-            els.logInterval = setInterval(renderLogTail, 1000);
-        } else {
-            clearInterval(els.logInterval);
-            els.logInterval = null;
-        }
+        if (els.logPanel.open) renderLogTail();
     });
     els.logCopyBtn.addEventListener("click", function () { copyText(els.logPre.textContent, els.logCopyBtn); });
     els.logRefreshBtn.addEventListener("click", renderLogTail);
 
     els.hbPanel.addEventListener("toggle", function () {
-        if (els.hbPanel.open) {
-            renderHeartbeatTail();
-            els.hbInterval = setInterval(renderHeartbeatTail, 1000);
-        } else {
-            clearInterval(els.hbInterval);
-            els.hbInterval = null;
-        }
+        if (els.hbPanel.open) renderHeartbeatTail();
     });
     els.hbCopyBtn.addEventListener("click", function () { copyText(els.hbPre.textContent, els.hbCopyBtn); });
     els.hbRefreshBtn.addEventListener("click", renderHeartbeatTail);
