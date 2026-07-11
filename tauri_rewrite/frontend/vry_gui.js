@@ -73,6 +73,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         selectedName: document.getElementById("selectedName"),
         trnLink: document.getElementById("trnLink"),
         vtlLink: document.getElementById("vtlLink"),
+        copyStatsBtn: document.getElementById("copyStatsBtn"),
         selectedCardTitle: document.getElementById("selectedCardTitle"),
         selectedModalName: document.getElementById("selectedModalName"),
         selectedLevel: document.getElementById("selectedLevel"),
@@ -666,6 +667,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             els.trnLink.href = trnHref; els.trnLink.title = trnHref + COPY_HINT; els.trnLink.hidden = false;
             els.vtlLink.href = vtlHref; els.vtlLink.title = vtlHref + COPY_HINT; els.vtlLink.hidden = false;
         } else { els.trnLink.hidden = true; els.vtlLink.hidden = true; }
+        els.copyStatsBtn.hidden = false;
         els.selectedCardTitle.textContent = selected.title || "";
         els.selectedCardTitle.hidden = !selected.title;
         els.selectedCardTitle.title = (selected.title || "Title") + COPY_HINT;
@@ -980,6 +982,23 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
     els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); navigator.clipboard.writeText(stripHint(this.title)).then(function () { showToast("Copied."); }, function () { showToast("Failed."); }); });
     els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); navigator.clipboard.writeText(stripHint(this.title)).then(function () { showToast("Copied."); }, function () { showToast("Failed."); }); });
+    els.copyStatsBtn.addEventListener("click", function () {
+        var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
+        if (!p) { showToast("Nothing to copy yet."); return; }
+        var peakStr = rankName(p.peakRank, false);
+        var parts = [
+            "Player Name: " + txt(p.name, "Unknown"),
+            "Win Rate (Comp): " + winRateDisplay(p.winPercentage),
+            "Rank: " + rankName(p.rank, false),
+            "RR: " + txt(p.rr),
+            "Leaderboard: " + (isEmpty(p.leaderboard) || Number(p.leaderboard) <= 0 ? NA : "#" + p.leaderboard),
+            "Peak Rank: " + (peakStr !== NA && p.peakRankAct ? peakStr + String(p.peakRankAct).trim() : peakStr),
+            "Last Act: " + rankName(p.previousRank, false),
+            "Level: " + txt(p.level),
+            "Last Active (Comp): " + txt(p.lastActive),
+        ];
+        navigator.clipboard.writeText(parts.join(" | ")).then(function () { showToast("Copied."); }, function () { showToast("Failed."); });
+    });
     [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(function (el) {
         if (!el) return;
         el.addEventListener("contextmenu", function (e) {

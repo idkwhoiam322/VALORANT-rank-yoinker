@@ -404,6 +404,16 @@
     .trn-link:hover {
         text-decoration: underline;
     }
+    button.trn-link {
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-family: inherit;
+        padding: 0;
+    }
+    button.trn-link.copied {
+        color: #4caf50;
+    }
     /* --- last played with table --- */
     .played-with-empty {
         color: var(--muted);
