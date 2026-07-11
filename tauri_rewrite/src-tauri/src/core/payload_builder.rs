@@ -320,7 +320,6 @@ async fn build_ingame_payload(
             .cloned();
 
         let player_loadout = loadout_json.players.get(&subject_lower);
-        let team = player.team_id.clone();
 
         let heartbeat_player = PlayerHeartbeat {
             puuid: subject.clone(),
@@ -344,7 +343,7 @@ async fn build_ingame_payload(
             agent_img_link: player.character_id.as_ref().map(|cid| {
                 format!("https://media.valorant-api.com/agents/{}/displayicon.png", cid.to_lowercase())
             }),
-            team: team.clone(),
+            team: player.team_id.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
             title: player_loadout.and_then(|p| p.title.clone()),
             title_name: player_loadout.and_then(|p| p.title_name.clone()),
@@ -354,12 +353,10 @@ async fn build_ingame_payload(
             earned_rr: Some(player_stats.ranked_rating_earned),
         };
 
-        payload.players.insert(subject.clone(), heartbeat_player);
-
-        // Save encounters (skip self)
+        // Save encounters before moving subject into the map (skip self)
         if subject_lower != puuid.to_lowercase() {
             let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
-            let team_str = team.clone().unwrap_or_else(|| "Unknown".into());
+            let team_str = player.team_id.clone().unwrap_or_else(|| "Unknown".into());
 
             svc.encounters.save_encounter(&subject, EncounterRecord {
                 name: Some(name.clone()),
@@ -385,6 +382,8 @@ async fn build_ingame_payload(
                 payload.already_played_with.push(entry);
             }
         }
+
+        payload.players.insert(subject, heartbeat_player);
     }
 }
 
@@ -614,9 +613,7 @@ async fn build_pregame_payload(
             earned_rr: None,
         };
 
-        payload
-            .players
-            .insert(subject.clone(), heartbeat_player);
+        payload.players.insert(subject, heartbeat_player);
     }
 }
 
@@ -713,9 +710,7 @@ async fn build_menus_payload(
             earned_rr: None,
         };
 
-        payload
-            .players
-            .insert(subject.clone(), heartbeat_player);
+        payload.players.insert(subject, heartbeat_player);
     }
 
     // Resolve names

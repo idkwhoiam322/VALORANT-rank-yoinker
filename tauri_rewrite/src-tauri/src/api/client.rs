@@ -78,7 +78,7 @@ pub struct ApiClient {
     client: Client,
     pd_url: Mutex<String>,
     glz_url: Mutex<String>,
-    rate_limiters: Mutex<[RateLimiter; 4]>,
+    rate_limiters: [Mutex<RateLimiter>; 4],
     local_password: Mutex<String>,
     local_port: Mutex<u16>,
 }
@@ -95,12 +95,12 @@ impl ApiClient {
             client,
             pd_url: Mutex::new(pd_url),
             glz_url: Mutex::new(glz_url),
-            rate_limiters: Mutex::new([
-                RateLimiter::new(8),  // Pd
-                RateLimiter::new(5),  // Glz
-                RateLimiter::new(20), // Local
-                RateLimiter::new(5),  // Custom
-            ]),
+            rate_limiters: [
+                Mutex::new(RateLimiter::new(8)),  // Pd
+                Mutex::new(RateLimiter::new(5)),  // Glz
+                Mutex::new(RateLimiter::new(20)), // Local
+                Mutex::new(RateLimiter::new(5)),  // Custom
+            ],
             local_password: Mutex::new(String::new()),
             local_port: Mutex::new(0),
         }
@@ -155,12 +155,12 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<reqwest::Method>,
     ) -> Result<Response, ApiError> {
-        let (wait,) = {
-            let mut limiters = self.rate_limiters.lock().unwrap();
-            let idx = Self::limiter_index(url_type);
-            let wait = limiters[idx].check_rate();
-            limiters[idx].record_request();
-            (wait,)
+        let idx = Self::limiter_index(url_type);
+        let wait = {
+            let mut limiter = self.rate_limiters[idx].lock().unwrap();
+            let wait = limiter.check_rate();
+            limiter.record_request();
+            wait
         };
         if let Some(delay) = wait {
             tokio::time::sleep(delay).await;
@@ -261,12 +261,12 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         // Use Custom rate limiter slot (5 req/s) for valorant-api.com
         {
-            let (wait,) = {
-                let mut limiters = self.rate_limiters.lock().unwrap();
-                let idx = Self::limiter_index(UrlType::Custom);
-                let wait = limiters[idx].check_rate();
-                limiters[idx].record_request();
-                (wait,)
+            let idx = Self::limiter_index(UrlType::Custom);
+            let wait = {
+                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let wait = limiter.check_rate();
+                limiter.record_request();
+                wait
             };
             if let Some(delay) = wait {
                 tokio::time::sleep(delay).await;
