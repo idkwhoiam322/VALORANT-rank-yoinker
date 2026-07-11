@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
 use crate::api::auth;
-use crate::api::client::ApiClient;
+use crate::api::client::{ApiClient, UrlType};
 use crate::api::content::fetch_all_content;
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
@@ -23,21 +23,58 @@ use crate::services::presences::PresenceService;
 use crate::services::rank::RankService;
 use crate::services::stats::StatsService;
 
+// ---------------------------------------------------------------------------
+// Snapshot of all services & session data extracted from the RwLock so the
+// main loop can drop the guard before making HTTP calls.
+// ---------------------------------------------------------------------------
+pub struct ServiceSnapshot {
+    pub logger: Arc<Logger>,
+    pub client: Arc<ApiClient>,
+    pub presences: Arc<PresenceService>,
+    pub rank: Arc<RankService>,
+    pub stats: Arc<StatsService>,
+    pub names: Arc<NamesService>,
+    pub loadouts: Arc<LoadoutService>,
+    pub encounters: Arc<EncounterService>,
+    pub heartbeat_log_path: std::path::PathBuf,
+    pub content: Arc<ContentCache>,
+    pub season_id: String,
+    pub previous_season_id: Option<String>,
+    pub cooldown: u64,
+    pub weapon_name: String,
+}
+
+impl ServiceSnapshot {
+    pub fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
+        use std::io::Write;
+        if let Ok(line) = serde_json::to_string(heartbeat) {
+            if let Ok(mut f) = fs::OpenOptions::new()
+                .append(true).create(true).open(&self.heartbeat_log_path)
+            {
+                let _ = writeln!(f, "{line}");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AppServices – session state behind a RwLock so initialisation can mutate.
+// ---------------------------------------------------------------------------
 pub struct AppServices {
-    pub logger: Logger,
+    pub logger: Arc<Logger>,
     pub config: ConfigManager,
     pub client: Arc<ApiClient>,
-    pub presences: PresenceService,
-    pub rank: RankService,
-    pub stats: StatsService,
-    pub names: NamesService,
-    pub loadouts: LoadoutService,
-    pub encounters: EncounterService,
+    pub presences: Arc<PresenceService>,
+    pub rank: Arc<RankService>,
+    pub stats: Arc<StatsService>,
+    pub names: Arc<NamesService>,
+    pub loadouts: Arc<LoadoutService>,
+    pub encounters: Arc<EncounterService>,
     pub heartbeat_log_path: std::path::PathBuf,
     pub entitlements: Option<Entitlements>,
     pub client_version: String,
     pub puuid: String,
-    pub content: ContentCache,
+    pub content: Arc<ContentCache>,
     pub season_id: String,
     pub previous_season_id: Option<String>,
 }
@@ -45,17 +82,16 @@ pub struct AppServices {
 impl AppServices {
     pub fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
         let client = Arc::new(client);
-        let logger = Logger::new(root.clone());
+        let logger = Arc::new(Logger::new(root.clone()));
         let config = ConfigManager::new(root.clone());
-        let encounters = EncounterService::new(root.clone());
-        let presences = PresenceService::new(client.clone());
-        let rank = RankService::new(client.clone());
-        let stats = StatsService::new(client.clone());
-        let names = NamesService::new(client.clone());
-        let loadouts = LoadoutService::new(client.clone());
+        let encounters = Arc::new(EncounterService::new(root.clone()));
+        let presences = Arc::new(PresenceService::new(client.clone()));
+        let rank = Arc::new(RankService::new(client.clone()));
+        let stats = Arc::new(StatsService::new(client.clone()));
+        let names = Arc::new(NamesService::new(client.clone()));
+        let loadouts = Arc::new(LoadoutService::new(client.clone()));
 
         let heartbeat_log_path = root.join("logs").join("heartbeat.jsonl");
-        // Truncate to start fresh each session
         let _ = fs::File::create(&heartbeat_log_path);
 
         Self {
@@ -72,23 +108,35 @@ impl AppServices {
             entitlements: None,
             client_version: String::new(),
             puuid: String::new(),
-            content: ContentCache::empty(),
+            content: Arc::new(ContentCache::empty()),
             season_id: String::new(),
             previous_season_id: None,
         }
     }
 
-    pub fn log(&self, msg: &str) {
-        self.logger.log(msg);
+    /// Clone the services + scalars needed during the main loop so the caller
+    /// can drop the RwLock guard before making any HTTP requests.
+    pub fn snapshot(&self) -> ServiceSnapshot {
+        ServiceSnapshot {
+            logger: self.logger.clone(),
+            client: self.client.clone(),
+            presences: self.presences.clone(),
+            rank: self.rank.clone(),
+            stats: self.stats.clone(),
+            names: self.names.clone(),
+            loadouts: self.loadouts.clone(),
+            encounters: self.encounters.clone(),
+            heartbeat_log_path: self.heartbeat_log_path.clone(),
+            content: self.content.clone(),
+            season_id: self.season_id.clone(),
+            previous_season_id: self.previous_season_id.clone(),
+            cooldown: self.config.get().cooldown,
+            weapon_name: self.config.get().weapon.clone(),
+        }
     }
 
-    pub fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
-        use std::io::Write;
-        if let Ok(line) = serde_json::to_string(heartbeat) {
-            if let Ok(mut f) = fs::OpenOptions::new().append(true).create(true).open(&self.heartbeat_log_path) {
-                let _ = writeln!(f, "{}", line);
-            }
-        }
+    pub fn log(&self, msg: &str) {
+        self.logger.log(msg);
     }
 }
 
@@ -117,12 +165,12 @@ impl MainLoop {
                 Ok(()) => {
                     if let Err(e) = self.run_main_loop(&app).await {
                         let svc = services.read().await;
-                        svc.log(&format!("Main loop error: {}, reconnecting...", e));
+                        svc.log(&format!("Main loop error: {e}, reconnecting..."));
                     }
                 }
                 Err(e) => {
                     let svc = services.read().await;
-                    svc.log(&format!("Init error: {}, retrying in 5s...", e));
+                    svc.log(&format!("Init error: {e}, retrying in 5s..."));
                     drop(svc);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                 }
@@ -141,19 +189,19 @@ impl MainLoop {
             return Err("Lockfile not found. Is Riot Client running?".into());
         }
         let lockfile = auth::parse_lockfile(&lockfile_path)
-            .map_err(|e| format!("Lockfile parse: {}", e))?;
+            .map_err(|e| format!("Lockfile parse: {e}"))?;
 
         // 2. Read region from logs
         let log_path = auth::get_log_path();
         let region = auth::parse_region_from_logs(&log_path)
-            .map_err(|e| format!("Region parse: {}", e))?;
+            .map_err(|e| format!("Region parse: {e}"))?;
 
         // 3. Update API URLs
         svc.client.update_urls(region.pd_url(), region.glz_url());
 
         // 4. Authenticate
         let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile).await
-            .map_err(|e| format!("Auth: {}", e))?;
+            .map_err(|e| format!("Auth: {e}"))?;
         svc.log(&format!("Authenticated as {}", entitlements.subject));
         svc.entitlements = Some(entitlements.clone());
         svc.client_version = client_version.clone();
@@ -165,7 +213,7 @@ impl MainLoop {
         // 6. Fetch all game content (cached for session)
         let (content, season_id, previous_season_id) =
             fetch_all_content(&svc.client, &region.shard, &entitlements, &client_version).await;
-        svc.content = content;
+        svc.content = Arc::new(content);
         svc.season_id = season_id;
         svc.previous_season_id = previous_season_id;
         svc.log("Content cache initialized");
@@ -185,34 +233,39 @@ impl MainLoop {
         let mut match_context: Option<(String, String)> = None;
 
         loop {
-            let svc = services.read().await;
+            // --- Snapshot phase: briefly hold read lock, then drop ---
+            let (snap, entitlements, cv, puuid) = {
+                let svc = services.read().await;
 
-            let entitlements = match &svc.entitlements {
-                Some(e) => e.clone(),
-                None => {
-                    drop(svc);
-                    return Err("Entitlements cleared — re-initializing".into());
-                }
+                let entitlements = match &svc.entitlements {
+                    Some(e) => e.clone(),
+                    None => {
+                        drop(svc);
+                        return Err("Entitlements cleared — re-initializing".into());
+                    }
+                };
+                let cv = svc.client_version.clone();
+                let puuid = svc.puuid.clone();
+                let snap = svc.snapshot();
+
+                (snap, entitlements, cv, puuid)
             };
-            let cv = svc.client_version.clone();
-            let puuid = svc.puuid.clone();
-            let cooldown = svc.config.get().cooldown;
+            // RwLock guard is dropped here – all processing below happens
+            // without holding it, allowing concurrent writes (e.g. re-init).
 
             // Poll game state
-            let current_state = match svc.presences.detect_game_state_from_poll(
+            let current_state = match snap.presences.detect_game_state_from_poll(
                 &entitlements,
                 &cv,
                 &puuid,
             ).await {
                 (Some(s), _) => s,
                 (None, Some(reason)) => {
-                    svc.log(&reason);
-                    drop(svc);
+                    snap.logger.log(&reason);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
                 (None, None) => {
-                    drop(svc);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -221,12 +274,11 @@ impl MainLoop {
             // State transition: INGAME -> not INGAME => update encounter results
             if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
-                    svc.log(&format!("Match ended: {} team {}", match_id, my_team));
-                    // Fetch match details to get winning team
+                    snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
                     let headers = entitlements.build_headers(&cv);
-                    if let Ok(resp) = svc.client.fetch(
-                        crate::api::client::UrlType::Pd,
-                        &format!("/match-details/v1/matches/{}", match_id),
+                    if let Ok(resp) = snap.client.fetch(
+                        UrlType::Pd,
+                        &format!("/match-details/v1/matches/{match_id}"),
                         &headers,
                         None,
                     ).await {
@@ -250,13 +302,13 @@ impl MainLoop {
                                     if teams.len() < 2 { return None; }
                                     let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
                                     let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
-                                    Some(format!("{}-{}", t0, t1))
+                                    Some(format!("{t0}-{t1}"))
                                 })();
                                 if let Some(winning_team) = winning_team {
-                                    svc.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
-                                    svc.log(&format!("Updated encounter results: winning_team={}, score={}", winning_team, score.as_deref().unwrap_or("unknown")));
+                                    snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
+                                    snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
                                 } else {
-                                    svc.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                                    snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
                                 }
                             }
                         }
@@ -266,33 +318,32 @@ impl MainLoop {
 
             // State changed or first run
             if last_state != Some(current_state) {
-                svc.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
+                snap.logger.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
                 let _ = app.emit("state_change", serde_json::json!({
                     "state": current_state.as_str(),
                 }));
 
                 // Invalidate caches on MENUS
                 if current_state == GameState::MENUS {
-                    svc.rank.invalidate_cache();
-                    svc.stats.clear_cache();
+                    snap.rank.invalidate_cache();
+                    snap.stats.clear_cache();
                 }
 
                 if current_state != GameState::DISCONNECTED {
-                    // Fetch data and build heartbeat
                     let mut heartbeat = build_heartbeat(
-                        &svc, &entitlements, &cv, &puuid, current_state,
+                        &snap, &entitlements, &cv, &puuid, current_state,
                     )
                     .await;
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {
                         heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
-                        svc.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
+                        snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
                             heartbeat.version,
                             heartbeat.state,
                             heartbeat.mode.as_deref().unwrap_or("unknown"),
                             heartbeat.map.as_deref().unwrap_or("unknown")));
-                        svc.log_heartbeat(&heartbeat);
+                        snap.log_heartbeat(&heartbeat);
                         let _ = app.emit("heartbeat", &heartbeat);
                         last_heartbeat_key = Some(key);
                     }
@@ -301,7 +352,7 @@ impl MainLoop {
                 // Save match context for INGAME so we can update encounter results on transition
                 if current_state == GameState::INGAME {
                     if let Some(ctx) = crate::core::payload_builder::get_match_context(
-                        &svc, &entitlements, &cv, &puuid, current_state,
+                        &snap, &entitlements, &cv, &puuid, current_state,
                     ).await {
                         match_context = Some(ctx);
                     }
@@ -310,8 +361,7 @@ impl MainLoop {
                 last_state = Some(current_state);
             }
 
-            drop(svc);
-            tokio::time::sleep(Duration::from_secs(cooldown)).await;
+            tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
         }
     }
 }

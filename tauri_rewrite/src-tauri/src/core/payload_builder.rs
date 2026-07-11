@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::state_machine::AppServices;
+use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
 use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
 use crate::models::match_data::CoregamePlayer;
@@ -32,7 +32,7 @@ async fn resolve_mode_from_queue_id(match_data: &serde_json::Value, payload: &mu
 }
 
 async fn resolve_mode_from_presence(
-    svc: &AppServices, entitlements: &Entitlements,
+    svc: &ServiceSnapshot, entitlements: &Entitlements,
     client_version: &str, puuid: &str,
     payload: &mut HeartbeatPayload,
 ) {
@@ -67,7 +67,7 @@ fn is_custom_game(private: &serde_json::Value) -> bool {
 }
 
 pub async fn build_heartbeat(
-    svc: &AppServices,
+    svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,
@@ -127,7 +127,7 @@ pub async fn build_heartbeat(
 /// Fetches the match data to find the player's team (matches Python's approach
 /// of iterating Players array to find self's TeamID).
 pub async fn get_match_context(
-    svc: &AppServices,
+    svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,
@@ -178,7 +178,7 @@ pub async fn get_match_context(
 }
 
 async fn build_ingame_payload(
-    svc: &AppServices,
+    svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,
@@ -265,7 +265,6 @@ async fn build_ingame_payload(
         .and_then(|p| p.team_id.as_deref());
 
     // Get loadouts
-    let weapon_name = &svc.config.get().weapon;
     let (_weapon_lists, loadout_json) = svc
         .loadouts
         .get_match_loadouts(
@@ -273,7 +272,7 @@ async fn build_ingame_payload(
             client_version,
             &match_id,
             &players,
-            weapon_name,
+            &svc.weapon_name,
             &svc.content,
             &names,
             "game",
@@ -391,7 +390,7 @@ async fn build_ingame_payload(
 }
 
 async fn build_pregame_payload(
-    svc: &AppServices,
+    svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,
@@ -537,7 +536,6 @@ async fn build_pregame_payload(
         .unwrap_or_default();
 
     // Build loadout_json from saved response (no second HTTP call)
-    let cfg_weapon = svc.config.get().weapon.clone();
     let loadout_json = if let Some(ref text) = saved_loadouts_text {
         if let Ok(structured) =
             serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
@@ -545,7 +543,7 @@ async fn build_pregame_payload(
             let (_wl, lj) = svc.loadouts.build_loadout_json(
                 &structured,
                 &players,
-                &cfg_weapon,
+                &svc.weapon_name,
                 &svc.content,
                 &names,
             );
@@ -632,7 +630,7 @@ async fn build_pregame_payload(
 }
 
 async fn build_menus_payload(
-    svc: &AppServices,
+    svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,

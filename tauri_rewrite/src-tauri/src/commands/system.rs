@@ -18,7 +18,7 @@ pub async fn restart_application(
     svc.entitlements = None;
     svc.client_version = String::new();
     svc.puuid = String::new();
-    svc.content = crate::models::content::ContentCache::empty();
+    svc.content = Arc::new(crate::models::content::ContentCache::empty());
     svc.season_id = String::new();
     svc.previous_season_id = None;
     svc.rank.invalidate_cache();
