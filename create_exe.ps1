@@ -6,14 +6,17 @@
     Equivalent to:
         cd tauri_rewrite\src-tauri
         cargo build --release
-    with sanity checks (cargo on PATH) and clearer output, plus an optional
-    -Clean switch to cargo clean first.
+    with sanity checks and cleaner output.
 
     Before building, force-stops any running vry-rust.exe process(es) -- a
     stale process can hold the exe file open, causing a linker "Access denied".
 
 .PARAMETER Clean
     Run cargo clean before building (removes tauri_rewrite\src-tauri\target\).
+
+.PARAMETER Release
+    Build with maximum performance optimizations (LTO, opt-level 3, etc.)
+    instead of the fast dev build. Takes longer but produces a faster binary.
 
 .PARAMETER NoRestart
     Skip auto-restart even if vry-rust.exe was running before the build.
@@ -22,14 +25,15 @@
     Always start vry-rust.exe after building, regardless of whether it was running.
 
 .EXAMPLE
-    .\create_exe.ps1
-.EXAMPLE
+    .\create_exe.ps1              # fast dev build
+    .\create_exe.ps1 -Release     # max perf build (takes longer)
     .\create_exe.ps1 -Clean
 #>
 
 [CmdletBinding()]
 param(
     [switch]$Clean,
+    [switch]$Release,
     [switch]$NoRestart,
     [switch]$Start
 )
@@ -85,31 +89,68 @@ if (-not $cargo) {
 }
 cargo --version
 
-if ($Clean) {
-    Write-Step "Cleaning old build artifacts (cargo clean)"
+# ── profile management ─────────────────────────────────────────────
+$CargoToml = Resolve-Path ".\tauri_rewrite\src-tauri\Cargo.toml"
+$DevProfile = @"
+[profile.release]
+opt-level = 0
+"@
+$ReleaseProfile = @"
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+"@
+
+$profileLabel = if ($Release) { "release" } else { "dev" }
+
+# Strip any existing [profile.release] section so we can replace it
+$ctText = [IO.File]::ReadAllText($CargoToml)
+$beforeProfile = $ctText -replace '(?s)\[profile\.release\].*', ''
+$beforeProfile = $beforeProfile.TrimEnd() + "`r`n`r`n"
+function Set-ReleaseProfile($content) {
+    $beforeProfile + $content | Set-Content -NoNewline $CargoToml
+}
+
+try {
+    if ($Release) {
+        Write-Step "Switching to release profile (max perf)"
+        Set-ReleaseProfile $ReleaseProfile
+    }
+
+    if ($Clean) {
+        Write-Step "Cleaning old build artifacts (cargo clean)"
+        Push-Location -Path ".\tauri_rewrite\src-tauri"
+        cargo clean
+        Pop-Location
+    }
+
+    Write-Step "Building vry-rust.exe"
     Push-Location -Path ".\tauri_rewrite\src-tauri"
-    cargo clean
+    cargo build --release
+    if ($LASTEXITCODE -ne 0) {
+        Pop-Location
+        Fail "cargo build failed -- see output above."
+    }
     Pop-Location
-}
 
-Write-Step "Building vry-rust.exe (cargo build --release)"
-Push-Location -Path ".\tauri_rewrite\src-tauri"
-cargo build --release
-if ($LASTEXITCODE -ne 0) {
-    Pop-Location
-    Fail "cargo build failed -- see output above."
-}
-Pop-Location
+    $exePath = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\target\release\vry-rust.exe"
+    if (-not (Test-Path $exePath)) {
+        Fail "Build finished but $exePath wasn't produced. Check the cargo output above."
+    }
 
-$exePath = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\target\release\vry-rust.exe"
-if (-not (Test-Path $exePath)) {
-    Fail "Build finished but $exePath wasn't produced. Check the cargo output above."
-}
+    if ($Start -or ($wasRunning -and -not $NoRestart)) {
+        Write-Step "Re-launching vry-rust.exe (was running before build)"
+        Start-Process -FilePath $exePath
+    }
 
-if ($Start -or ($wasRunning -and -not $NoRestart)) {
-    Write-Step "Re-launching vry-rust.exe (was running before build)"
-    Start-Process -FilePath $exePath
+    Write-Step "Done"
+    Write-Host "Built: $exePath ($profileLabel)" -ForegroundColor Green
 }
-
-Write-Step "Done"
-Write-Host "Built: $exePath" -ForegroundColor Green
+finally {
+    if ($Release) {
+        Write-Step "Restoring dev profile"
+        Set-ReleaseProfile $DevProfile
+    }
+}
