@@ -786,6 +786,21 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function renderPlayedWith() {
         var payload = state.payload;
         var entries = (payload && Array.isArray(payload.alreadyPlayedWith)) ? payload.alreadyPlayedWith : [];
+
+        // Only show players currently in this lobby/game
+        var currentPlayerNames = {};
+        if (payload && payload.players) {
+            var myPuuid = payload.puuid;
+            Object.keys(payload.players).forEach(function (puuid) {
+                if (puuid !== myPuuid && payload.players[puuid].name) {
+                    currentPlayerNames[payload.players[puuid].name] = true;
+                }
+            });
+        }
+        entries = entries.filter(function (entry) {
+            return currentPlayerNames[entry.name] === true;
+        });
+
         els.playedWithEmpty.hidden = entries.length > 0;
         els.playedWithTable.hidden = entries.length === 0;
         if (!entries.length) return;
