@@ -385,7 +385,23 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     var STATE_CLASSES = { INGAME: "state-ingame", PREGAME: "state-pregame", MENUS: "state-menus", DISCONNECTED: "state-disconnected" };
 
     function renderStateTransition(newState) {
-        // Clear old payload so stale data isn't shown
+        // When going from pregame to in-game, keep the existing UI visible
+        // (same players, only stats update). For all other transitions, clear
+        // everything and show a loading state.
+        var isPregameToIngame = (state.lastGameState === "PREGAME" && newState === "INGAME");
+        if (isPregameToIngame) {
+            state.lastRenderKey = null; // Ensure next heartbeat triggers a re-render
+            var label = STATE_LABELS[newState] || newState || "Unknown";
+            els.matchMeta.replaceChildren();
+            var chip = document.createElement("span");
+            chip.className = "meta-chip";
+            var spinner = document.createElement("span");
+            spinner.className = "meta-spinner";
+            chip.append(spinner, document.createTextNode("Loading " + label + " Data\u2026"));
+            els.matchMeta.append(chip);
+            return;
+        }
+        // Original clearing behavior for all other transitions
         state.payload = null;
         state.lastRenderKey = null;
         state.players = [];
