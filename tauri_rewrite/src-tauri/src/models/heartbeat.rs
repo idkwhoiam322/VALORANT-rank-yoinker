@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatPayload {
@@ -16,7 +17,7 @@ pub struct HeartbeatPayload {
     pub server: Option<String>,
     pub players: HashMap<String, PlayerHeartbeat>,
     #[serde(default, rename = "rankIcons")]
-    pub rank_icons: Vec<Option<String>>,
+    pub rank_icons: Arc<Vec<Option<String>>>,
     #[serde(default, rename = "alreadyPlayedWith")]
     pub already_played_with: Vec<EncounterEntry>,
 }

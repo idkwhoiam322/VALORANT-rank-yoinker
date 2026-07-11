@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::models::content::*;
 
@@ -204,12 +206,14 @@ async fn fetch_competitive_tiers(client: &ApiClient, cache: &mut ContentCache) -
         client.fetch_valorant_api("competitivetiers").await?;
     if let Some(latest) = resp.data.last() {
         cache.competitive_tiers = latest.tiers.clone();
+        let mut icons = Vec::new();
         for tier in &latest.tiers {
-            if tier.tier as usize >= cache.rank_icons.len() {
-                cache.rank_icons.resize(tier.tier as usize + 1, None);
+            if tier.tier as usize >= icons.len() {
+                icons.resize(tier.tier as usize + 1, None);
             }
-            cache.rank_icons[tier.tier as usize] = tier.small_icon.clone();
+            icons[tier.tier as usize] = tier.small_icon.clone();
         }
+        cache.rank_icons = Arc::new(icons);
     }
     Ok(())
 }

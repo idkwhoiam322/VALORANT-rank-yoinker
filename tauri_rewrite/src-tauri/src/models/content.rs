@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValorantApiResponse<T> {
@@ -195,7 +196,7 @@ pub struct ContentCache {
     pub player_titles: HashMap<String, PlayerTitle>,
     pub player_cards: HashMap<String, PlayerCard>,
     pub competitive_tiers: Vec<Tier>,
-    pub rank_icons: Vec<Option<String>>,
+    pub rank_icons: Arc<Vec<Option<String>>>,
     pub agent_uuids: HashMap<String, String>,
     pub seasons: Vec<Season>,
 }
@@ -214,7 +215,7 @@ impl ContentCache {
             player_titles: HashMap::new(),
             player_cards: HashMap::new(),
             competitive_tiers: Vec::new(),
-            rank_icons: Vec::new(),
+            rank_icons: Arc::new(Vec::new()),
             agent_uuids: HashMap::new(),
             seasons: Vec::new(),
         }
