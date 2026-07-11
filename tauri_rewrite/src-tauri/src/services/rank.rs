@@ -105,7 +105,7 @@ impl RankService {
                                         tier_val += 3;
                                     }
                                     if tier_val > max_rank {
-                                        eprintln!("rank: peak update sid={:.12} tier={} before={} max_season={:.12}", &sid[..12.min(sid.len())], tier_val, before, &max_season_id[..12.min(max_season_id.len())]);
+                                        log::debug!("rank: peak update sid={:.12} tier={} before={} max_season={:.12}", &sid[..12.min(sid.len())], tier_val, before, &max_season_id[..12.min(max_season_id.len())]);
                                         max_rank = tier_val;
                                         max_season_id = sid.clone();
                                     }

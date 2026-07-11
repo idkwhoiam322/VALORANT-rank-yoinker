@@ -178,7 +178,7 @@ async fn build_ingame_payload(
         )
         .await;
 
-    let match_data = match match_resp {
+    let mut match_data = match match_resp {
         Ok(resp) => {
             let text = resp.text().await.unwrap_or_default();
             serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()
@@ -243,8 +243,8 @@ async fn build_ingame_payload(
         }
     }
 
-    // Parse players
-    let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].clone())
+    // Parse players (take ownership of Players to avoid clone)
+    let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].take())
     {
         Ok(p) => p,
         Err(_) => return,
@@ -281,12 +281,12 @@ async fn build_ingame_payload(
         .await
         .unwrap_or_default();
 
-    #[cfg(debug_assertions)]
-    println!("payload: loadout_json has {} players, {} total match players",
-        loadout_json.players.len(), players.len());
-
     for player in &players {
-        let subject = player.subject.clone().unwrap_or_default();
+        let subject = match player.subject.as_ref() {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+        let subject_lower = subject.to_lowercase();
 
         let player_rank = svc
             .rank
@@ -321,7 +321,7 @@ async fn build_ingame_payload(
             .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
             .cloned();
 
-        let player_loadout = loadout_json.players.get(&subject.to_lowercase());
+        let player_loadout = loadout_json.players.get(&subject_lower);
 
         let heartbeat_player = PlayerHeartbeat {
             puuid: subject.clone(),
@@ -352,12 +352,10 @@ async fn build_ingame_payload(
             player_card: player_loadout.and_then(|p| p.player_card.clone()),
             player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
             weapons: player_loadout.and_then(|p| p.weapons.clone()),
-            earned_rr: Some(player_stats.ranked_rating_earned.clone()),
+            earned_rr: Some(player_stats.ranked_rating_earned),
         };
 
-        payload
-            .players
-            .insert(subject.clone(), heartbeat_player);
+        payload.players.insert(subject, heartbeat_player);
     }
 
     // Save encounters and populate already_played_with

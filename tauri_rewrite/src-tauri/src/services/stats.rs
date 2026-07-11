@@ -49,17 +49,17 @@ impl StatsService {
         {
             Ok(u) => u,
                 Err(_e) => {
-                eprintln!("stats: competitive updates failed for {}: {_e:?}", &puuid[..8]);
+                log::debug!("stats: competitive updates failed for {}: {_e:?}", &puuid[..8]);
                 return PlayerStats::default_stats();
             },
         };
 
-        eprintln!("stats: got {} updates for {}", updates.matches.len(), &puuid[..8]);
+        log::debug!("stats: got {} updates for {}", updates.matches.len(), &puuid[..8]);
 
         let match_summary = match updates.matches.first() {
             Some(m) => m,
             None => {
-                eprintln!("stats: no matches for {}", &puuid[..8]);
+                log::debug!("stats: no matches for {}", &puuid[..8]);
                 return PlayerStats::default_stats();
             },
         };
@@ -67,12 +67,12 @@ impl StatsService {
         let match_id = match &match_summary.match_id {
             Some(id) => id.clone(),
             None => {
-                eprintln!("stats: match_id is None for {}", &puuid[..8]);
+                log::debug!("stats: match_id is None for {}", &puuid[..8]);
                 return PlayerStats::default_stats();
             },
         };
 
-        eprintln!("stats: match_id={}", &match_id[..8.min(match_id.len())]);
+        log::debug!("stats: match_id={}", &match_id[..8.min(match_id.len())]);
 
         // Fetch match details (cached)
         let match_data_opt = {
@@ -94,14 +94,14 @@ impl StatsService {
                     .await
                 {
                     Ok(data) => {
-                        eprintln!("stats: match details fetched ok, {} players, {} rounds",
+                        log::debug!("stats: match details fetched ok, {} players, {} rounds",
                             data.players.len(), data.round_results.len());
                         let mut cache = self.match_details_cache.lock().unwrap();
                         cache.insert(match_id.clone(), data.clone());
                         Some(data)
                     }
                     Err(e) => {
-                        eprintln!("stats: match details fetch failed for {}: {e:?}", &match_id[..8]);
+                        log::debug!("stats: match details fetch failed for {}: {e:?}", &match_id[..8]);
                         None
                     },
                 }
