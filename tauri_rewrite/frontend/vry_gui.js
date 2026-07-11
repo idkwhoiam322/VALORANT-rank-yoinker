@@ -980,8 +980,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.confirmModal.addEventListener("click", function (e) { if (e.target === els.confirmModal) closeModal(); });
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
     els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
-    els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); navigator.clipboard.writeText(stripHint(this.title)).then(function () { showToast("Copied."); }, function () { showToast("Failed."); }); });
-    els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); navigator.clipboard.writeText(stripHint(this.title)).then(function () { showToast("Copied."); }, function () { showToast("Failed."); }); });
+    els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
+    els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
     els.copyStatsBtn.addEventListener("click", function () {
         var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
         if (!p) { showToast("Nothing to copy yet."); return; }
@@ -997,7 +997,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             "Level: " + txt(p.level),
             "Last Active (Comp): " + txt(p.lastActive),
         ];
-        navigator.clipboard.writeText(parts.join(" | ")).then(function () { showToast("Copied."); }, function () { showToast("Failed."); });
+        navigator.clipboard.writeText(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }, function () { showToast("Failed."); });
     });
     [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(function (el) {
         if (!el) return;
