@@ -213,6 +213,15 @@ impl LoadoutService {
                                     }
                                 }
                             }
+
+                            // Track the selected weapon for the preview list (reuse weapon_data)
+                            if weapon_data.display_name.to_lowercase() == weapon_name.to_lowercase() {
+                                if let Some(ref sid) = skin_id {
+                                    if let Some(skin) = content.skins_by_uuid.get(&sid.to_lowercase()) {
+                                        weapon_lists.insert(subject.clone(), skin.display_name.clone());
+                                    }
+                                }
+                            }
                         } else {
                             // Weapon not in content cache — use UUID as fallback name
                             // and construct display icon from known URL pattern
@@ -226,17 +235,6 @@ impl LoadoutService {
                         }
 
                         weapons.insert(weapon_uuid_lower.clone(), entry);
-
-                        // Track the selected weapon for the preview list
-                        if let Some(weapon_data) = content.weapons.get(&weapon_uuid_lower) {
-                            if weapon_data.display_name.to_lowercase() == weapon_name.to_lowercase() {
-                                if let Some(ref sid) = skin_id {
-                                    if let Some(skin) = content.skins_by_uuid.get(&sid.to_lowercase()) {
-                                        weapon_lists.insert(subject.clone(), skin.display_name.clone());
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
                 player_data.weapons = Some(weapons);

@@ -245,7 +245,8 @@ async fn fetch_seasons(
 
         let mut current_start_time = String::new();
         for season in seasons {
-            if season["IsActive"] == true && season["Type"] == "act" {
+            if season["Type"] != "act" { continue; }
+            if season["IsActive"] == true {
                 current_season_id = season["ID"].as_str().unwrap_or("").to_string();
                 current_start_time = season["StartTime"].as_str().unwrap_or("").to_string();
             }
@@ -256,6 +257,7 @@ async fn fetch_seasons(
                     && season["EndTime"].as_str().unwrap_or("") == current_start_time
                 {
                     previous_season_id = season["ID"].as_str().map(|s| s.to_string());
+                    break;
                 }
             }
         }

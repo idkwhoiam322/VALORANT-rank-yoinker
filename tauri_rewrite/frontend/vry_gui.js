@@ -115,6 +115,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         hbPre: document.getElementById("hbPre"),
         hbCopyBtn: document.getElementById("hbCopyBtn"),
         hbRefreshBtn: document.getElementById("hbRefreshBtn"),
+        teamsLayout: document.querySelector(".teams-layout"),
+        metaUpdatedChip: null,
     };
 
     var WEAPON_COLUMNS = [
@@ -243,7 +245,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function takeScreenshot() {
         if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
         els.screenshotButton.disabled = true;
-        var target = document.querySelector(".teams-layout");
+        var target = els.teamsLayout;
         if (!target) { showToast("No teams layout found."); els.screenshotButton.disabled = false; return; }
         var cleanup = [];
         function suppressOverlays() {
@@ -316,8 +318,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function pollLoadingLogs() {
         tauriInvoke("get_gui_log_tail").then(function (text) {
             if (els.loadingLogTail) {
-                els.loadingLogTail.textContent = text || "";
-                els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
+                var displayText = text || "";
+                if (els.loadingLogTail.textContent !== displayText) {
+                    els.loadingLogTail.textContent = displayText;
+                    els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
+                }
             }
         }).catch(function () {});
     }
@@ -339,7 +344,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function bumpTimestampOnly(payload) {
         if (!payload || !payload.time) return;
-        var chip = document.getElementById("metaUpdatedChip");
+        var chip = els.metaUpdatedChip;
         if (chip) chip.textContent = "Updated " + new Date(payload.time * 1000).toLocaleTimeString();
     }
 
@@ -363,6 +368,9 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             var p = rawPlayers[puuid] || {};
             p.puuid = p.puuid || puuid;
             p.isSelf = !!(myPuuid && p.puuid === myPuuid);
+            p._weaponMap = {};
+            var w = p.weapons || {};
+            Object.keys(w).forEach(function (key) { var entry = w[key]; if (entry && entry.weapon) p._weaponMap[entry.weapon] = entry; });
             return p;
         }).filter(function (p) { return p.name || p.agent || p.weapons; }).sort(function (a, b) {
             // Self first
@@ -430,7 +438,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         els.defSection.hidden = false;
         els.atkSection.hidden = true;
         els.teamDivider.hidden = true;
-        document.querySelector(".teams-layout").classList.add("is-unified");
+        els.teamsLayout.classList.add("is-unified");
         var loadMsg = document.createElement("div");
         loadMsg.className = "loading-grid-message";
         var loadSpinner = document.createElement("span");
@@ -468,7 +476,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function appendMetaChip(text, cls, id) {
         var chip = document.createElement("span");
         chip.className = "meta-chip" + (cls ? " " + cls : "");
-        if (id) chip.id = id;
+        if (id) {
+            chip.id = id;
+            if (id === "metaUpdatedChip") els.metaUpdatedChip = chip;
+        }
         chip.textContent = text;
         els.matchMeta.append(chip);
     }
@@ -485,6 +496,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             return;
         }
         var selfTeam = myTeam(state.payload);
+        var blueFrag = document.createDocumentFragment();
+        var redFrag = document.createDocumentFragment();
         state.players.forEach(function (player) {
             var button = document.createElement("button");
             button.type = "button";
@@ -528,11 +541,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             if (youBadge) identity.append(youBadge);
             identity.append(agent, metaRow, action);
             button.append(avatar, identity, buildCardStats(player), buildPreviewRow(player));
-            // Always put self's team on the LEFT (blueGrid), other team on the RIGHT (redGrid)
             var isSelfTeam = !selfTeam || player.team === selfTeam;
-            var grid = isSelfTeam ? els.blueGrid : els.redGrid;
-            grid.append(button);
+            (isSelfTeam ? blueFrag : redFrag).append(button);
         });
+        els.blueGrid.append(blueFrag);
+        els.redGrid.append(redFrag);
     }
 
     function myTeam(payload) {
@@ -555,7 +568,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             els.defSection.hidden = false;
             els.atkSection.hidden = true;
             els.teamDivider.hidden = true;
-            document.querySelector(".teams-layout").classList.add("is-unified");
+        els.teamsLayout.classList.add("is-unified");
             return;
         }
         var selfTeam = myTeam(payload);
@@ -566,7 +579,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             if (p.team === "Red") hasRed = true;
         }
         var singleTeam = (hasBlue && !hasRed) || (!hasBlue && hasRed);
-        document.querySelector(".teams-layout").classList.toggle("is-unified", singleTeam);
+        els.teamsLayout.classList.toggle("is-unified", singleTeam);
         if (singleTeam) {
             els.teamDivider.hidden = true;
             var onlyTeam = hasBlue ? "Blue" : "Red";
@@ -655,14 +668,16 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function renderStatBar(player) {
         els.statBar.replaceChildren();
-        setStatChip(els.statBar, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "stat-chip");
-        setStatChip(els.statBar, "Rank", rankName(player.rank, false), isEmpty(player.rank), "stat-chip", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
-        setStatChip(els.statBar, "RR", txt(player.rr), isEmpty(player.rr), "stat-chip");
-        setStatChip(els.statBar, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), "stat-chip");
-        setStatChip(els.statBar, "Peak Rank", (rn=>rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn)(rankName(player.peakRank,false)), isEmpty(player.peakRank), "stat-chip", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
-        setStatChip(els.statBar, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
-        setStatChip(els.statBar, "Level", txt(player.level), isEmpty(player.level), "stat-chip");
-        setStatChip(els.statBar, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "stat-chip");
+        var frag = document.createDocumentFragment();
+        setStatChip(frag, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "stat-chip");
+        setStatChip(frag, "Rank", rankName(player.rank, false), isEmpty(player.rank), "stat-chip", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
+        setStatChip(frag, "RR", txt(player.rr), isEmpty(player.rr), "stat-chip");
+        setStatChip(frag, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), "stat-chip");
+        setStatChip(frag, "Peak Rank", (rn=>rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn)(rankName(player.peakRank,false)), isEmpty(player.peakRank), "stat-chip", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
+        setStatChip(frag, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
+        setStatChip(frag, "Level", txt(player.level), isEmpty(player.level), "stat-chip");
+        setStatChip(frag, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "stat-chip");
+        els.statBar.append(frag);
     }
 
     function renderExpressions(player) {
@@ -673,6 +688,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         }).sort(function (a, b) { return a.index - b.index; });
         var slots = expressions.slice(0, 4);
         while (slots.length < 4) slots.push(null);
+        var frag = document.createDocumentFragment();
         slots.forEach(function (expression, idx) {
             var tile = document.createElement("div");
             tile.className = "expression-tile expression-slot-" + idx;
@@ -692,20 +708,23 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             type.textContent = expression ? (expression.type || "expression") : "empty";
             copy.append(name, type);
             tile.append(art, copy);
-            els.expressionGrid.append(tile);
+            frag.append(tile);
             tile.addEventListener("contextmenu", function (e) {
                 e.preventDefault();
                 var text = stripHint(e.target.title || tile.title);
                 navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
             });
         });
+        els.expressionGrid.append(frag);
     }
 
     function renderWeapons(player) {
         els.weaponGroups.replaceChildren();
+        var frag = document.createDocumentFragment();
         WEAPON_COLUMNS.forEach(function (column) {
             var columnNode = document.createElement("div");
             columnNode.className = "weapon-column " + column.className;
+            var colFrag = document.createDocumentFragment();
             column.groups.forEach(function (group) {
                 var section = document.createElement("section");
                 section.className = "weapon-group weapon-group-" + group.slug;
@@ -713,12 +732,16 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
                 heading.textContent = group.title;
                 var grid = document.createElement("div");
                 grid.className = "weapon-grid";
-                group.weapons.forEach(function (weaponName) { grid.append(buildWeaponTile(player, weaponName)); });
+                var gridFrag = document.createDocumentFragment();
+                group.weapons.forEach(function (weaponName) { gridFrag.append(buildWeaponTile(player, weaponName)); });
+                grid.append(gridFrag);
                 section.append(heading, grid);
-                columnNode.append(section);
+                colFrag.append(section);
             });
-            els.weaponGroups.append(columnNode);
+            columnNode.append(colFrag);
+            frag.append(columnNode);
         });
+        els.weaponGroups.append(frag);
     }
 
     function buildWeaponTile(player, weaponName) {
@@ -762,10 +785,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     function getWeapon(player, weaponName) {
-        var weapons = player.weapons || {};
-        var match = null;
-        Object.keys(weapons).forEach(function (key) { var w = weapons[key]; if (w && w.weapon === weaponName) match = w; });
-        return match;
+        return (player._weaponMap || {})[weaponName] || null;
     }
 
     function buildAgentAvatar(src, alt) {
@@ -810,6 +830,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         els.playedWithTable.hidden = entries.length === 0;
         if (!entries.length) return;
         els.playedWithBody.replaceChildren();
+        var frag = document.createDocumentFragment();
         entries.forEach(function (entry) {
             var row = document.createElement("tr");
             var nc = document.createElement("td"); nc.textContent = txt(entry.name, "Unknown"); row.append(nc);
@@ -818,14 +839,17 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             var tc = document.createElement("td"); tc.textContent = formatEncounterTimes(entry); row.append(tc);
             var lc = document.createElement("td"); lc.textContent = capitalize(txt(entry.relation_name, "player")) + " " + txt(entry.agent, "Unknown") + " on " + txt(entry.map, "Unknown") + " \u2014 " + formatTimeAgo(entry.time_diff) + " ago"; row.append(lc);
             var rc = document.createElement("td"); rc.textContent = formatEncounterRecord(entry); row.append(rc);
-            els.playedWithBody.append(row);
+            frag.append(row);
         });
+        els.playedWithBody.append(frag);
     }
 
     function renderJson() {
         var text = state.payload ? JSON.stringify(state.payload, null, 2) : "No data yet.";
-        els.jsonPre.textContent = text;
-        els.jsonPreEmpty.textContent = text;
+        if (els.jsonPre.textContent !== text) {
+            els.jsonPre.textContent = text;
+            els.jsonPreEmpty.textContent = text;
+        }
         if (els.jsonPanelSummary) els.jsonPanelSummary.textContent = "Raw heartbeat JSON";
         if (els.jsonPanelEmptySummary) els.jsonPanelEmptySummary.textContent = "Raw heartbeat JSON";
     }

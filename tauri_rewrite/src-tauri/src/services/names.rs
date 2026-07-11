@@ -72,13 +72,12 @@ impl NamesService {
         if !failed.is_empty() {
             #[cfg(debug_assertions)]
             println!("names: falling back to PD for {} puuids", failed.len());
-            let pd_headers = entitlements.build_headers(client_version);
             let resp = self
                 .client
                 .fetch_put_json_with_body::<serde_json::Value>(
                     UrlType::Pd,
                     "/name-service/v2/players",
-                    &pd_headers,
+                    &headers,
                     serde_json::json!(failed),
                 )
                 .await;

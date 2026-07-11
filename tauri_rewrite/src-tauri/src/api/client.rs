@@ -155,16 +155,15 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<reqwest::Method>,
     ) -> Result<Response, ApiError> {
-        let wait = {
+        let (wait,) = {
             let mut limiters = self.rate_limiters.lock().unwrap();
-            limiters[Self::limiter_index(url_type)].check_rate()
+            let idx = Self::limiter_index(url_type);
+            let wait = limiters[idx].check_rate();
+            limiters[idx].record_request();
+            (wait,)
         };
         if let Some(delay) = wait {
             tokio::time::sleep(delay).await;
-        }
-        {
-            let mut limiters = self.rate_limiters.lock().unwrap();
-            limiters[Self::limiter_index(url_type)].record_request();
         }
 
         let url = self.url_for(url_type, endpoint);
@@ -262,15 +261,16 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         // Use Custom rate limiter slot (5 req/s) for valorant-api.com
         {
-            let wait = {
+            let (wait,) = {
                 let mut limiters = self.rate_limiters.lock().unwrap();
-                limiters[Self::limiter_index(UrlType::Custom)].check_rate()
+                let idx = Self::limiter_index(UrlType::Custom);
+                let wait = limiters[idx].check_rate();
+                limiters[idx].record_request();
+                (wait,)
             };
             if let Some(delay) = wait {
                 tokio::time::sleep(delay).await;
             }
-            let mut limiters = self.rate_limiters.lock().unwrap();
-            limiters[Self::limiter_index(UrlType::Custom)].record_request();
         }
 
         let url = format!("https://valorant-api.com/v1/{}", endpoint);
