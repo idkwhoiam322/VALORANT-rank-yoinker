@@ -97,9 +97,8 @@ pub fn parse_client_version(path: &PathBuf) -> Result<String, ApiError> {
 }
 
 pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(Entitlements, String), ApiError> {
-    let password = lockfile.password.clone();
     let port = lockfile.port;
-    client.set_local_auth(password, port);
+    client.set_local_auth(lockfile.password.clone(), port);
 
     let auth_header = format!(
         "Basic {}",

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
+use crate::models::match_data::CoregamePlayer;
 use crate::models::loadout::{
     CoregameLoadoutsResponse, LoadoutJson, PlayerLoadoutData, SprayEntry, WeaponEntry,
 };
@@ -37,15 +38,9 @@ impl LoadoutService {
             format!("/pregame/v1/matches/{}/loadouts", match_id)
         };
 
-        let url_type = if state == "game" {
-            UrlType::Glz
-        } else {
-            UrlType::Glz
-        };
-
         let loadouts_resp: CoregameLoadoutsResponse = self
             .client
-            .fetch_json(url_type, &endpoint, &headers)
+            .fetch_json(UrlType::Glz, &endpoint, &headers)
             .await?;
 
         Ok(self.build_loadout_json(&loadouts_resp, players, weapon_name, content, names))
@@ -54,7 +49,7 @@ impl LoadoutService {
     pub fn build_loadout_json(
         &self,
         loadouts_resp: &CoregameLoadoutsResponse,
-        players: &[crate::models::match_data::CoregamePlayer],
+        players: &[CoregamePlayer],
         weapon_name: &str,
         content: &ContentCache,
         names: &HashMap<String, String>,
@@ -74,15 +69,18 @@ impl LoadoutService {
             map: None,
         };
 
+        let player_map: HashMap<&str, &CoregamePlayer> = players
+            .iter()
+            .filter_map(|p| p.subject.as_deref().map(|s| (s, p)))
+            .collect();
+
         for entry in &loadouts_resp.loadouts {
             let subject = match &entry.subject {
                 Some(s) => s.to_lowercase(),
                 None => continue,
             };
 
-            let player = players.iter().find(|p| {
-                p.subject.as_ref().map(|s| s.to_lowercase()) == Some(subject.clone())
-            });
+            let player = entry.subject.as_deref().and_then(|s| player_map.get(s).copied());
 
             let char_id = entry.character_id.as_deref().unwrap_or("").to_lowercase();
 

@@ -205,19 +205,10 @@ async fn fetch_competitive_tiers(client: &ApiClient, cache: &mut ContentCache) -
     if let Some(latest) = resp.data.last() {
         cache.competitive_tiers = latest.tiers.clone();
         for tier in &latest.tiers {
-            let icon = if tier.tier < cache.rank_icons.len() as u32 {
-                cache.rank_icons[tier.tier as usize].clone()
-            } else {
-                while cache.rank_icons.len() <= tier.tier as usize {
-                    cache.rank_icons.push(None);
-                }
-                cache.rank_icons[tier.tier as usize] = tier.small_icon.clone();
-                tier.small_icon.clone()
-            };
             if tier.tier as usize >= cache.rank_icons.len() {
                 cache.rank_icons.resize(tier.tier as usize + 1, None);
             }
-            cache.rank_icons[tier.tier as usize] = icon;
+            cache.rank_icons[tier.tier as usize] = tier.small_icon.clone();
         }
     }
     Ok(())
@@ -246,8 +237,11 @@ async fn fetch_seasons(
     let mut previous_season_id: Option<String> = None;
 
     if let Some(seasons) = content["Seasons"].as_array() {
-        cache.seasons = serde_json::from_value(serde_json::Value::Array(seasons.clone()))
-            .unwrap_or_default();
+        cache.seasons = seasons.iter()
+            .filter_map(|s| {
+                serde_json::from_value::<crate::models::content::Season>(s.clone()).ok()
+            })
+            .collect();
 
         let mut current_start_time = String::new();
         for season in seasons {

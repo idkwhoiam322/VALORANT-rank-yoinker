@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -7,7 +8,7 @@ use chrono::Local;
 
 pub struct Logger {
     log_path: PathBuf,
-    buffer: Mutex<Vec<String>>,
+    buffer: Mutex<VecDeque<String>>,
     max_buffer: usize,
 }
 
@@ -21,7 +22,7 @@ impl Logger {
 
         let logger = Self {
             log_path,
-            buffer: Mutex::new(Vec::with_capacity(100)),
+            buffer: Mutex::new(VecDeque::with_capacity(100)),
             max_buffer: 500,
         };
 
@@ -54,9 +55,9 @@ impl Logger {
         let line = format!("[{}] {}", timestamp, message);
 
         let mut buffer = self.buffer.lock().unwrap();
-        buffer.push(line.clone());
+        buffer.push_back(line.clone());
         while buffer.len() > self.max_buffer {
-            buffer.remove(0);
+            buffer.pop_front();
         }
 
         // Always write to file immediately
@@ -75,6 +76,6 @@ impl Logger {
     pub fn get_tail(&self, count: usize) -> String {
         let buffer = self.buffer.lock().unwrap();
         let start = buffer.len().saturating_sub(count);
-        buffer[start..].join("\n")
+        buffer.range(start..).cloned().collect::<Vec<_>>().join("\n")
     }
 }

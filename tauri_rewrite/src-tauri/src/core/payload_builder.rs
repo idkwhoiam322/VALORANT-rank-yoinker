@@ -8,6 +8,54 @@ use crate::models::match_data::CoregamePlayer;
 use crate::models::presences::GameState;
 use crate::services::encounters::EncounterRecord;
 
+fn parse_server(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if let Some(idx) = lower.find("gp-") {
+        let after = &lower[idx + 3..];
+        if let Some(dash) = after.find('-') {
+            after[..dash].to_uppercase()
+        } else {
+            raw.to_string()
+        }
+    } else {
+        raw.to_string()
+    }
+}
+
+async fn resolve_mode_from_queue_id(match_data: &serde_json::Value, payload: &mut HeartbeatPayload) {
+    if payload.mode.is_some() { return; }
+    if let Some(qid) = match_data["QueueID"].as_str() {
+        if !qid.is_empty() {
+            payload.mode = Some(crate::services::config::get_gamemode_name(qid).to_string());
+        }
+    }
+}
+
+async fn resolve_mode_from_presence(
+    svc: &AppServices, entitlements: &Entitlements,
+    client_version: &str, puuid: &str,
+    payload: &mut HeartbeatPayload,
+) {
+    if payload.mode.is_some() { return; }
+    let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await else { return };
+    let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) else { return };
+    let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) else { return };
+    let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) else { return };
+    if !qid.is_empty() {
+        payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
+    }
+}
+
+fn resolve_mode_from_map(map_id: &str, payload: &mut HeartbeatPayload) {
+    if payload.mode.is_some() { return; }
+    let lower = map_id.to_lowercase();
+    if lower.contains("/game/maps/triad/triad") {
+        payload.mode = Some("Deathmatch".into());
+    } else if lower.contains("/game/maps/jam/jam") || lower.contains("poveglia") {
+        payload.mode = Some("Custom Game".into());
+    }
+}
+
 pub async fn build_heartbeat(
     svc: &AppServices,
     entitlements: &Entitlements,
@@ -191,56 +239,11 @@ async fn build_ingame_payload(
         .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
         .cloned();
 
-    if payload.mode.is_none() {
-        if let Some(queue_id) = match_data["QueueID"].as_str() {
-            if !queue_id.is_empty() {
-                payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
-            }
-        }
-    }
-
-    payload.server = match_data["GamePodID"]
-        .as_str()
-        .map(|s| {
-            let lower = s.to_lowercase();
-            if let Some(idx) = lower.find("gp-") {
-                let after = &lower[idx + 3..];
-                if let Some(dash) = after.find('-') {
-                    after[..dash].to_uppercase()
-                } else {
-                    s.to_string()
-                }
-            } else {
-                s.to_string()
-            }
-        });
-
-    // Fallback mode detection if QueueID empty/absent
-    if payload.mode.is_none() {
-        // Try presence data (Deathmatch etc. may not have QueueID in coregame response)
-        if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
-            if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
-                if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
-                    if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
-                        if !qid.is_empty() {
-                            payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Map-based fallback (Deathmatch, practice range, custom games)
-    if payload.mode.is_none() {
-        if let Some(map_id) = match_data["MapID"].as_str() {
-            let lower = map_id.to_lowercase();
-            if lower.contains("/game/maps/triad/triad") {
-                payload.mode = Some("Deathmatch".into());
-            } else if lower.contains("/game/maps/jam/jam") || lower.contains("poveglia") {
-                payload.mode = Some("Custom Game".into());
-            }
-        }
+    resolve_mode_from_queue_id(&match_data, payload).await;
+    payload.server = match_data["GamePodID"].as_str().map(parse_server);
+    resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
+    if let Some(map_id) = match_data["MapID"].as_str() {
+        resolve_mode_from_map(map_id, payload);
     }
 
     // Parse players (take ownership of Players to avoid clone)
@@ -262,10 +265,10 @@ async fn build_ingame_payload(
     let ally_team = players
         .iter()
         .find(|p| p.subject.as_deref() == Some(puuid))
-        .and_then(|p| p.team_id.clone());
+        .and_then(|p| p.team_id.as_deref());
 
     // Get loadouts
-    let cfg_weapon = svc.config.get().weapon.clone();
+    let weapon_name = &svc.config.get().weapon;
     let (_weapon_lists, loadout_json) = svc
         .loadouts
         .get_match_loadouts(
@@ -273,7 +276,7 @@ async fn build_ingame_payload(
             client_version,
             &match_id,
             &players,
-            &cfg_weapon,
+            weapon_name,
             &svc.content,
             &names,
             "game",
@@ -322,12 +325,13 @@ async fn build_ingame_payload(
             .cloned();
 
         let player_loadout = loadout_json.players.get(&subject_lower);
+        let team = player.team_id.clone();
 
         let heartbeat_player = PlayerHeartbeat {
             puuid: subject.clone(),
             name: names.get(&subject).cloned(),
             party_number: 0,
-            agent: agent_name,
+            agent: agent_name.clone(),
             rank: player_rank.rank,
             peak_rank: player_rank.peak_rank,
             peak_rank_act: player_rank.peak_rank_act,
@@ -345,7 +349,7 @@ async fn build_ingame_payload(
             agent_img_link: player.character_id.as_ref().map(|cid| {
                 format!("https://media.valorant-api.com/agents/{}/displayicon.png", cid.to_lowercase())
             }),
-            team: player.team_id.clone(),
+            team: team.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
             title: player_loadout.and_then(|p| p.title.clone()),
             title_name: player_loadout.and_then(|p| p.title_name.clone()),
@@ -355,47 +359,36 @@ async fn build_ingame_payload(
             earned_rr: Some(player_stats.ranked_rating_earned),
         };
 
-        payload.players.insert(subject, heartbeat_player);
-    }
+        payload.players.insert(subject.clone(), heartbeat_player);
 
-    // Save encounters and populate already_played_with
-    for player in &players {
-        let subject = match player.subject.as_ref() {
-            Some(s) => s.clone(),
-            None => continue,
-        };
-        // Skip self-player in encounters
-        if subject == puuid {
-            continue;
-        }
-        let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
-        let team = player.team_id.clone().unwrap_or_else(|| "Unknown".into());
-        let agent_name = player.character_id.as_ref()
-            .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
-            .cloned();
+        // Save encounters (skip self)
+        if subject_lower != puuid.to_lowercase() {
+            let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
+            let team_str = team.clone().unwrap_or_else(|| "Unknown".into());
 
-        svc.encounters.save_encounter(&subject, EncounterRecord {
-            name: Some(name.clone()),
-            agent: agent_name.clone(),
-            map: payload.map.clone(),
-            rank: None,
-            rr: None,
-            match_id: Some(match_id.clone()),
-            epoch: Some(payload.time as f64),
-            relation: Some(if team == ally_team.as_deref().unwrap_or("") { "ally" } else { "enemy" }.into()),
-            team: Some(team),
-            my_team: ally_team.clone(),
-            result: None,
-            score: None,
-        });
+            svc.encounters.save_encounter(&subject, EncounterRecord {
+                name: Some(name.clone()),
+                agent: agent_name.clone(),
+                map: payload.map.clone(),
+                rank: None,
+                rr: None,
+                match_id: Some(match_id.clone()),
+                epoch: Some(payload.time as f64),
+                relation: Some(if team_str == ally_team.unwrap_or("") { "ally".into() } else { "enemy".into() }),
+                team: Some(team_str),
+                my_team: ally_team.map(|t| t.to_string()),
+                result: None,
+                score: None,
+            });
 
-        if let Some(entry) = svc.encounters.build_encounter_summary(
-            &subject,
-            &match_id,
-            &name,
-            None,
-        ) {
-            payload.already_played_with.push(entry);
+            if let Some(entry) = svc.encounters.build_encounter_summary(
+                &subject,
+                &match_id,
+                &name,
+                None,
+            ) {
+                payload.already_played_with.push(entry);
+            }
         }
     }
 }
@@ -458,55 +451,11 @@ async fn build_pregame_payload(
         .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
         .cloned();
 
-    payload.server = match_data["GamePodID"]
-        .as_str()
-        .map(|s| {
-            let lower = s.to_lowercase();
-            if let Some(idx) = lower.find("gp-") {
-                let after = &lower[idx + 3..];
-                if let Some(dash) = after.find('-') {
-                    after[..dash].to_uppercase()
-                } else {
-                    s.to_string()
-                }
-            } else {
-                s.to_string()
-            }
-        });
-
-    if payload.mode.is_none() {
-        if let Some(queue_id) = match_data["QueueID"].as_str() {
-            if !queue_id.is_empty() {
-                payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
-            }
-        }
-    }
-
-    // Fallback mode detection if QueueID empty/absent
-    if payload.mode.is_none() {
-        if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
-            if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
-                if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
-                    if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
-                        if !qid.is_empty() {
-                            payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Map-based fallback for deathmatch/practice/custom
-    if payload.mode.is_none() {
-        if let Some(map_id) = match_data["MapID"].as_str() {
-            let lower = map_id.to_lowercase();
-            if lower.contains("/game/maps/triad/triad") {
-                payload.mode = Some("Deathmatch".into());
-            } else if lower.contains("/game/maps/jam/jam") || lower.contains("poveglia") {
-                payload.mode = Some("Custom Game".into());
-            }
-        }
+    resolve_mode_from_queue_id(&match_data, payload).await;
+    payload.server = match_data["GamePodID"].as_str().map(parse_server);
+    resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
+    if let Some(map_id) = match_data["MapID"].as_str() {
+        resolve_mode_from_map(map_id, payload);
     }
 
     // Extract ally team players

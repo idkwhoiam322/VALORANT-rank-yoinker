@@ -67,6 +67,13 @@ impl RateLimiter {
     }
 }
 
+fn check_bad_claims(text: &str) -> Result<(), ApiError> {
+    if text.contains("BAD_CLAIMS") {
+        return Err(ApiError::BadClaims);
+    }
+    Ok(())
+}
+
 pub struct ApiClient {
     client: Client,
     pd_url: Mutex<String>,
@@ -213,11 +220,7 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let resp = self.fetch(url_type, endpoint, headers, None).await?;
         let text = resp.text().await.map_err(ApiError::Http)?;
-
-        if text.contains("BAD_CLAIMS") || text.contains("errorCode") && text.contains("BAD_CLAIMS") {
-            return Err(ApiError::BadClaims);
-        }
-
+        check_bad_claims(&text)?;
         serde_json::from_str(&text).map_err(|e| {
             ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
         })
@@ -232,11 +235,7 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let resp = self.fetch(url_type, endpoint, headers, Some(body)).await?;
         let text = resp.text().await.map_err(ApiError::Http)?;
-
-        if text.contains("BAD_CLAIMS") || text.contains("errorCode") && text.contains("BAD_CLAIMS") {
-            return Err(ApiError::BadClaims);
-        }
-
+        check_bad_claims(&text)?;
         serde_json::from_str(&text).map_err(|e| {
             ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
         })
@@ -251,11 +250,7 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let resp = self.fetch_with_method(url_type, endpoint, headers, Some(body), Some(reqwest::Method::PUT)).await?;
         let text = resp.text().await.map_err(ApiError::Http)?;
-
-        if text.contains("BAD_CLAIMS") || text.contains("errorCode") && text.contains("BAD_CLAIMS") {
-            return Err(ApiError::BadClaims);
-        }
-
+        check_bad_claims(&text)?;
         serde_json::from_str(&text).map_err(|e| {
             ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
         })
