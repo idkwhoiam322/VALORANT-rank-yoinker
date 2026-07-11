@@ -132,37 +132,23 @@ impl RankService {
             }
         }
 
-        // `previous_season_id` isn't needed here: peak rank already scans every
-        // season in the response above. A player's rank *for* the previous season
-        // specifically is fetched separately via `get_previous_rank`.
-        let _ = previous_season_id;
+        // Extract previous season's rank from the same API response
+        if let Some(prev_sid) = previous_season_id {
+            if let Some(ref qs) = resp.queue_skills {
+                if let Some(ref comp) = qs.competitive {
+                    if let Some(ref seasons) = comp.seasonal_info_by_season_id {
+                        if let Some(info) = seasons.get(prev_sid) {
+                            rank.previous_rank = info.competitive_tier.unwrap_or(0);
+                        }
+                    }
+                }
+            }
+        }
 
         rank.status_good = true;
         Ok(rank)
     }
 
-    pub async fn get_previous_rank(
-        &self,
-        entitlements: &Entitlements,
-        client_version: &str,
-        puuid: &str,
-        season_id: &str,
-    ) -> PlayerRank {
-        match self
-            .fetch_rank(
-                entitlements,
-                client_version,
-                puuid,
-                season_id,
-                None,
-                &ContentCache::empty(), // Not used for previous rank
-            )
-            .await
-        {
-            Ok(rank) => rank,
-            Err(_) => PlayerRank::empty(),
-        }
-    }
 }
 
 fn is_before_ascendant(season_id: &str) -> bool {

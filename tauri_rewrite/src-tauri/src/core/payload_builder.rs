@@ -304,15 +304,7 @@ async fn build_ingame_payload(
             .get_stats(entitlements, client_version, &subject)
             .await;
 
-        let previous_rank = match svc.previous_season_id.as_deref() {
-            Some(prev_sid) => {
-                svc.rank
-                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
-                    .await
-                    .rank
-            }
-            None => 0,
-        };
+        let previous_rank = player_rank.previous_rank;
 
         let agent_name = player
             .character_id
@@ -570,15 +562,7 @@ async fn build_pregame_payload(
             )
             .await;
 
-        let previous_rank = match svc.previous_season_id.as_deref() {
-            Some(prev_sid) => {
-                svc.rank
-                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
-                    .await
-                    .rank
-            }
-            None => 0,
-        };
+                let previous_rank = player_rank.previous_rank;
 
                 let agent_name = player
                     .character_id
@@ -673,16 +657,6 @@ async fn build_menus_payload(
     for subject in &all_puuids {
         let subject = subject.clone();
 
-        let previous_rank = match svc.previous_season_id.as_deref() {
-            Some(prev_sid) => {
-                svc.rank
-                    .get_previous_rank(entitlements, client_version, &subject, prev_sid)
-                    .await
-                    .rank
-            }
-            None => 0,
-        };
-
         let player_rank = svc
             .rank
             .get_rank(
@@ -694,6 +668,7 @@ async fn build_menus_payload(
                 &svc.content,
             )
             .await;
+        let previous_rank = player_rank.previous_rank;
 
         let player_stats = if subject == puuid {
             svc
