@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::sync::Mutex;
 
-use std::sync::Arc;
+use lru::LruCache;
 
 use crate::api::client::{ApiClient, UrlType};
 use crate::models::auth::Entitlements;
@@ -11,14 +12,14 @@ use crate::models::mmr::{
 
 pub struct StatsService {
     client: Arc<ApiClient>,
-    match_details_cache: Mutex<HashMap<String, MatchDetailsResponse>>,
+    match_details_cache: Mutex<LruCache<String, MatchDetailsResponse>>,
 }
 
 impl StatsService {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
-            match_details_cache: Mutex::new(HashMap::new()),
+            match_details_cache: Mutex::new(LruCache::new(NonZeroUsize::new(200).unwrap())),
         }
     }
 
@@ -74,11 +75,11 @@ impl StatsService {
 
         log::debug!("stats: match_id={}", &match_id[..8.min(match_id.len())]);
 
-        // Fetch match details (cached)
+        // Fetch match details (cached with LRU eviction)
         let match_data_opt = {
             // Check cache first (drop lock before await)
             let cached = {
-                let cache = self.match_details_cache.lock().unwrap();
+                let mut cache = self.match_details_cache.lock().unwrap();
                 cache.get(&match_id).cloned()
             };
             if let Some(data) = cached {
@@ -97,7 +98,7 @@ impl StatsService {
                         log::debug!("stats: match details fetched ok, {} players, {} rounds",
                             data.players.len(), data.round_results.len());
                         let mut cache = self.match_details_cache.lock().unwrap();
-                        cache.insert(match_id.clone(), data.clone());
+                        cache.put(match_id.clone(), data.clone());
                         Some(data)
                     }
                     Err(e) => {
