@@ -51,28 +51,32 @@ impl EncounterService {
     }
 
     pub fn save_encounter(&self, puuid: &str, record: EncounterRecord) {
-        let mut data = self.data.lock().unwrap();
-        let history = data.entry(puuid.to_string()).or_default();
+        let data = {
+            let mut data = self.data.lock().unwrap();
+            let history = data.entry(puuid.to_string()).or_default();
 
-        // Deduplicate by match_id
-        if let Some(ref match_id) = record.match_id {
-            if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(match_id)) {
-                // Merge: update result/score if new values are non-null
-                if record.result.is_some() {
-                    existing.result = record.result.clone();
-                }
-                if record.score.is_some() {
-                    existing.score = record.score.clone();
-                }
-                if record.epoch.is_some() {
-                    existing.epoch = record.epoch;
+            // Deduplicate by match_id
+            if let Some(ref match_id) = record.match_id {
+                if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(match_id)) {
+                    // Merge: update result/score if new values are non-null
+                    if record.result.is_some() {
+                        existing.result = record.result.clone();
+                    }
+                    if record.score.is_some() {
+                        existing.score = record.score.clone();
+                    }
+                    if record.epoch.is_some() {
+                        existing.epoch = record.epoch;
+                    }
+                } else {
+                    history.push(record);
                 }
             } else {
                 history.push(record);
             }
-        } else {
-            history.push(record);
-        }
+
+            data.clone()
+        };
 
         self.save_to_disk(&data);
     }
@@ -84,39 +88,43 @@ impl EncounterService {
         winning_team: &str,
         score: Option<String>,
     ) -> bool {
-        let mut data = self.data.lock().unwrap();
-        let mut changed = false;
+        let (changed, data) = {
+            let mut data = self.data.lock().unwrap();
+            let mut changed = false;
 
-        let my_result = if my_team == winning_team {
-            "win"
-        } else {
-            "loss"
-        };
-        let enemy_result = if my_team == winning_team {
-            "loss"
-        } else {
-            "win"
-        };
+            let my_result = if my_team == winning_team {
+                "win"
+            } else {
+                "loss"
+            };
+            let enemy_result = if my_team == winning_team {
+                "loss"
+            } else {
+                "win"
+            };
 
-        for (_puuid, history) in data.iter_mut() {
-            for entry in history.iter_mut() {
-                if entry.match_id.as_deref() != Some(match_id) {
-                    continue;
-                }
-                let result = if entry.relation.as_deref() == Some("enemy") {
-                    enemy_result
-                } else {
-                    my_result
-                };
-                if entry.result.as_deref() != Some(result) {
-                    entry.result = Some(result.into());
-                    changed = true;
-                }
-                if score.is_some() {
-                    entry.score = score.clone();
+            for (_puuid, history) in data.iter_mut() {
+                for entry in history.iter_mut() {
+                    if entry.match_id.as_deref() != Some(match_id) {
+                        continue;
+                    }
+                    let result = if entry.relation.as_deref() == Some("enemy") {
+                        enemy_result
+                    } else {
+                        my_result
+                    };
+                    if entry.result.as_deref() != Some(result) {
+                        entry.result = Some(result.into());
+                        changed = true;
+                    }
+                    if score.is_some() {
+                        entry.score = score.clone();
+                    }
                 }
             }
-        }
+
+            (changed, data.clone())
+        };
 
         if changed {
             self.save_to_disk(&data);
