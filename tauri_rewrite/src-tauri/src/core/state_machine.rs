@@ -1,3 +1,4 @@
+use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,6 +11,7 @@ use crate::api::content::fetch_all_content;
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
+use crate::models::heartbeat::HeartbeatPayload;
 use crate::models::presences::GameState;
 use crate::services::config::ConfigManager;
 use crate::services::encounters::EncounterService;
@@ -30,6 +32,7 @@ pub struct AppServices {
     pub names: NamesService,
     pub loadouts: LoadoutService,
     pub encounters: EncounterService,
+    pub heartbeat_log_path: std::path::PathBuf,
     pub entitlements: Option<Entitlements>,
     pub client_version: String,
     pub puuid: String,
@@ -50,6 +53,10 @@ impl AppServices {
         let names = NamesService::new(client.clone());
         let loadouts = LoadoutService::new(client.clone());
 
+        let heartbeat_log_path = root.join("logs").join("heartbeat.jsonl");
+        // Truncate to start fresh each session
+        let _ = fs::File::create(&heartbeat_log_path);
+
         Self {
             logger,
             config,
@@ -60,6 +67,7 @@ impl AppServices {
             names,
             loadouts,
             encounters,
+            heartbeat_log_path,
             entitlements: None,
             client_version: String::new(),
             puuid: String::new(),
@@ -71,6 +79,15 @@ impl AppServices {
 
     pub fn log(&self, msg: &str) {
         self.logger.log(msg);
+    }
+
+    pub fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
+        use std::io::Write;
+        if let Ok(line) = serde_json::to_string(heartbeat) {
+            if let Ok(mut f) = fs::OpenOptions::new().append(true).create(true).open(&self.heartbeat_log_path) {
+                let _ = writeln!(f, "{}", line);
+            }
+        }
     }
 }
 
@@ -262,6 +279,9 @@ impl MainLoop {
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {
+                        svc.log(&format!("Emitting heartbeat state={} mode={:?} map={:?}",
+                            heartbeat.state, heartbeat.mode, heartbeat.map));
+                        svc.log_heartbeat(&heartbeat);
                         let _ = app.emit("heartbeat", &heartbeat);
                         last_heartbeat_key = Some(key);
                     }
