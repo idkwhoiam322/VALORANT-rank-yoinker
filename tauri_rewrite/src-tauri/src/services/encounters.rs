@@ -143,7 +143,10 @@ impl EncounterService {
             return None;
         }
 
-        // Deduplicate by match_id (keep last occurrence)
+        // Sort by epoch descending so the most recent record is first
+        previous.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Deduplicate by match_id (keep first = most recent after sort)
         let mut seen = std::collections::HashSet::new();
         previous.retain(|e| {
             let key = e.match_id.as_deref().unwrap_or("");
@@ -230,9 +233,15 @@ impl EncounterService {
                 continue;
             }
 
-            // Deduplicate by match_id (keep last)
+            // Collect all records not matching current match (none excluded here)
+            let mut records: Vec<&EncounterRecord> = history.iter().collect();
+
+            // Sort by epoch descending so the most recent is first
+            records.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Deduplicate by match_id (keep first = most recent after sort)
             let mut seen = std::collections::HashSet::new();
-            let deduped: Vec<&EncounterRecord> = history.iter().filter(|e| {
+            let deduped: Vec<&EncounterRecord> = records.into_iter().filter(|e| {
                 let key = e.match_id.as_deref().unwrap_or("");
                 if seen.contains(key) { false } else { seen.insert(key.to_string()); true }
             }).collect();

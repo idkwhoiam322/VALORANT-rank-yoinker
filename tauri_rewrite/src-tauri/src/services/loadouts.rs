@@ -59,6 +59,9 @@ impl LoadoutService {
         content: &ContentCache,
         names: &HashMap<String, String>,
     ) -> (HashMap<String, String>, LoadoutJson) {
+        if content.weapons.is_empty() {
+            log::warn!("Weapons content cache is empty — weapon names will not resolve");
+        }
         let mut weapon_lists = HashMap::new();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -171,7 +174,7 @@ impl LoadoutService {
                             buddy_display_name: None,
                         };
 
-                        // Resolve weapon name
+                        // Resolve weapon name and skin
                         if let Some(weapon_data) = content.weapons.get(&weapon_uuid_lower) {
                             entry.weapon = Some(weapon_data.display_name.clone());
 
@@ -212,6 +215,16 @@ impl LoadoutService {
                                     }
                                 }
                             }
+                        } else {
+                            // Weapon not in content cache — use UUID as fallback name
+                            // and construct display icon from known URL pattern
+                            log::warn!("Weapon UUID {} not found in content cache (content.weapons has {} entries)",
+                                weapon_uuid_lower, content.weapons.len());
+                            entry.weapon = Some(weapon_uuid.clone());
+                            entry.skin_display_icon = Some(format!(
+                                "https://media.valorant-api.com/weapons/{}/displayicon.png",
+                                weapon_uuid_lower
+                            ));
                         }
 
                         weapons.insert(weapon_uuid_lower.clone(), entry);

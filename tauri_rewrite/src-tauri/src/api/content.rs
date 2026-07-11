@@ -42,11 +42,11 @@ pub async fn fetch_all_content(
     }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    if let Err(e) = fetch_weapons(client, &mut cache).await {
+    if let Err(e) = fetch_weapons_with_retry(client, &mut cache).await {
         log::warn!("Content fetch error (weapons): {}", e);
         had_error = true;
     }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 
     if let Err(e) = fetch_sprays(client, &mut cache).await {
         log::warn!("Content fetch error (sprays): {}", e);
@@ -133,6 +133,22 @@ async fn fetch_weapons(client: &ApiClient, cache: &mut ContentCache) -> Result<(
         }
     }
     Ok(())
+}
+
+async fn fetch_weapons_with_retry(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
+    let delays = [1, 2, 4];
+    let mut last_err = None;
+    for (i, delay) in delays.iter().enumerate() {
+        match fetch_weapons(client, cache).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                log::warn!("weapons fetch attempt {} failed: {}", i + 1, e);
+                last_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+            }
+        }
+    }
+    Err(last_err.unwrap())
 }
 
 async fn fetch_sprays(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {

@@ -265,11 +265,33 @@ impl ApiClient {
         &self,
         endpoint: &str,
     ) -> Result<T, ApiError> {
+        // Use Custom rate limiter slot (5 req/s) for valorant-api.com
+        {
+            let wait = {
+                let mut limiters = self.rate_limiters.lock().unwrap();
+                limiters[Self::limiter_index(UrlType::Custom)].check_rate()
+            };
+            if let Some(delay) = wait {
+                tokio::time::sleep(delay).await;
+            }
+            let mut limiters = self.rate_limiters.lock().unwrap();
+            limiters[Self::limiter_index(UrlType::Custom)].record_request();
+        }
+
         let url = format!("https://valorant-api.com/v1/{}", endpoint);
-        let resp = self.client.get(&url).send().await.map_err(ApiError::Http)?;
+        let resp = self
+            .client
+            .get(&url)
+            .header("User-Agent", "VRY/1.0")
+            .send()
+            .await
+            .map_err(ApiError::Http)?;
         let status = resp.status();
         let text = resp.text().await.map_err(ApiError::Http)?;
 
+        if status.as_u16() == 429 {
+            return Err(ApiError::RateLimited);
+        }
         if !status.is_success() {
             return Err(ApiError::ServerError(format!(
                 "ValAPI HTTP {} -> {}: {}",
