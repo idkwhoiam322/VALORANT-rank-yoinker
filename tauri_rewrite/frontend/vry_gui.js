@@ -841,9 +841,14 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function renderLogTail() {
         tauriInvoke("get_gui_log_tail").then(function (text) {
-            els.logPre.textContent = text || "(empty log)";
+            var displayText = text || "(empty log)";
+            if (els.logPre.textContent !== displayText) {
+                els.logPre.textContent = displayText;
+            }
         }).catch(function () {
-            els.logPre.textContent = "Failed to fetch log.";
+            if (els.logPre.textContent !== "Failed to fetch log.") {
+                els.logPre.textContent = "Failed to fetch log.";
+            }
         });
     }
 
