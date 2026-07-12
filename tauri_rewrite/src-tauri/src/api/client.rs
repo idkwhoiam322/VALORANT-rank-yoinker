@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use reqwest::{Client, ClientBuilder, Response};
+use reqwest::{Client, ClientBuilder, Method, Response};
+use reqwest::header::HeaderMap;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -120,6 +121,39 @@ impl ApiClient {
         self.local_password.lock().unwrap().clone()
     }
 
+    /// Unified HTTP request execution with request/response logging.
+    /// All public fetch methods route through this to ensure consistent logging.
+    async fn execute_request(
+        &self,
+        method: Method,
+        url: &str,
+        headers: &HeaderMap,
+        body: Option<serde_json::Value>,
+    ) -> Result<Response, ApiError> {
+        let start = Instant::now();
+        log::info!("[API] -> {} {}", method, url);
+
+        let mut req = self.client.request(method.clone(), url);
+        for (key, value) in headers.iter() {
+            req = req.header(key, value);
+        }
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+
+        let resp = req.send().await.map_err(ApiError::Http)?;
+        let elapsed = start.elapsed();
+        log::info!(
+            "[API] <- {} {} {} ({:?})",
+            resp.status().as_u16(),
+            method,
+            url,
+            elapsed
+        );
+
+        Ok(resp)
+    }
+
     fn limiter_index(url_type: UrlType) -> usize {
         match url_type {
             UrlType::Pd => 0,
@@ -173,33 +207,30 @@ impl ApiClient {
         let url = self.url_for(url_type, endpoint);
         let http_method = method.unwrap_or_else(|| {
             match body {
-                Some(_) => reqwest::Method::POST,
-                None => reqwest::Method::GET,
+                Some(_) => Method::POST,
+                None => Method::GET,
             }
         });
-        let mut req = self.client.request(http_method, &url);
 
+        let mut header_map = HeaderMap::new();
         if url_type == UrlType::Local {
             let password = self.local_password.lock().unwrap().clone();
-            let auth_header = format!(
+            let auth = format!(
                 "Basic {}",
                 base64::Engine::encode(
                     &base64::engine::general_purpose::STANDARD,
                     format!("riot:{}", password)
                 )
             );
-            req = req.header("Authorization", auth_header);
+            header_map.insert("Authorization", auth.parse().unwrap());
         } else {
             for (key, value) in headers {
-                req = req.header(key.as_str(), value.as_str());
+                let name = key.as_str().parse::<reqwest::header::HeaderName>().unwrap();
+                header_map.insert(name, value.parse().unwrap());
             }
         }
 
-        if let Some(b) = body {
-            req = req.json(&b);
-        }
-
-        let response = req.send().await.map_err(ApiError::Http)?;
+        let response = self.execute_request(http_method, &url, &header_map, body).await?;
 
         if response.status().as_u16() == 404 {
             return Err(ApiError::NotFound);
@@ -310,13 +341,9 @@ impl ApiClient {
         }
 
         let url = format!("https://valorant-api.com/v1/{}", endpoint);
-        let resp = self
-            .client
-            .get(&url)
-            .header("User-Agent", "VRY/1.0")
-            .send()
-            .await
-            .map_err(ApiError::Http)?;
+        let mut headers = HeaderMap::new();
+        headers.insert("User-Agent", "VRY/1.0".parse().unwrap());
+        let resp = self.execute_request(Method::GET, &url, &headers, None).await?;
         let status = resp.status();
         let text = resp.text().await.map_err(ApiError::Http)?;
 
