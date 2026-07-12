@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use std::sync::Arc;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 
 pub struct NamesService {
@@ -57,7 +58,7 @@ impl NamesService {
                 .client
                 .fetch_json_with_body::<serde_json::Value>(
                     UrlType::Local,
-                    "/player-account/lookup/v2/namesets-for-puuids",
+                    endpoints::LOCAL_NAME_LOOKUP,
                     &headers,
                     body,
                 )
@@ -93,7 +94,7 @@ impl NamesService {
                     .client
                     .fetch_put_json_with_body::<serde_json::Value>(
                         UrlType::Pd,
-                        "/name-service/v2/players",
+                        endpoints::PD_NAME_SERVICE,
                         &headers,
                         serde_json::json!(still_missing),
                     )

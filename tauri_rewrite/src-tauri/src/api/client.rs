@@ -6,6 +6,8 @@ use reqwest::{Client, ClientBuilder, Method, Response};
 use reqwest::header::HeaderMap;
 use thiserror::Error;
 
+use crate::api::endpoints;
+
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error("HTTP error: {0}")]
@@ -340,7 +342,7 @@ impl ApiClient {
             }
         }
 
-        let url = format!("https://valorant-api.com/v1/{}", endpoint);
+        let url = format!("{}/{}", endpoints::VALORANT_API_BASE, endpoint);
         let mut headers = HeaderMap::new();
         headers.insert("User-Agent", "VRY/1.0".parse().unwrap());
         let resp = self.execute_request(Method::GET, &url, &headers, None).await?;

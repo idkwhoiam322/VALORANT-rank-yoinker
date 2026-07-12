@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use std::sync::Arc;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::mmr::{MmrResponse, PlayerRank};
@@ -66,7 +67,7 @@ impl RankService {
         content: &ContentCache,
     ) -> Result<PlayerRank, ApiError> {
         let headers = entitlements.build_headers(client_version);
-        let endpoint = format!("/mmr/v1/players/{}", puuid);
+        let endpoint = endpoints::pd_mmr_player(puuid);
 
         let resp: MmrResponse = self
             .client

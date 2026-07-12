@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use crate::models::auth::{Entitlements, Lockfile, Region};
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 
 const LOCKFILE_PATH: &str = r"Riot Games\Riot Client\Config\lockfile";
 const LOG_PATH: &str = r"VALORANT\Saved\Logs\ShooterGame.log";
-const ENTITLEMENTS_ENDPOINT: &str = "/entitlements/v1/token";
 
 pub fn get_lockfile_path() -> PathBuf {
     let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
@@ -102,7 +102,7 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
 
     let json = loop {
         let response = client
-            .fetch(UrlType::Local, ENTITLEMENTS_ENDPOINT, &[], None)
+            .fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None)
             .await?;
 
         let text = response.text().await.map_err(ApiError::Http)?;

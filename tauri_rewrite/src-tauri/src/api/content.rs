@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 use crate::models::content::*;
 
 const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
@@ -24,7 +25,7 @@ const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
 ];
 
 async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Agent>>, ApiError> {
-    client.fetch_valorant_api("agents?isPlayableCharacter=true").await
+    client.fetch_valorant_api(endpoints::VAL_AGENTS).await
 }
 
 fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent>>) {
@@ -38,7 +39,7 @@ fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent
 }
 
 async fn fetch_maps_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Map>>, ApiError> {
-    client.fetch_valorant_api("maps").await
+    client.fetch_valorant_api(endpoints::VAL_MAPS).await
 }
 
 fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) {
@@ -53,7 +54,7 @@ fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) 
 }
 
 async fn fetch_weapons_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
-    client.fetch_valorant_api("weapons").await
+    client.fetch_valorant_api(endpoints::VAL_WEAPONS).await
 }
 
 async fn fetch_weapons_with_retry_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
@@ -86,7 +87,7 @@ fn populate_weapons(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Weap
 }
 
 async fn fetch_sprays_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Spray>>, ApiError> {
-    client.fetch_valorant_api("sprays").await
+    client.fetch_valorant_api(endpoints::VAL_SPRAYS).await
 }
 
 fn populate_sprays(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Spray>>) {
@@ -98,7 +99,7 @@ fn populate_sprays(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Spray
 }
 
 async fn fetch_flex_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Flex>>, ApiError> {
-    client.fetch_valorant_api("flex").await
+    client.fetch_valorant_api(endpoints::VAL_FLEX).await
 }
 
 fn populate_flex(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Flex>>) {
@@ -108,7 +109,7 @@ fn populate_flex(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Flex>>)
 }
 
 async fn fetch_buddies_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Buddy>>, ApiError> {
-    client.fetch_valorant_api("buddies").await
+    client.fetch_valorant_api(endpoints::VAL_BUDDIES).await
 }
 
 fn populate_buddies(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Buddy>>) {
@@ -118,7 +119,7 @@ fn populate_buddies(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Budd
 }
 
 async fn fetch_player_titles_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerTitle>>, ApiError> {
-    client.fetch_valorant_api("playertitles").await
+    client.fetch_valorant_api(endpoints::VAL_PLAYER_TITLES).await
 }
 
 fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerTitle>>) {
@@ -130,7 +131,7 @@ fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Ve
 }
 
 async fn fetch_player_cards_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerCard>>, ApiError> {
-    client.fetch_valorant_api("playercards").await
+    client.fetch_valorant_api(endpoints::VAL_PLAYER_CARDS).await
 }
 
 fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerCard>>) {
@@ -142,7 +143,7 @@ fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec
 }
 
 async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<CompetitiveTiers>>, ApiError> {
-    client.fetch_valorant_api("competitivetiers").await
+    client.fetch_valorant_api(endpoints::VAL_COMPETITIVE_TIERS).await
 }
 
 fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
@@ -170,8 +171,7 @@ async fn fetch_seasons_raw(
         .fetch_json(
             UrlType::Custom,
             &format!(
-                "https://shared.{}.a.pvp.net/content-service/v3/content",
-                region_shard
+                "https://shared.{region_shard}.a.pvp.net/content-service/v3/content",
             ),
             &headers,
         )

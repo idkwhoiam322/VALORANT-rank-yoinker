@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::api::endpoints;
 use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
 use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
@@ -138,9 +139,8 @@ pub async fn get_match_context(
     let headers = entitlements.build_headers(client_version);
     match state {
         GameState::INGAME => {
-            let player_endpoint = format!("/core-game/v1/players/{}", puuid);
             let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &player_endpoint, &headers,
+                crate::api::client::UrlType::Glz, &endpoints::glz_core_player(puuid), &headers,
                 3, Duration::from_secs(1),
                 |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await.ok()?;
@@ -148,7 +148,7 @@ pub async fn get_match_context(
 
             // Fetch match data to find self's team from Players array.
             // Also validates MapID — it may populate later than Players/TeamID.
-            let match_endpoint = format!("/core-game/v1/matches/{}", match_id);
+            let match_endpoint = endpoints::glz_core_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz, &match_endpoint, &headers,
                 3, Duration::from_secs(2),
@@ -168,9 +168,8 @@ pub async fn get_match_context(
             Some((match_id, my_team.to_string(), match_json))
         }
         GameState::PREGAME => {
-            let endpoint = format!("/pregame/v1/players/{}", puuid);
             let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &endpoint, &headers,
+                crate::api::client::UrlType::Glz, &endpoints::glz_pregame_player(puuid), &headers,
                 3, Duration::from_secs(1),
                 |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await.ok()?;
@@ -178,7 +177,7 @@ pub async fn get_match_context(
 
             // Fetch match data to find self's team.
             // Also validates MapID — it may populate later than AllyTeam.
-            let match_endpoint = format!("/pregame/v1/matches/{}", match_id);
+            let match_endpoint = endpoints::glz_pregame_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz, &match_endpoint, &headers,
                 3, Duration::from_secs(2),
@@ -218,10 +217,9 @@ async fn build_ingame_payload(
             let mid = if let Some(id) = known_match_id {
                 if !id.is_empty() { id.to_string() } else { return }
             } else {
-                let player_endpoint = format!("/core-game/v1/players/{}", puuid);
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
-                    &player_endpoint,
+                    &endpoints::glz_core_player(puuid),
                     &headers,
                     3,
                     Duration::from_secs(2),
@@ -235,10 +233,9 @@ async fn build_ingame_payload(
                 }
             };
 
-            let match_endpoint = format!("/core-game/v1/matches/{}", mid);
             match svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz,
-                &match_endpoint,
+                &endpoints::glz_core_match(&mid),
                 &headers,
                 3,
                 Duration::from_secs(2),
@@ -362,7 +359,7 @@ async fn build_ingame_payload(
                 .and_then(|pi| pi.account_level),
             leaderboard: player_rank.leaderboard,
             agent_img_link: player.character_id.as_ref().map(|cid| {
-                format!("https://media.valorant-api.com/agents/{}/displayicon.png", cid.to_lowercase())
+                endpoints::media_agent_icon(&cid.to_lowercase())
             }),
             team: player.team_id.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
@@ -433,10 +430,9 @@ async fn build_pregame_payload(
             let mid = if let Some(id) = known_match_id {
                 if !id.is_empty() { id.to_string() } else { return }
             } else {
-                let player_endpoint = format!("/pregame/v1/players/{}", puuid);
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
-                    &player_endpoint,
+                    &endpoints::glz_pregame_player(puuid),
                     &headers,
                     3,
                     Duration::from_secs(2),
@@ -450,10 +446,9 @@ async fn build_pregame_payload(
                 }
             };
 
-            let match_endpoint = format!("/pregame/v1/matches/{}", mid);
             match svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz,
-                &match_endpoint,
+                &endpoints::glz_pregame_match(&mid),
                 &headers,
                 3,
                 Duration::from_secs(2),
@@ -510,7 +505,7 @@ async fn build_pregame_payload(
     // Fetch loadouts once — used for enemy extraction
     let saved_loadouts_text: Option<String> = match svc.client.fetch_json_retry(
         crate::api::client::UrlType::Glz,
-        &format!("/pregame/v1/matches/{}/loadouts", match_id),
+        &endpoints::glz_pregame_loadouts(&match_id),
         &headers,
         3,
         Duration::from_secs(2),

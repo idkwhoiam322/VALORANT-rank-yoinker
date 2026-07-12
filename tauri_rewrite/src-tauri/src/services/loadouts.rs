@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::match_data::CoregamePlayer;
@@ -33,9 +34,9 @@ impl LoadoutService {
     ) -> Result<(HashMap<String, String>, LoadoutJson), ApiError> {
         let headers = entitlements.build_headers(client_version);
         let endpoint = if state == "game" {
-            format!("/core-game/v1/matches/{}/loadouts", match_id)
+            endpoints::glz_core_loadouts(match_id)
         } else {
-            format!("/pregame/v1/matches/{}/loadouts", match_id)
+            endpoints::glz_pregame_loadouts(match_id)
         };
 
         let loadouts_resp: CoregameLoadoutsResponse = self
@@ -228,10 +229,7 @@ impl LoadoutService {
                             log::warn!("Weapon UUID {} not found in content cache (content.weapons has {} entries)",
                                 weapon_uuid_lower, content.weapons.len());
                             entry.weapon = Some(weapon_uuid.clone());
-                            entry.skin_display_icon = Some(format!(
-                                "https://media.valorant-api.com/weapons/{}/displayicon.png",
-                                weapon_uuid_lower
-                            ));
+                            entry.skin_display_icon = Some(endpoints::media_weapon_icon(&weapon_uuid_lower));
                         }
 
                         weapons.insert(weapon_uuid_lower.clone(), entry);

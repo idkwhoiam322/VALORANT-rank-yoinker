@@ -9,6 +9,7 @@ use lru::LruCache;
 const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
 
 use crate::api::client::{ApiClient, UrlType};
+use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::mmr::{
     CompetitiveUpdatesResponse, MatchDetailsResponse, PlayerStats,
@@ -57,10 +58,7 @@ impl StatsService {
             .client
             .fetch_json(
                 UrlType::Pd,
-                &format!(
-                    "/mmr/v1/players/{}/competitiveupdates?startIndex=0&endIndex=1&queue=competitive",
-                    puuid
-                ),
+                &endpoints::pd_competitive_updates(puuid),
                 &headers,
             )
             .await
@@ -106,7 +104,7 @@ impl StatsService {
                     .client
                     .fetch_json::<MatchDetailsResponse>(
                         UrlType::Pd,
-                        &format!("/match-details/v1/matches/{}", match_id),
+                        &endpoints::pd_match_details(&match_id),
                         &headers,
                     )
                     .await

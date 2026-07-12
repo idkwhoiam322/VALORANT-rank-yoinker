@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use crate::api::auth;
 use crate::api::client::{ApiClient, UrlType};
 use crate::api::content::fetch_all_content;
+use crate::api::endpoints;
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
@@ -321,7 +322,7 @@ impl MainLoop {
                     let headers = entitlements.build_headers(&cv);
                     if let Ok(resp) = snap.client.fetch(
                         UrlType::Pd,
-                        &format!("/match-details/v1/matches/{match_id}"),
+                        &endpoints::pd_match_details(match_id),
                         &headers,
                         None,
                     ).await {

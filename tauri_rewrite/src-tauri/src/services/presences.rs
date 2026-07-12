@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
+use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::presences::{GameState, Presence, PresencesResponse};
 
@@ -21,7 +22,7 @@ impl PresenceService {
         let headers = entitlements.build_headers(client_version);
         let resp: PresencesResponse = self
             .client
-            .fetch_json(UrlType::Local, "/chat/v4/presences", &headers)
+            .fetch_json(UrlType::Local, endpoints::LOCAL_PRESENCES, &headers)
             .await?;
         Ok(resp.presences)
     }
