@@ -95,10 +95,6 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         toast: document.getElementById("toast"),
         jsonPre: document.getElementById("jsonPre"),
         jsonCopyBtn: document.getElementById("jsonCopyBtn"),
-        jsonPreEmpty: document.getElementById("jsonPreEmpty"),
-        jsonCopyBtnEmpty: document.getElementById("jsonCopyBtnEmpty"),
-        jsonPanelSummary: document.getElementById("jsonPanelSummary"),
-        jsonPanelEmptySummary: document.getElementById("jsonPanelEmptySummary"),
         defHeader: document.getElementById("defHeader"),
         atkHeader: document.getElementById("atkHeader"),
         defSection: document.getElementById("defSection"),
@@ -447,8 +443,6 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         state.payload = null;
         state.lastRenderKey = null;
         state.players = [];
-        if (els.jsonPanelSummary) els.jsonPanelSummary.textContent = "Raw heartbeat JSON";
-        if (els.jsonPanelEmptySummary) els.jsonPanelEmptySummary.textContent = "Raw heartbeat JSON";
         var label = STATE_LABELS[newState] || newState || "Unknown";
         els.matchMeta.replaceChildren();
         var chip = document.createElement("span");
@@ -872,10 +866,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         var text = state.payload ? JSON.stringify(state.payload, null, 2) : "No data yet.";
         if (els.jsonPre.textContent !== text) {
             els.jsonPre.textContent = text;
-            els.jsonPreEmpty.textContent = text;
         }
-        if (els.jsonPanelSummary) els.jsonPanelSummary.textContent = "Raw heartbeat JSON";
-        if (els.jsonPanelEmptySummary) els.jsonPanelEmptySummary.textContent = "Raw heartbeat JSON";
     }
 
     function copyText(text, button) {
@@ -981,7 +972,6 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.modalConfirm.addEventListener("click", requestRestart);
     els.confirmModal.addEventListener("click", function (e) { if (e.target === els.confirmModal) closeModal(); });
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
-    els.jsonCopyBtnEmpty.addEventListener("click", function () { copyJson(els.jsonCopyBtnEmpty); });
     els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
     els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
     els.copyStatsBtn.addEventListener("click", function () {

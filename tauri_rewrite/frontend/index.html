@@ -68,14 +68,6 @@
                 </div>
             </details>
 
-            <details class="json-panel" id="jsonPanelEmpty" style="margin-top:16px;">
-                <summary id="jsonPanelEmptySummary">Raw heartbeat JSON</summary>
-                <div class="json-panel-body">
-                    <button id="jsonCopyBtnEmpty" class="json-copy-btn" type="button">Copy</button>
-                    <pre id="jsonPreEmpty" class="json-pre">No data yet.</pre>
-                </div>
-            </details>
-
             <details class="json-panel" id="logPanel" style="margin-top:16px;">
                 <summary id="logPanelSummary">Backend Log</summary>
                 <div class="json-panel-body">
@@ -88,9 +80,16 @@
             </details>
 
             <details class="json-panel" id="hbPanel" style="margin-top:16px;">
-                <summary id="hbPanelSummary">Heartbeat History (this session)</summary>
+                <summary id="hbPanelSummary">Heartbeat Data</summary>
                 <div class="json-panel-body">
                     <div class="json-btn-row">
+                        <span class="json-section-label">Raw JSON</span>
+                        <button id="jsonCopyBtn" class="json-copy-btn" type="button">Copy</button>
+                    </div>
+                    <pre id="jsonPre" class="json-pre">No data yet.</pre>
+
+                    <div class="json-btn-row" style="margin-top:16px;">
+                        <span class="json-section-label">History</span>
                         <button id="hbCopyBtn" class="json-copy-btn" type="button">Copy</button>
                         <button id="hbRefreshBtn" class="json-copy-btn" type="button">Refresh</button>
                     </div>
@@ -140,13 +139,6 @@
                         </aside>
                     </div>
 
-                    <details class="json-panel" id="jsonPanel">
-                        <summary id="jsonPanelSummary">Raw heartbeat JSON</summary>
-                        <div class="json-panel-body">
-                            <button id="jsonCopyBtn" class="json-copy-btn" type="button">Copy</button>
-                            <pre id="jsonPre" class="json-pre">No data yet.</pre>
-                        </div>
-                    </details>
                 </div>
             </section>
 

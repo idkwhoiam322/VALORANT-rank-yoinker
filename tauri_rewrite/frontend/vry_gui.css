@@ -337,11 +337,21 @@
         display: flex;
         gap: 6px;
         justify-content: flex-end;
+        align-items: center;
         margin-bottom: 8px;
     }
 
     .json-btn-row .json-copy-btn {
         position: static;
+    }
+
+    .json-section-label {
+        font-size: 0.68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin-right: auto;
     }
 
     .json-pre {
