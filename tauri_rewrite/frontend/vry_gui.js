@@ -921,31 +921,22 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         copyText(text, button);
     }
 
-    function renderLogTail() {
-        tauriInvoke("get_gui_log_tail").then(function (text) {
-            var displayText = text || "(empty log)";
-            if (els.logPre.textContent !== displayText) {
-                els.logPre.textContent = displayText;
+    function renderInvokeText(invokeMethod, preEl, fallbackText, errorText) {
+        tauriInvoke(invokeMethod).then(function (text) {
+            var displayText = text || fallbackText;
+            if (preEl.textContent !== displayText) {
+                preEl.textContent = displayText;
             }
         }).catch(function () {
-            if (els.logPre.textContent !== "Failed to fetch log.") {
-                els.logPre.textContent = "Failed to fetch log.";
+            if (preEl.textContent !== errorText) {
+                preEl.textContent = errorText;
             }
         });
     }
 
-    function renderHeartbeatTail() {
-        tauriInvoke("get_heartbeat_log").then(function (text) {
-            var displayText = text || "(no heartbeat data yet)";
-            if (els.hbPre.textContent !== displayText) {
-                els.hbPre.textContent = displayText;
-            }
-        }).catch(function () {
-            if (els.hbPre.textContent !== "Failed to fetch heartbeat log.") {
-                els.hbPre.textContent = "Failed to fetch heartbeat log.";
-            }
-        });
-    }
+    function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(empty log)", "Failed to fetch log."); }
+
+    function renderHeartbeatTail() { renderInvokeText("get_heartbeat_log", els.hbPre, "(no heartbeat data yet)", "Failed to fetch heartbeat log."); }
 
     function fallbackCopy(text, done) {
         var ta = document.createElement("textarea");
@@ -1029,17 +1020,14 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(bindContextCopy);
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
-    els.logPanel.addEventListener("toggle", function () {
-        if (els.logPanel.open) renderLogTail();
+    [
+        { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, refresh: els.logRefreshBtn, render: renderLogTail },
+        { panel: els.hbPanel, pre: els.hbPre, copy: els.hbCopyBtn, refresh: els.hbRefreshBtn, render: renderHeartbeatTail },
+    ].forEach(function (p) {
+        p.panel.addEventListener("toggle", function () { if (p.panel.open) p.render(); });
+        p.copy.addEventListener("click", function () { copyText(p.pre.textContent, p.copy); });
+        p.refresh.addEventListener("click", p.render);
     });
-    els.logCopyBtn.addEventListener("click", function () { copyText(els.logPre.textContent, els.logCopyBtn); });
-    els.logRefreshBtn.addEventListener("click", renderLogTail);
-
-    els.hbPanel.addEventListener("toggle", function () {
-        if (els.hbPanel.open) renderHeartbeatTail();
-    });
-    els.hbCopyBtn.addEventListener("click", function () { copyText(els.hbPre.textContent, els.hbCopyBtn); });
-    els.hbRefreshBtn.addEventListener("click", renderHeartbeatTail);
 
     // ---- boot ----
     var cached = null;
