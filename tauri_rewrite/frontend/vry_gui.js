@@ -307,7 +307,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     function setStatus(text, cls) {
-        els.statusPill.className = "status-pill " + cls;
+        els.statusPill.className = "pill status-pill " + cls;
         els.statusText.textContent = text;
         updateLoadingOverlay(cls);
     }

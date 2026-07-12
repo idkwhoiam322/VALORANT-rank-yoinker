@@ -10,6 +10,12 @@
         margin-bottom: 10px;
     }
 
+    .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel-soft);
+    }
+
     .status-pill {
         display: inline-flex;
         align-items: center;
@@ -20,9 +26,6 @@
         letter-spacing: 0.06em;
         color: var(--muted);
         padding: 4px 10px 4px 8px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--panel-soft);
     }
 
     .status-dot {
@@ -378,9 +381,6 @@
         gap: 6px;
         height: 46px;
         padding: 0 14px;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        background: var(--panel-soft);
         pointer-events: auto;
     }
     .trn-link {
