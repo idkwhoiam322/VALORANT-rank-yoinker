@@ -264,7 +264,7 @@ impl MainLoop {
         }
         let lockfile = auth::parse_lockfile(&lockfile_path)
             .map_err(|e| format!("Lockfile parse: {e}"))?;
-        *self.lockfile_port.lock().unwrap() = Some(lockfile.port);
+        *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) = Some(lockfile.port);
 
         // 2. Read region from logs
         let log_path = auth::get_log_path();
