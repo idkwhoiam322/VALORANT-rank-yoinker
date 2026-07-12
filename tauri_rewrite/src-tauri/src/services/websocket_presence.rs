@@ -118,7 +118,7 @@ async fn ws_task(
         loop {
             let msg = tokio::select! {
                 msg = stream.next() => msg,
-                _ = tokio::time::sleep(Duration::from_secs(60)) => {
+                _ = tokio::time::sleep(Duration::from_secs(300)) => {
                     logger.log("WS idle timeout — reconnecting");
                     break;
                 }
