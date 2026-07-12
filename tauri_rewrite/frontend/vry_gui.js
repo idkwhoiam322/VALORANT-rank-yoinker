@@ -268,15 +268,15 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
                 cleanup.forEach(function (fn) { fn(); });
                 document.body.classList.remove("show-you-badge");
                 canvas.toBlob(function (blob) {
-                    if (!blob) { showToast("Screenshot failed."); els.screenshotButton.disabled = false; return; }
+                    if (!blob) { els.toast.classList.add("is-error"); showToast("Screenshot failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); els.screenshotButton.disabled = false; return; }
                     if (navigator.clipboard && navigator.clipboard.write) {
                         navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
                             .then(function () { els.toast.classList.add("is-success"); showToast("Screenshot copied!"); setTimeout(function () { els.toast.classList.remove("is-success"); }, 600); })
-                            .catch(function () { showToast("Copy failed."); });
-                    } else { showToast("Clipboard API unavailable."); }
+                            .catch(function () { els.toast.classList.add("is-error"); showToast("Screenshot copy failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); });
+                    } else { els.toast.classList.add("is-error"); showToast("Clipboard API unavailable."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
                     els.screenshotButton.disabled = false;
                 }, "image/png");
-            }).catch(function () { cleanup.forEach(function (fn) { fn(); }); document.body.classList.remove("show-you-badge"); showToast("Screenshot failed."); els.screenshotButton.disabled = false; });
+            }).catch(function () { cleanup.forEach(function (fn) { fn(); }); document.body.classList.remove("show-you-badge"); els.toast.classList.add("is-error"); showToast("Screenshot failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); els.screenshotButton.disabled = false; });
     }
 
     function setStatus(text, cls) {

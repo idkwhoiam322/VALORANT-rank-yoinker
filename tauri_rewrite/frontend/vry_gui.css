@@ -204,6 +204,12 @@
         color: #6fcf97;
     }
 
+    .toast.is-error {
+        border-color: var(--red, #e74c3c);
+        background: #2a0d0d;
+        color: #e57373;
+    }
+
     .screenshot-btn {
         display: inline-flex;
         align-items: center;
