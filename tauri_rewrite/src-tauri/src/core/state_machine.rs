@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
 use crate::api::auth;
@@ -118,6 +119,7 @@ pub struct AppServices {
     pub previous_season_id: Option<String>,
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
+    pub auth_retry: Arc<Notify>,
 }
 
 impl AppServices {
@@ -155,6 +157,7 @@ impl AppServices {
             previous_season_id: None,
             match_player_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
             current_match_id: Arc::new(std::sync::Mutex::new(None)),
+            auth_retry: Arc::new(Notify::new()),
         }
     }
 
@@ -211,6 +214,11 @@ impl MainLoop {
             svc.logger.set_app_handle(app.clone());
         }
 
+        // Small delay so the frontend JS can register Tauri event listeners
+        // before the backend emits its first events (avoiding a startup race
+        // where no listeners exist yet to receive early log_update/auth_error).
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         loop {
             match self.try_initialize(&app).await {
                 Ok(()) => {
@@ -220,10 +228,25 @@ impl MainLoop {
                     }
                 }
                 Err(e) => {
-                    let svc = services.read().await;
-                    svc.log(&format!("Init error: {e}, retrying in 5s..."));
-                    drop(svc);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    let is_auth_error = e.starts_with("Auth:");
+
+                    if is_auth_error {
+                        let auth_retry = {
+                            let svc = services.read().await;
+                            svc.log(&format!("Auth error: {e}. Waiting for user to click Refresh..."));
+                            svc.auth_retry.clone()
+                        };
+                        let _ = app.emit("auth_error", serde_json::json!({
+                            "message": e,
+                            "action": "Please sign in to Riot Client and click Refresh below."
+                        }));
+                        auth_retry.notified().await;
+                    } else {
+                        let svc = services.read().await;
+                        svc.log(&format!("Init error: {e}, retrying in 5s..."));
+                        drop(svc);
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
                 }
             }
         }

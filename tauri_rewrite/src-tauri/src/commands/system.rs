@@ -25,6 +25,7 @@ pub async fn restart_application(
     svc.stats.clear_cache().await;
     svc.names.clear_cache().await;
     svc.log("Backend state reset — reconnecting...");
+    svc.auth_retry.notify_one();
     drop(svc);
     Ok(())
 }

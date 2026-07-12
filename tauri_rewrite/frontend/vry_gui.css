@@ -156,6 +156,12 @@
         margin-bottom: 18px;
     }
 
+    #authErrorMessage {
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
     .modal-actions {
         display: flex;
         justify-content: flex-end;

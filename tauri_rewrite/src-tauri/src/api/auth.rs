@@ -100,21 +100,46 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
     let port = lockfile.port;
     client.set_local_auth(lockfile.password.clone(), port);
 
-    let json = loop {
-        let response = client
-            .fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None)
-            .await?;
+    let json = {
+        let mut retries = 0;
+        loop {
+            let response = client
+                .fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None)
+                .await?;
 
-        let text = response.text().await.map_err(ApiError::Http)?;
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| ApiError::Auth(format!("JSON parse error: {}", e)))?;
+            let status = response.status();
+            let text = response.text().await.map_err(ApiError::Http)?;
 
-        if json.get("message").and_then(|m| m.as_str()) == Some("Entitlements token is not ready yet") {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            continue;
+            // Check if response indicates error (user not signed in)
+            if status.is_client_error() {
+                return Err(ApiError::Auth(format!(
+                    "Riot client returned error (status {}): {}. Please sign in to Riot Client and restart vRY.",
+                    status,
+                    text
+                )));
+            }
+
+            let json: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| ApiError::Auth(format!("JSON parse error: {}", e)))?;
+
+            if json.get("message").and_then(|m| m.as_str()) == Some("Entitlements token is not ready yet") {
+                if retries >= 5 {
+                    return Err(ApiError::Auth(
+                        "Entitlements token not ready after retries. Please sign in to Riot Client and restart vRY.".into()
+                    ));
+                }
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+            break json;
         }
-        break json;
     };
+
+    // If we get here and json doesn't have accessToken, it's likely an error response
+    if json.get("accessToken").is_none() {
+        return Err(ApiError::Auth("Entitlements token not available. Please sign in to Riot Client and restart vRY.".into()));
+    }
 
     let entitlements = Entitlements {
         access_token: json["accessToken"]

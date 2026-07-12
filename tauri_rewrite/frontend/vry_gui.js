@@ -354,6 +354,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
                 renderLogTail();
             }
         }).then(function (fn) { unlisteners.push(fn); });
+
+        tauriListen("auth_error", function (event) {
+            var message = (event.payload && event.payload.message) || "Please sign in to Riot Client and click Refresh.";
+            showAuthErrorModal(message);
+        }).then(function (fn) { unlisteners.push(fn); });
     }
 
     function cleanupTauriListeners() {
@@ -928,9 +933,17 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         });
     }
 
-    function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(empty log)", "Failed to fetch log."); }
+function renderHeartbeatTail() { renderInvokeText("get_heartbeat_log", els.hbPre, "(no heartbeat data yet)", "Failed to fetch heartbeat log."); }
 
-    function renderHeartbeatTail() { renderInvokeText("get_heartbeat_log", els.hbPre, "(no heartbeat data yet)", "Failed to fetch heartbeat log."); }
+function showAuthErrorModal(message) {
+    var modal = document.getElementById("authErrorModal");
+    var messageEl = document.getElementById("authErrorMessage");
+    if (!modal || !messageEl) return;
+    messageEl.textContent = message;
+    modal.hidden = false;
+}
+
+function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(empty log)", "Failed to fetch log."); }
 
     function fallbackCopy(text, done) {
         var ta = document.createElement("textarea");
@@ -1030,6 +1043,18 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         });
     }
 
+    // Auth error modal
+    var authErrorRefreshBtn = document.getElementById("authErrorRefreshBtn");
+    var authErrorModal = document.getElementById("authErrorModal");
+    var authErrorMessage = document.getElementById("authErrorMessage");
+    if (authErrorRefreshBtn && authErrorModal && authErrorMessage) {
+        authErrorRefreshBtn.addEventListener("click", function () {
+            authErrorModal.hidden = true;
+            requestRestart();
+        });
+    }
+
+    // Open log file
     [
         { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, refresh: els.logRefreshBtn, render: renderLogTail },
         { panel: els.hbPanel, pre: els.hbPre, copy: els.hbCopyBtn, refresh: els.hbRefreshBtn, render: renderHeartbeatTail },
