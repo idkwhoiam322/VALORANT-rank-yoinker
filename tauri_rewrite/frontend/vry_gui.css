@@ -43,7 +43,7 @@
         gap: 8px;
     }
 
-    .refresh-btn {
+    .btn-action {
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -56,17 +56,21 @@
         font-size: 0.8rem;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
 
-    .refresh-btn:hover:not(:disabled) {
+    .btn-action:hover:not(:disabled) {
         box-shadow: 0 0 0 1px var(--gold), 0 8px 24px rgba(241, 199, 102, 0.18);
         transform: translateY(-1px);
     }
 
-    .refresh-btn:disabled {
+    .btn-action:disabled {
         opacity: 0.55;
         cursor: progress;
+    }
+
+    .refresh-btn {
+        transition: opacity 0.15s ease;
     }
 
     .refresh-icon {
@@ -208,32 +212,6 @@
         border-color: var(--red, #e74c3c);
         background: #2a0d0d;
         color: #e57373;
-    }
-
-    .screenshot-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        border-radius: 10px;
-        border: 1px solid var(--line-strong);
-        background: var(--panel-strong);
-        color: var(--text);
-        font-weight: 800;
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .screenshot-btn:hover {
-        box-shadow: 0 0 0 1px var(--gold), 0 8px 24px rgba(241, 199, 102, 0.18);
-        transform: translateY(-1px);
-    }
-
-    .screenshot-btn:disabled {
-        opacity: 0.55;
-        cursor: progress;
     }
 
     /* --- stat chips inside details panel --- */
