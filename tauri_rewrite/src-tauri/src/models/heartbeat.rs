@@ -81,6 +81,10 @@ pub struct EncounterEntry {
     pub name: String,
     pub agent: String,
     pub map: String,
+    #[serde(default, rename = "lastAgent")]
+    pub last_agent: Option<String>,
+    #[serde(default, rename = "lastMap")]
+    pub last_map: Option<String>,
     pub relation: String,
     pub relation_name: String,
     pub time_diff: f64,

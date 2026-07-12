@@ -859,7 +859,9 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             var rel = entry.relation === "ally" ? "Ally" : "Enemy";
             var cc = document.createElement("td"); cc.textContent = rel + " " + txt(entry.agent, "Unknown"); row.append(cc);
             var tc = document.createElement("td"); tc.textContent = formatEncounterTimes(entry); row.append(tc);
-            var lc = document.createElement("td"); lc.textContent = capitalize(txt(entry.relation_name, "player")) + " " + txt(entry.agent, "Unknown") + " on " + txt(entry.map, "Unknown") + " \u2014 " + formatTimeAgo(entry.time_diff) + " ago"; row.append(lc);
+            var lastAgent = txt(entry.lastAgent || entry.agent, "Unknown");
+            var lastMap = txt(entry.lastMap || entry.map, "Unknown");
+            var lc = document.createElement("td"); lc.textContent = capitalize(txt(entry.relation_name, "player")) + " " + lastAgent + " on " + lastMap + " \u2014 " + formatTimeAgo(entry.time_diff) + " ago"; row.append(lc);
             var rc = document.createElement("td"); rc.textContent = formatEncounterRecord(entry); row.append(rc);
             frag.append(row);
         });

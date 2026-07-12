@@ -58,7 +58,31 @@ impl EncounterService {
             // Deduplicate by match_id
             if let Some(ref match_id) = record.match_id {
                 if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(match_id)) {
-                    // Merge: update result/score if new values are non-null
+                    // Merge: update fields if new values are non-null
+                    if record.name.is_some() {
+                        existing.name = record.name.clone();
+                    }
+                    if record.agent.is_some() {
+                        existing.agent = record.agent.clone();
+                    }
+                    if record.map.is_some() {
+                        existing.map = record.map.clone();
+                    }
+                    if record.rank.is_some() {
+                        existing.rank = record.rank;
+                    }
+                    if record.rr.is_some() {
+                        existing.rr = record.rr;
+                    }
+                    if record.relation.is_some() {
+                        existing.relation = record.relation.clone();
+                    }
+                    if record.team.is_some() {
+                        existing.team = record.team.clone();
+                    }
+                    if record.my_team.is_some() {
+                        existing.my_team = record.my_team.clone();
+                    }
                     if record.result.is_some() {
                         existing.result = record.result.clone();
                     }
@@ -138,6 +162,8 @@ impl EncounterService {
         current_match_id: &str,
         fallback_name: &str,
         fallback_relation: Option<&str>,
+        current_agent: Option<&str>,
+        current_map: Option<&str>,
     ) -> Option<EncounterEntry> {
         let data = self.data.lock().unwrap();
         let history = data.get(puuid)?;
@@ -203,8 +229,16 @@ impl EncounterService {
         Some(EncounterEntry {
             times: previous.len(),
             name: latest_name.to_string(),
-            agent: latest.agent.clone().unwrap_or_else(|| "Unknown".into()),
-            map: latest.map.clone().unwrap_or_else(|| "Unknown".into()),
+            agent: current_agent
+                .map(String::from)
+                .or_else(|| latest.agent.clone())
+                .unwrap_or_else(|| "Unknown".into()),
+            map: current_map
+                .map(String::from)
+                .or_else(|| latest.map.clone())
+                .unwrap_or_else(|| "Unknown".into()),
+            last_agent: latest.agent.clone(),
+            last_map: latest.map.clone(),
             relation: latest_relation.to_string(),
             relation_name: if latest_relation == "ally" {
                 "teammate"
@@ -283,11 +317,15 @@ impl EncounterService {
             let time_diff = latest.epoch.map(|e| now - e).unwrap_or(0.0);
             let latest_name = latest.name.as_deref().unwrap_or("Unknown");
 
+            let last_agent = latest.agent.clone();
+            let last_map = latest.map.clone();
             results.push(crate::models::heartbeat::EncounterEntry {
                 times: deduped.len(),
                 name: latest_name.to_string(),
-                agent: latest.agent.clone().unwrap_or_else(|| "Unknown".into()),
-                map: latest.map.clone().unwrap_or_else(|| "Unknown".into()),
+                agent: last_agent.clone().unwrap_or_else(|| "Unknown".into()),
+                map: last_map.clone().unwrap_or_else(|| "Unknown".into()),
+                last_agent,
+                last_map,
                 relation: latest.relation.clone().unwrap_or_default(),
                 relation_name: if latest.relation.as_deref() == Some("ally") {
                     "teammate"

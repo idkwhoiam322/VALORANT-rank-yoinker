@@ -397,6 +397,8 @@ async fn build_ingame_payload(
                 &match_id,
                 &name,
                 None,
+                agent_name.as_deref(),
+                payload.map.as_deref(),
             ) {
                 payload.already_played_with.push(entry);
             }
