@@ -187,7 +187,11 @@ fn parse_state_from_event(
     // Decode base64 private field.
     let private_b64 = own.get("private")?.as_str()?;
     let private_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
+        &base64::engine::general_purpose::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            base64::engine::general_purpose::GeneralPurposeConfig::new()
+                .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+        ),
         private_b64,
     )
     .ok()?;

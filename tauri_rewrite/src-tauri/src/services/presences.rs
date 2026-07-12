@@ -42,7 +42,11 @@ impl PresenceService {
             return None;
         }
         let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
+            &base64::engine::general_purpose::GeneralPurpose::new(
+                &base64::alphabet::STANDARD,
+                base64::engine::general_purpose::GeneralPurposeConfig::new()
+                    .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+            ),
             b64,
         ).ok()?;
         serde_json::from_slice(&bytes).ok()
