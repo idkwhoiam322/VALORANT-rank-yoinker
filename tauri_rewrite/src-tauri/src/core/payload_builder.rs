@@ -5,7 +5,7 @@ use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
 use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
 use crate::models::match_data::CoregamePlayer;
-use crate::models::presences::GameState;
+use crate::models::presences::{GameState, Presence};
 use crate::services::encounters::EncounterRecord;
 
 fn parse_server(raw: &str) -> String {
@@ -94,9 +94,10 @@ pub async fn build_heartbeat(
         already_played_with: vec![],
     };
 
-    // Resolve mode from presence data at top level (matches Python behavior)
-    if let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await {
-        if let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) {
+    // Fetch presences once and reuse — sub-builders receive the data to avoid re-fetching.
+    let presences = svc.presences.get_presences(entitlements, client_version).await;
+    if let Ok(ref p) = presences {
+        if let Some(own) = crate::services::presences::PresenceService::find_own_presence(p, puuid) {
             if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
                 if is_custom_game(&private) {
                     payload.mode = Some("Custom Game".into());
@@ -108,16 +109,17 @@ pub async fn build_heartbeat(
             }
         }
     }
+    let presences = presences.as_ref().ok().map(|v| v.as_slice());
 
     match state {
         GameState::INGAME => {
-            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
+            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, presences).await;
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, presences).await;
         }
         GameState::MENUS => {
-            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload).await;
+            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences).await;
         }
         GameState::DISCONNECTED => {}
     }
@@ -203,6 +205,7 @@ async fn build_ingame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
+    _presences: Option<&[Presence]>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
@@ -416,6 +419,7 @@ async fn build_pregame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
+    _presences: Option<&[Presence]>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
@@ -637,11 +641,15 @@ async fn build_menus_payload(
     client_version: &str,
     puuid: &str,
     payload: &mut HeartbeatPayload,
+    presences: Option<&[Presence]>,
 ) {
-    // Fetch presences
-    let presences = match svc.presences.get_presences(entitlements, client_version).await {
-        Ok(p) => p,
-        Err(_) => return,
+    // Use caller-supplied presences (fetched once in build_heartbeat) or fetch fresh.
+    let presences = match presences {
+        Some(p) => p.to_vec(),
+        None => match svc.presences.get_presences(entitlements, client_version).await {
+            Ok(p) => p,
+            Err(_) => return,
+        },
     };
 
     // Extract self presence data: mode + account level
