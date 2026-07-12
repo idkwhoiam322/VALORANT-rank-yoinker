@@ -23,81 +23,11 @@ const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
     "808202d6-4f2b-a8ff-1feb-b3a0590ad79f",
 ];
 
-pub async fn fetch_all_content(
-    client: &ApiClient,
-    region_shard: &str,
-    entitlements: &crate::models::auth::Entitlements,
-    client_version: &str,
-) -> (ContentCache, String, Option<String>) {
-    let mut cache = ContentCache::empty();
-    let mut had_error = false;
-
-    if let Err(e) = fetch_agents(client, &mut cache).await {
-        log::warn!("Content fetch error (agents): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_maps(client, &mut cache).await {
-        log::warn!("Content fetch error (maps): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_weapons_with_retry(client, &mut cache).await {
-        log::warn!("Content fetch error (weapons): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-
-    if let Err(e) = fetch_sprays(client, &mut cache).await {
-        log::warn!("Content fetch error (sprays): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_flex(client, &mut cache).await {
-        log::warn!("Content fetch error (flex): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_buddies(client, &mut cache).await {
-        log::warn!("Content fetch error (buddies): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_player_titles(client, &mut cache).await {
-        log::warn!("Content fetch error (player_titles): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_player_cards(client, &mut cache).await {
-        log::warn!("Content fetch error (player_cards): {}", e);
-        had_error = true;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    if let Err(e) = fetch_competitive_tiers(client, &mut cache).await {
-        log::warn!("Content fetch error (competitive_tiers): {}", e);
-        had_error = true;
-    }
-    // Riot API season fetch (different auth, can be faster)
-    let (season_id, previous_season_id) =
-        fetch_seasons(client, region_shard, &mut cache, entitlements, client_version).await.unwrap_or_default();
-
-    if had_error {
-        log::warn!("One or more content API calls failed — some data may be missing");
-    }
-
-    (cache, season_id, previous_season_id)
+async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Agent>>, ApiError> {
+    client.fetch_valorant_api("agents?isPlayableCharacter=true").await
 }
 
-async fn fetch_agents(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<Agent>> =
-        client.fetch_valorant_api("agents?isPlayableCharacter=true").await?;
+fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent>>) {
     for agent in &resp.data {
         cache.agents.insert(agent.uuid.to_lowercase(), agent.display_name.clone());
         cache.agent_uuids.insert(
@@ -105,11 +35,13 @@ async fn fetch_agents(client: &ApiClient, cache: &mut ContentCache) -> Result<()
             agent.uuid.to_lowercase(),
         );
     }
-    Ok(())
 }
 
-async fn fetch_maps(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<Map>> = client.fetch_valorant_api("maps").await?;
+async fn fetch_maps_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Map>>, ApiError> {
+    client.fetch_valorant_api("maps").await
+}
+
+fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) {
     for map in &resp.data {
         if let Some(ref url) = map.map_url {
             cache.maps.insert(url.to_lowercase(), map.display_name.clone());
@@ -118,30 +50,17 @@ async fn fetch_maps(client: &ApiClient, cache: &mut ContentCache) -> Result<(), 
             .map_splashes
             .insert(map.display_name.clone(), map.splash.clone().unwrap_or_default());
     }
-    Ok(())
 }
 
-async fn fetch_weapons(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<WeaponData>> =
-        client.fetch_valorant_api("weapons").await?;
-    for weapon in &resp.data {
-        cache
-            .weapons
-            .insert(weapon.uuid.to_lowercase(), weapon.clone());
-        for skin in &weapon.skins {
-            cache
-                .skins_by_uuid
-                .insert(skin.uuid.to_lowercase(), skin.clone());
-        }
-    }
-    Ok(())
+async fn fetch_weapons_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
+    client.fetch_valorant_api("weapons").await
 }
 
-async fn fetch_weapons_with_retry(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
+async fn fetch_weapons_with_retry_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
     let delays = [1, 2, 4];
     let mut last_err = None;
     for (i, delay) in delays.iter().enumerate() {
-        match fetch_weapons(client, cache).await {
+        match fetch_weapons_raw(client).await {
             Ok(v) => return Ok(v),
             Err(e) => {
                 log::warn!("weapons fetch attempt {} failed: {}", i + 1, e);
@@ -153,57 +72,80 @@ async fn fetch_weapons_with_retry(client: &ApiClient, cache: &mut ContentCache) 
     Err(last_err.unwrap())
 }
 
-async fn fetch_sprays(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<Spray>> = client.fetch_valorant_api("sprays").await?;
+fn populate_weapons(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<WeaponData>>) {
+    for weapon in &resp.data {
+        cache
+            .weapons
+            .insert(weapon.uuid.to_lowercase(), weapon.clone());
+        for skin in &weapon.skins {
+            cache
+                .skins_by_uuid
+                .insert(skin.uuid.to_lowercase(), skin.clone());
+        }
+    }
+}
+
+async fn fetch_sprays_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Spray>>, ApiError> {
+    client.fetch_valorant_api("sprays").await
+}
+
+fn populate_sprays(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Spray>>) {
     for spray in &resp.data {
         cache
             .sprays
             .insert(spray.uuid.to_lowercase(), spray.clone());
     }
-    Ok(())
 }
 
-async fn fetch_flex(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<Flex>> = client.fetch_valorant_api("flex").await?;
+async fn fetch_flex_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Flex>>, ApiError> {
+    client.fetch_valorant_api("flex").await
+}
+
+fn populate_flex(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Flex>>) {
     for flex in &resp.data {
         cache.flex.insert(flex.uuid.to_lowercase(), flex.clone());
     }
-    Ok(())
 }
 
-async fn fetch_buddies(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<Buddy>> = client.fetch_valorant_api("buddies").await?;
+async fn fetch_buddies_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Buddy>>, ApiError> {
+    client.fetch_valorant_api("buddies").await
+}
+
+fn populate_buddies(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Buddy>>) {
     for buddy in &resp.data {
         cache.buddies.insert(buddy.uuid.to_lowercase(), buddy.clone());
     }
-    Ok(())
 }
 
-async fn fetch_player_titles(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<PlayerTitle>> =
-        client.fetch_valorant_api("playertitles").await?;
+async fn fetch_player_titles_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerTitle>>, ApiError> {
+    client.fetch_valorant_api("playertitles").await
+}
+
+fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerTitle>>) {
     for title in &resp.data {
         cache
             .player_titles
             .insert(title.uuid.to_lowercase(), title.clone());
     }
-    Ok(())
 }
 
-async fn fetch_player_cards(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<PlayerCard>> =
-        client.fetch_valorant_api("playercards").await?;
+async fn fetch_player_cards_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerCard>>, ApiError> {
+    client.fetch_valorant_api("playercards").await
+}
+
+fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerCard>>) {
     for card in &resp.data {
         cache
             .player_cards
             .insert(card.uuid.to_lowercase(), card.clone());
     }
-    Ok(())
 }
 
-async fn fetch_competitive_tiers(client: &ApiClient, cache: &mut ContentCache) -> Result<(), ApiError> {
-    let resp: ValorantApiResponse<Vec<CompetitiveTiers>> =
-        client.fetch_valorant_api("competitivetiers").await?;
+async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<CompetitiveTiers>>, ApiError> {
+    client.fetch_valorant_api("competitivetiers").await
+}
+
+fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
     if let Some(latest) = resp.data.last() {
         cache.competitive_tiers = latest.tiers.clone();
         let mut icons = Vec::new();
@@ -215,18 +157,16 @@ async fn fetch_competitive_tiers(client: &ApiClient, cache: &mut ContentCache) -
         }
         cache.rank_icons = Arc::new(icons);
     }
-    Ok(())
 }
 
-async fn fetch_seasons(
+async fn fetch_seasons_raw(
     client: &ApiClient,
     region_shard: &str,
-    cache: &mut ContentCache,
     entitlements: &crate::models::auth::Entitlements,
     client_version: &str,
-) -> Result<(String, Option<String>), ApiError> {
+) -> Result<serde_json::Value, ApiError> {
     let headers = entitlements.build_headers(client_version);
-    let content: serde_json::Value = client
+    client
         .fetch_json(
             UrlType::Custom,
             &format!(
@@ -235,8 +175,10 @@ async fn fetch_seasons(
             ),
             &headers,
         )
-        .await?;
+        .await
+}
 
+fn process_seasons(content: serde_json::Value, cache: &mut ContentCache) -> (String, Option<String>) {
     let mut current_season_id = String::new();
     let mut previous_season_id: Option<String> = None;
 
@@ -267,7 +209,68 @@ async fn fetch_seasons(
         }
     }
 
-    Ok((current_season_id, previous_season_id))
+    (current_season_id, previous_season_id)
+}
+
+pub async fn fetch_all_content(
+    client: &ApiClient,
+    region_shard: &str,
+    entitlements: &crate::models::auth::Entitlements,
+    client_version: &str,
+) -> (ContentCache, String, Option<String>) {
+    // Run all valorant-api.com fetches concurrently (non-Riot, no rate-limit concern)
+    let (agents, maps, weapons, sprays, flex, buddies, titles, cards, tiers, seasons) = tokio::join!(
+        fetch_agents_raw(client),
+        fetch_maps_raw(client),
+        fetch_weapons_with_retry_raw(client),
+        fetch_sprays_raw(client),
+        fetch_flex_raw(client),
+        fetch_buddies_raw(client),
+        fetch_player_titles_raw(client),
+        fetch_player_cards_raw(client),
+        fetch_competitive_tiers_raw(client),
+        fetch_seasons_raw(client, region_shard, entitlements, client_version),
+    );
+
+    let mut cache = ContentCache::empty();
+    let mut had_error = false;
+
+    macro_rules! handle {
+        ($result:expr, $populate:expr, $label:expr) => {
+            match $result {
+                Ok(resp) => $populate(&mut cache, resp),
+                Err(e) => {
+                    log::warn!("Content fetch error ({}): {}", $label, e);
+                    had_error = true;
+                }
+            }
+        };
+    }
+
+    handle!(agents, populate_agents, "agents");
+    handle!(maps, populate_maps, "maps");
+    handle!(weapons, populate_weapons, "weapons");
+    handle!(sprays, populate_sprays, "sprays");
+    handle!(flex, populate_flex, "flex");
+    handle!(buddies, populate_buddies, "buddies");
+    handle!(titles, populate_player_titles, "player_titles");
+    handle!(cards, populate_player_cards, "player_cards");
+    handle!(tiers, populate_competitive_tiers, "competitive_tiers");
+
+    let (season_id, previous_season_id) = match seasons {
+        Ok(content) => process_seasons(content, &mut cache),
+        Err(e) => {
+            log::warn!("Content fetch error (seasons): {}", e);
+            had_error = true;
+            (String::new(), None)
+        }
+    };
+
+    if had_error {
+        log::warn!("One or more content API calls failed — some data may be missing");
+    }
+
+    (cache, season_id, previous_season_id)
 }
 
 pub fn is_before_ascendant(season_id: &str) -> bool {
