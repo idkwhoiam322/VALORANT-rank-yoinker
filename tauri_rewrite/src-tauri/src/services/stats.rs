@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use lru::LruCache;
+
+const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
 
 use crate::api::client::{ApiClient, UrlType};
 use crate::models::auth::Entitlements;
@@ -13,6 +17,7 @@ use crate::models::mmr::{
 pub struct StatsService {
     client: Arc<ApiClient>,
     match_details_cache: Mutex<LruCache<String, MatchDetailsResponse>>,
+    updates_cache: Mutex<HashMap<String, (PlayerStats, Instant)>>,
 }
 
 impl StatsService {
@@ -20,11 +25,13 @@ impl StatsService {
         Self {
             client,
             match_details_cache: Mutex::new(LruCache::new(NonZeroUsize::new(200).unwrap())),
+            updates_cache: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn clear_cache(&self) {
         self.match_details_cache.lock().unwrap().clear();
+        self.updates_cache.lock().unwrap().clear();
     }
 
     pub async fn get_stats(
@@ -33,6 +40,16 @@ impl StatsService {
         client_version: &str,
         puuid: &str,
     ) -> PlayerStats {
+        // Check TTL cache first
+        {
+            let cache = self.updates_cache.lock().unwrap();
+            if let Some((stats, ts)) = cache.get(puuid) {
+                if ts.elapsed() < UPDATES_CACHE_TTL {
+                    return stats.clone();
+                }
+            }
+        }
+
         let headers = entitlements.build_headers(client_version);
 
         // Fetch competitive updates
@@ -109,7 +126,10 @@ impl StatsService {
             }
         };
 
-        self.process_match_data(puuid, match_data_opt.as_ref(), match_summary)
+        let stats = self.process_match_data(puuid, match_data_opt.as_ref(), match_summary);
+        let mut cache = self.updates_cache.lock().unwrap();
+        cache.insert(puuid.to_string(), (stats.clone(), Instant::now()));
+        stats
     }
 
     fn process_match_data(
