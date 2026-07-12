@@ -194,6 +194,7 @@ pub fn get_gamemode_name(queue_id: &str) -> &'static str {
         "onefa" => "Replication",
         "hurm" => "Team Deathmatch",
         "newmap" => "New Map",
+        "fortcollins" => "Retake",
         "snowball" => "Snowball Fight",
         "valaram" => "All Random One Site",
         "dodgeball" => "Knockout",
