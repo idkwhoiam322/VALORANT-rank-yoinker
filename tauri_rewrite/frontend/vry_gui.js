@@ -74,6 +74,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         trnLink: document.getElementById("trnLink"),
         vtlLink: document.getElementById("vtlLink"),
         copyStatsBtn: document.getElementById("copyStatsBtn"),
+        screenshotPlayerRow: document.getElementById("screenshotPlayerRow"),
+        screenshotPlayerBtn: document.getElementById("screenshotPlayerBtn"),
         selectedCardTitle: document.getElementById("selectedCardTitle"),
         selectedModalName: document.getElementById("selectedModalName"),
         selectedLevel: document.getElementById("selectedLevel"),
@@ -273,6 +275,35 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
                     els.screenshotButton.disabled = false;
                 }, "image/png");
             }).catch(function () { cleanup.forEach(function (fn) { fn(); }); document.body.classList.remove("show-you-badge"); els.toast.classList.add("is-error"); showToast("Screenshot failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); els.screenshotButton.disabled = false; });
+    }
+
+    function takeDetailScreenshot() {
+        if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
+        var target = els.detailsPanel;
+        if (!target || target.hidden) { showToast("No player loadout open."); return; }
+        els.screenshotPlayerBtn.disabled = true;
+        var cleanup = [];
+        function suppressAnimations() {
+            var s = document.createElement("style");
+            s.id = "tmp-scr-det";
+            s.textContent = "* { animation: none !important; }";
+            document.head.appendChild(s);
+            cleanup.push(function () { var el = document.getElementById("tmp-scr-det"); if (el) el.remove(); });
+        }
+        suppressAnimations();
+        html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" })
+            .then(function (canvas) {
+                cleanup.forEach(function (fn) { fn(); });
+                canvas.toBlob(function (blob) {
+                    if (!blob) { showToast("Screenshot failed."); els.screenshotPlayerBtn.disabled = false; return; }
+                    if (navigator.clipboard && navigator.clipboard.write) {
+                        navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+                            .then(function () { showToast("Screenshot copied!"); })
+                            .catch(function () { showToast("Screenshot copy failed."); });
+                    } else { showToast("Clipboard API unavailable."); }
+                    els.screenshotPlayerBtn.disabled = false;
+                }, "image/png");
+            }).catch(function () { cleanup.forEach(function (fn) { fn(); }); showToast("Screenshot failed."); els.screenshotPlayerBtn.disabled = false; });
     }
 
     function setStatus(text, cls) {
@@ -662,6 +693,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             els.vtlLink.href = vtlHref; els.vtlLink.title = vtlHref + COPY_HINT; els.vtlLink.hidden = false;
         } else { els.trnLink.hidden = true; els.vtlLink.hidden = true; }
         els.copyStatsBtn.hidden = false;
+        els.screenshotPlayerRow.hidden = false;
         els.selectedCardTitle.textContent = selected.title || "";
         els.selectedCardTitle.hidden = !selected.title;
         els.selectedCardTitle.title = (selected.title || "Title") + COPY_HINT;
@@ -974,6 +1006,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
     els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
     els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
+        els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
         var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
         if (!p) { showToast("Nothing to copy yet."); return; }

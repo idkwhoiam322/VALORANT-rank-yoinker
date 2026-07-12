@@ -436,6 +436,7 @@
     button.trn-link.copied {
         color: #4caf50;
     }
+
     /* --- last played with table --- */
     .played-with-empty {
         color: var(--muted);
