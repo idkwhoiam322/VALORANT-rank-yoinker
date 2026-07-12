@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
@@ -73,6 +73,7 @@ pub async fn build_heartbeat(
     puuid: &str,
     state: GameState,
     known_match_id: Option<&str>,
+    existing_match_data: Option<serde_json::Value>,
 ) -> HeartbeatPayload {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -110,10 +111,10 @@ pub async fn build_heartbeat(
 
     match state {
         GameState::INGAME => {
-            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id).await;
+            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id).await;
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
         }
         GameState::MENUS => {
             build_menus_payload(svc, entitlements, client_version, puuid, &mut payload).await;
@@ -124,55 +125,71 @@ pub async fn build_heartbeat(
     payload
 }
 
-/// Returns (match_id, my_team) for the active match, or None if not in a match.
-/// Fetches the match data to find the player's team (matches Python's approach
-/// of iterating Players array to find self's TeamID).
+/// Returns (match_id, my_team, match_data) for the active match, or None.
+/// match_data is the raw JSON from the match endpoint, reused by the heartbeat
+/// builder to avoid a redundant API call.
 pub async fn get_match_context(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
     puuid: &str,
     state: GameState,
-) -> Option<(String, String)> {
+) -> Option<(String, String, serde_json::Value)> {
     let headers = entitlements.build_headers(client_version);
     match state {
         GameState::INGAME => {
             let player_endpoint = format!("/core-game/v1/players/{}", puuid);
-            let resp = svc.client.fetch(crate::api::client::UrlType::Glz, &player_endpoint, &headers, None).await.ok()?;
-            let text = resp.text().await.unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-            let match_id = json["MatchID"].as_str()?;
-            if match_id.is_empty() { return None; }
+            let json = svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz, &player_endpoint, &headers,
+                3, Duration::from_secs(1),
+                |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+            ).await.ok()?;
+            let match_id = json["MatchID"].as_str()?.to_string();
 
-            // Fetch match data to find self's team from Players array
+            // Fetch match data to find self's team from Players array.
+            // Also validates MapID — it may populate later than Players/TeamID.
             let match_endpoint = format!("/core-game/v1/matches/{}", match_id);
-            let match_resp = svc.client.fetch(crate::api::client::UrlType::Glz, &match_endpoint, &headers, None).await.ok()?;
-            let match_text = match_resp.text().await.unwrap_or_default();
-            let match_json: serde_json::Value = serde_json::from_str(&match_text).ok()?;
+            let match_json = svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz, &match_endpoint, &headers,
+                3, Duration::from_secs(2),
+                |j| {
+                    j["MapID"].as_str().map_or(false, |s| !s.is_empty())
+                    && j["Players"].as_array().map_or(false, |a| {
+                        a.iter().any(|p| p["Subject"].as_str() == Some(puuid) && p["TeamID"].as_str().is_some())
+                    })
+                },
+            ).await.ok()?;
 
             let my_team = match_json["Players"].as_array()?
                 .iter()
                 .find(|p| p["Subject"].as_str() == Some(puuid))
                 .and_then(|p| p["TeamID"].as_str())?;
 
-            Some((match_id.to_string(), my_team.to_string()))
+            Some((match_id, my_team.to_string(), match_json))
         }
         GameState::PREGAME => {
             let endpoint = format!("/pregame/v1/players/{}", puuid);
-            let resp = svc.client.fetch(crate::api::client::UrlType::Glz, &endpoint, &headers, None).await.ok()?;
-            let text = resp.text().await.unwrap_or_default();
-            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-            let match_id = json["MatchID"].as_str()?;
-            if match_id.is_empty() { return None; }
+            let json = svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz, &endpoint, &headers,
+                3, Duration::from_secs(1),
+                |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+            ).await.ok()?;
+            let match_id = json["MatchID"].as_str()?.to_string();
 
-            // Fetch match data to find self's team
+            // Fetch match data to find self's team.
+            // Also validates MapID — it may populate later than AllyTeam.
             let match_endpoint = format!("/pregame/v1/matches/{}", match_id);
-            let match_resp = svc.client.fetch(crate::api::client::UrlType::Glz, &match_endpoint, &headers, None).await.ok()?;
-            let match_text = match_resp.text().await.unwrap_or_default();
-            let match_json: serde_json::Value = serde_json::from_str(&match_text).ok()?;
+            let match_json = svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz, &match_endpoint, &headers,
+                3, Duration::from_secs(2),
+                |j| {
+                    j["MapID"].as_str().map_or(false, |s| !s.is_empty())
+                    && j["AllyTeam"]["TeamID"].as_str().map_or(false, |s| !s.is_empty())
+                },
+            ).await.ok()?;
 
             let my_team = match_json["AllyTeam"]["TeamID"].as_str()?;
-            Some((match_id.to_string(), my_team.to_string()))
+            Some((match_id.to_string(), my_team.to_string(), match_json))
         }
         _ => None,
     }
@@ -185,63 +202,52 @@ async fn build_ingame_payload(
     puuid: &str,
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
+    existing_match_data: Option<serde_json::Value>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
-    // Fetch coregame match data (skip player lookup if match_id is already known)
-    let match_id = {
-        let id = match known_match_id {
-            Some(id) if !id.is_empty() => Some(id.to_string()),
-            _ => None,
-        };
-        match id {
-            Some(id) => Some(id),
-            None => {
+    // Use pre-fetched match data (from get_match_context) if available,
+    // otherwise fetch fresh with retry.
+    let (mut match_data, match_id) = match existing_match_data {
+        Some(data) => {
+            let mid = known_match_id.unwrap_or_default().to_string();
+            if mid.is_empty() { return; }
+            (data, mid)
+        }
+        None => {
+            let mid = if let Some(id) = known_match_id {
+                if !id.is_empty() { id.to_string() } else { return }
+            } else {
                 let player_endpoint = format!("/core-game/v1/players/{}", puuid);
-                let player_resp = svc
-                    .client
-                    .fetch(
-                        crate::api::client::UrlType::Glz,
-                        &player_endpoint,
-                        &headers,
-                        None,
-                    )
-                    .await;
-
-                match player_resp {
-                    Ok(resp) => {
-                        let text = resp.text().await.unwrap_or_default();
-                        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-                        json["MatchID"].as_str().map(|s| s.to_string())
+                match svc.client.fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &player_endpoint,
+                    &headers,
+                    3,
+                    Duration::from_secs(2),
+                    |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                ).await {
+                    Ok(json) => match json["MatchID"].as_str() {
+                        Some(id) if !id.is_empty() => id.to_string(),
+                        _ => return,
                     }
-                    Err(_) => None,
+                    Err(_) => return,
                 }
+            };
+
+            let match_endpoint = format!("/core-game/v1/matches/{}", mid);
+            match svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz,
+                &match_endpoint,
+                &headers,
+                3,
+                Duration::from_secs(2),
+                |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
+            ).await {
+                Ok(json) => (json, mid),
+                Err(_) => return,
             }
         }
-    };
-
-    let match_id = match match_id {
-        Some(id) if !id.is_empty() => id,
-        _ => return,
-    };
-
-    let match_endpoint = format!("/core-game/v1/matches/{}", match_id);
-    let match_resp = svc
-        .client
-        .fetch(
-            crate::api::client::UrlType::Glz,
-            &match_endpoint,
-            &headers,
-            None,
-        )
-        .await;
-
-    let mut match_data = match match_resp {
-        Ok(resp) => {
-            let text = resp.text().await.unwrap_or_default();
-            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()
-        }
-        Err(_) => return,
     };
 
     payload.map = match_data["MapID"]
@@ -407,62 +413,52 @@ async fn build_pregame_payload(
     puuid: &str,
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
+    existing_match_data: Option<serde_json::Value>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
-    let match_id = {
-        let id = match known_match_id {
-            Some(id) if !id.is_empty() => Some(id.to_string()),
-            _ => None,
-        };
-        match id {
-            Some(id) => Some(id),
-            None => {
+    // Use pre-fetched match data (from get_match_context) if available,
+    // otherwise fetch fresh with retry.
+    let (match_data, match_id) = match existing_match_data {
+        Some(data) => {
+            let mid = known_match_id.unwrap_or_default().to_string();
+            if mid.is_empty() { return; }
+            (data, mid)
+        }
+        None => {
+            let mid = if let Some(id) = known_match_id {
+                if !id.is_empty() { id.to_string() } else { return }
+            } else {
                 let player_endpoint = format!("/pregame/v1/players/{}", puuid);
-                let pregame_resp = svc
-                    .client
-                    .fetch(
-                        crate::api::client::UrlType::Glz,
-                        &player_endpoint,
-                        &headers,
-                        None,
-                    )
-                    .await;
-
-                match pregame_resp {
-                    Ok(resp) => {
-                        let text = resp.text().await.unwrap_or_default();
-                        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-                        json["MatchID"].as_str().map(|s| s.to_string())
+                match svc.client.fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &player_endpoint,
+                    &headers,
+                    3,
+                    Duration::from_secs(2),
+                    |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                ).await {
+                    Ok(json) => match json["MatchID"].as_str() {
+                        Some(id) if !id.is_empty() => id.to_string(),
+                        _ => return,
                     }
-                    Err(_) => None,
+                    Err(_) => return,
                 }
+            };
+
+            let match_endpoint = format!("/pregame/v1/matches/{}", mid);
+            match svc.client.fetch_json_retry(
+                crate::api::client::UrlType::Glz,
+                &match_endpoint,
+                &headers,
+                3,
+                Duration::from_secs(2),
+                |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
+            ).await {
+                Ok(json) => (json, mid),
+                Err(_) => return,
             }
         }
-    };
-
-    let match_id = match match_id {
-        Some(id) if !id.is_empty() => id,
-        _ => return,
-    };
-
-    let match_endpoint = format!("/pregame/v1/matches/{}", match_id);
-    let match_resp = svc
-        .client
-        .fetch(
-            crate::api::client::UrlType::Glz,
-            &match_endpoint,
-            &headers,
-            None,
-        )
-        .await;
-
-    let match_data = match match_resp {
-        Ok(resp) => {
-            let text = resp.text().await.unwrap_or_default();
-            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()
-        }
-        Err(_) => return,
     };
 
     payload.map = match_data["MapID"]
@@ -506,48 +502,39 @@ async fn build_pregame_payload(
     }
 
     // Fetch loadouts once — used for enemy extraction
-    let saved_loadouts_text: Option<String> = if let Ok(loadouts_resp) = svc
-        .client
-        .fetch(
-            crate::api::client::UrlType::Glz,
-            &format!("/pregame/v1/matches/{}/loadouts", match_id),
-            &headers,
-            None,
-        )
-        .await
-    {
-        if let Ok(text) = loadouts_resp.text().await {
-            if let Ok(loadouts_json_value) =
-                serde_json::from_str::<serde_json::Value>(&text)
-            {
-                if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
-                    let ally_puuids: Vec<String> =
-                        players.iter().filter_map(|p| p.subject.clone()).collect();
-                    let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
-                        "Red"
-                    } else {
-                        "Blue"
-                    };
-                    for l in loadouts {
-                        if let Some(l_subject) = l["Subject"].as_str() {
-                            if !ally_puuids.iter().any(|s| s == l_subject) {
-                                players.push(CoregamePlayer {
-                                    subject: Some(l_subject.to_string()),
-                                    team_id: Some(enemy_team_id.to_string()),
-                                    character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
-                                    player_identity: None,
-                                });
-                            }
+    let saved_loadouts_text: Option<String> = match svc.client.fetch_json_retry(
+        crate::api::client::UrlType::Glz,
+        &format!("/pregame/v1/matches/{}/loadouts", match_id),
+        &headers,
+        3,
+        Duration::from_secs(2),
+        |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
+    ).await {
+        Ok(loadouts_json_value) => {
+            if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
+                let ally_puuids: Vec<String> =
+                    players.iter().filter_map(|p| p.subject.clone()).collect();
+                let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
+                    "Red"
+                } else {
+                    "Blue"
+                };
+                for l in loadouts {
+                    if let Some(l_subject) = l["Subject"].as_str() {
+                        if !ally_puuids.iter().any(|s| s == l_subject) {
+                            players.push(CoregamePlayer {
+                                subject: Some(l_subject.to_string()),
+                                team_id: Some(enemy_team_id.to_string()),
+                                character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
+                                player_identity: None,
+                            });
                         }
                     }
                 }
             }
-            Some(text)
-        } else {
-            None
+            Some(loadouts_json_value.to_string())
         }
-    } else {
-        None
+        Err(_) => None,
     };
 
     // Get names (now with enemies populated)

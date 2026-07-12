@@ -349,7 +349,8 @@ impl MainLoop {
 
                 if current_state != GameState::DISCONNECTED {
                     // Fetch match context first (for INGAME/PREGAME) to avoid redundant
-                    // player-endpoint calls in build_heartbeat.
+                    // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
+                    // and the raw match data which is reused by the heartbeat builder.
                     let match_ctx = match current_state {
                         GameState::INGAME | GameState::PREGAME => {
                             crate::core::payload_builder::get_match_context(
@@ -358,19 +359,23 @@ impl MainLoop {
                         }
                         _ => None,
                     };
-                    let known_match_id = match_ctx.as_ref().map(|(id, _)| id.as_str());
+
+                    let (known_match_id, pre_fetched_data) = match match_ctx {
+                        Some((id, team, data)) => {
+                            if current_state == GameState::INGAME {
+                                match_context = Some((id.clone(), team));
+                            }
+                            (Some(id), Some(data))
+                        }
+                        None => (None, None),
+                    };
 
                     let mut heartbeat = build_heartbeat(
-                        &snap, &entitlements, &cv, &puuid, current_state, known_match_id,
+                        &snap, &entitlements, &cv, &puuid, current_state,
+                        known_match_id.as_deref(),
+                        pre_fetched_data,
                     )
                     .await;
-
-                    // Save match context for state-transition detection
-                    if current_state == GameState::INGAME {
-                        if let Some(ctx) = match_ctx {
-                            match_context = Some(ctx);
-                        }
-                    }
 
                     let key = heartbeat.time.to_string();
                     if last_heartbeat_key.as_deref() != Some(&key) {

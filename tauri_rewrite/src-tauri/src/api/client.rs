@@ -240,6 +240,38 @@ impl ApiClient {
         })
     }
 
+    /// Fetch JSON with configurable retry and validation.
+    /// Retries up to `max_retries` times with `delay` between attempts.
+    /// The `validate` closure determines if the response is acceptable;
+    /// returns `Err` only after all retries are exhausted.
+    pub async fn fetch_json_retry(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        headers: &[(String, String)],
+        max_retries: u32,
+        delay: Duration,
+        validate: impl Fn(&serde_json::Value) -> bool,
+    ) -> Result<serde_json::Value, ApiError> {
+        let mut last_error = None;
+        for attempt in 0..max_retries {
+            match self.fetch_json::<serde_json::Value>(url_type, endpoint, headers).await {
+                Ok(json) => {
+                    if validate(&json) {
+                        return Ok(json);
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+            if attempt + 1 < max_retries {
+                tokio::time::sleep(delay).await;
+            }
+        }
+        Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
+    }
+
     pub async fn fetch_put_json_with_body<T: serde::de::DeserializeOwned>(
         &self,
         url_type: UrlType,
