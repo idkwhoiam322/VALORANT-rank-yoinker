@@ -469,28 +469,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     var STATE_LABELS = { INGAME: "In-Game", PREGAME: "Agent Select", MENUS: "In-Menus", DISCONNECTED: "Disconnected" };
     var STATE_CLASSES = { INGAME: "state-ingame", PREGAME: "state-pregame", MENUS: "state-menus", DISCONNECTED: "state-disconnected" };
 
-    function renderStateTransition(newState) {
-        // When going from pregame to in-game, keep the existing UI visible
-        // (same players, only stats update). For all other transitions, clear
-        // everything and show a loading state.
-        var isPregameToIngame = (state.lastGameState === "PREGAME" && newState === "INGAME");
-        if (isPregameToIngame) {
-            state.lastRenderKey = null; // Ensure next heartbeat triggers a re-render
-            var label = STATE_LABELS[newState] || newState || "Unknown";
-            els.matchMeta.replaceChildren();
-            var chip = document.createElement("span");
-            chip.className = "meta-chip";
-            var spinner = document.createElement("span");
-            spinner.className = "meta-spinner";
-            chip.append(spinner, document.createTextNode("Loading " + label + " Data\u2026"));
-            els.matchMeta.append(chip);
-            return;
-        }
-        // Original clearing behavior for all other transitions
-        state.payload = null;
-        state.lastRenderKey = null;
-        state.players = [];
-        var label = STATE_LABELS[newState] || newState || "Unknown";
+    function showLoadingChip(label) {
         els.matchMeta.replaceChildren();
         var chip = document.createElement("span");
         chip.className = "meta-chip";
@@ -498,6 +477,24 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         spinner.className = "meta-spinner";
         chip.append(spinner, document.createTextNode("Loading " + label + " Data\u2026"));
         els.matchMeta.append(chip);
+    }
+
+    function renderStateTransition(newState) {
+        // When going from pregame to in-game, keep the existing UI visible
+        // (same players, only stats update). For all other transitions, clear
+        // everything and show a loading state.
+        var isPregameToIngame = (state.lastGameState === "PREGAME" && newState === "INGAME");
+        var label = STATE_LABELS[newState] || newState || "Unknown";
+        if (isPregameToIngame) {
+            state.lastRenderKey = null; // Ensure next heartbeat triggers a re-render
+            showLoadingChip(label);
+            return;
+        }
+        // Original clearing behavior for all other transitions
+        state.payload = null;
+        state.lastRenderKey = null;
+        state.players = [];
+        showLoadingChip(label);
         // Clear player grids and show loading state across full width
         els.blueGrid.replaceChildren();
         els.redGrid.replaceChildren();
