@@ -682,9 +682,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             var skinLabel = weapon ? (weapon.skinDisplayName || weapon.weapon || weaponName) : NA;
             if (weapon && weapon.skinDisplayName && weaponName !== "Melee") { skinLabel = stripWeaponName(skinLabel, weaponName); }
             name.textContent = skinLabel;
-            name.title = name.textContent;
+            slot.title = skinLabel + COPY_HINT;
             copy.append(label, name);
             slot.append(copy);
+            bindContextCopy(slot);
             row.append(slot);
         });
         return row;
