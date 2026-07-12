@@ -450,6 +450,16 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         navigator.clipboard.writeText(text).then(function () { showToast('Copied: ' + text); }, function () { showToast('Failed to copy.'); });
     }
 
+    function bindContextCopy(el) {
+        if (!el) return;
+        el.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var text = stripHint(this.title || this.textContent);
+            navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
+        });
+    }
+
     var STATE_LABELS = { INGAME: "In-Game", PREGAME: "Agent Select", MENUS: "In-Menus", DISCONNECTED: "Disconnected" };
     var STATE_CLASSES = { INGAME: "state-ingame", PREGAME: "state-pregame", MENUS: "state-menus", DISCONNECTED: "state-disconnected" };
 
@@ -757,11 +767,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             copy.append(name, type);
             tile.append(art, copy);
             frag.append(tile);
-            tile.addEventListener("contextmenu", function (e) {
-                e.preventDefault();
-                var text = stripHint(e.target.title || tile.title);
-                navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
-            });
+            bindContextCopy(tile);
         });
         els.expressionGrid.append(frag);
     }
@@ -814,11 +820,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         name.title = name.textContent + vc + COPY_HINT;
         copy.append(label, name);
         tile.append(art, copy);
-        tile.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            var text = stripHint(e.target.title || tile.title);
-            navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
-        });
+        bindContextCopy(tile);
         if (weapon && weapon.buddy_displayIcon) {
             tile.classList.add("has-buddy");
             var buddy = document.createElement("img");
@@ -826,7 +828,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             buddy.src = weapon.buddy_displayIcon;
             buddy.alt = weapon.buddy_displayName || "Buddy";
             buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
-            buddy.addEventListener("contextmenu", function (e) { e.stopPropagation(); e.preventDefault(); var text = stripHint(e.target.title || buddy.title); navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); }); });
+            bindContextCopy(buddy);
             tile.append(buddy);
         }
         return tile;
@@ -1004,8 +1006,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     els.modalConfirm.addEventListener("click", requestRestart);
     els.confirmModal.addEventListener("click", function (e) { if (e.target === els.confirmModal) closeModal(); });
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
-    els.trnLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
-    els.vtlLink.addEventListener("contextmenu", function (e) { e.preventDefault(); var url = stripHint(this.title); navigator.clipboard.writeText(url).then(function () { showToast("Copied: " + url); }, function () { showToast("Failed."); }); });
+    bindContextCopy(els.trnLink);
+    bindContextCopy(els.vtlLink);
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
         var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
@@ -1024,15 +1026,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         ];
         navigator.clipboard.writeText(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }, function () { showToast("Failed."); });
     });
-    [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(function (el) {
-        if (!el) return;
-        el.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            var text = stripHint(this.title || this.textContent);
-            navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
-        });
-    });
+    [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(bindContextCopy);
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
     els.logPanel.addEventListener("toggle", function () {
