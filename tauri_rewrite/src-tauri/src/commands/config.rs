@@ -45,3 +45,29 @@ pub async fn get_heartbeat_log(
         Ok(String::new())
     }
 }
+
+#[tauri::command]
+pub async fn open_log_file(
+    services: State<'_, Arc<RwLock<AppServices>>>,
+) -> Result<(), String> {
+    let svc = services.read().await;
+    svc.logger.open_log_file()
+}
+
+#[tauri::command]
+pub async fn open_heartbeat_file(
+    services: State<'_, Arc<RwLock<AppServices>>>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let svc = services.read().await;
+    let path = &svc.heartbeat_log_path;
+    if path.exists() {
+        use tauri_plugin_opener::OpenerExt;
+        app_handle.opener().open_path(
+            path.to_string_lossy().to_string(),
+            None::<&str>,
+        ).map_err(|e| format!("Failed to open heartbeat file: {e}"))
+    } else {
+        Ok(())
+    }
+}

@@ -1014,6 +1014,22 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(bindContextCopy);
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
+    // Open log file
+    var logOpenBtn = document.getElementById("logOpenBtn");
+    if (logOpenBtn) {
+        logOpenBtn.addEventListener("click", function () {
+            tauriInvoke("open_log_file").catch(function () { showToast("Failed to open log file"); });
+        });
+    }
+
+    // Open heartbeat file
+    var hbOpenBtn = document.getElementById("hbOpenBtn");
+    if (hbOpenBtn) {
+        hbOpenBtn.addEventListener("click", function () {
+            tauriInvoke("open_heartbeat_file").catch(function () { showToast("Failed to open heartbeat file"); });
+        });
+    }
+
     [
         { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, refresh: els.logRefreshBtn, render: renderLogTail },
         { panel: els.hbPanel, pre: els.hbPre, copy: els.hbCopyBtn, refresh: els.hbRefreshBtn, render: renderHeartbeatTail },

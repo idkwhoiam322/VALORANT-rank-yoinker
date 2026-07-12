@@ -64,7 +64,6 @@ impl Logger {
             buffer.pop_front();
         }
 
-        // Always write to file immediately
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
             .append(true)
@@ -89,5 +88,19 @@ impl Logger {
         let buffer = self.buffer.lock().unwrap();
         let start = buffer.len().saturating_sub(count);
         buffer.range(start..).cloned().collect::<Vec<_>>().join("\n")
+    }
+
+    pub fn open_log_file(&self) -> Result<(), String> {
+        let handle = self.app_handle.lock().unwrap();
+        match handle.as_ref() {
+            Some(app) => {
+                use tauri_plugin_opener::OpenerExt;
+                app.opener().open_path(
+                    self.log_path.to_string_lossy().to_string(),
+                    None::<&str>,
+                ).map_err(|e| format!("Failed to open log file: {e}"))
+            }
+            None => Err("App handle not set".into()),
+        }
     }
 }
