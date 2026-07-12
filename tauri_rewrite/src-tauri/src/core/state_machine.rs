@@ -95,6 +95,7 @@ impl AppServices {
     pub fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
         let client = Arc::new(client);
         let logger = Arc::new(Logger::new(root.clone()));
+        client.set_logger(logger.clone());
         let config = ConfigManager::new(root.clone());
         let encounters = Arc::new(EncounterService::new(root.clone()));
         let presences = Arc::new(PresenceService::new(client.clone()));

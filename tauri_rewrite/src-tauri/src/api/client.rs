@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use reqwest::{Client, ClientBuilder, Method, Response};
@@ -7,6 +7,7 @@ use reqwest::header::HeaderMap;
 use thiserror::Error;
 
 use crate::api::endpoints;
+use crate::services::logging::Logger;
 
 #[derive(Error, Debug)]
 pub enum ApiError {
@@ -84,6 +85,7 @@ pub struct ApiClient {
     rate_limiters: [Mutex<RateLimiter>; 4],
     local_password: Mutex<String>,
     local_port: Mutex<u16>,
+    logger: Mutex<Option<Arc<Logger>>>,
 }
 
 impl ApiClient {
@@ -106,7 +108,13 @@ impl ApiClient {
             ],
             local_password: Mutex::new(String::new()),
             local_port: Mutex::new(0),
+            logger: Mutex::new(None),
         }
+
+    }
+
+    pub fn set_logger(&self, logger: Arc<Logger>) {
+        *self.logger.lock().unwrap() = Some(logger);
     }
 
     pub fn update_urls(&self, pd_url: String, glz_url: String) {
@@ -123,6 +131,12 @@ impl ApiClient {
         self.local_password.lock().unwrap().clone()
     }
 
+    fn app_log(&self, msg: &str) {
+        if let Some(logger) = self.logger.lock().unwrap().as_ref() {
+            logger.log(msg);
+        }
+    }
+
     /// Unified HTTP request execution with request/response logging.
     /// All public fetch methods route through this to ensure consistent logging.
     async fn execute_request(
@@ -133,7 +147,9 @@ impl ApiClient {
         body: Option<serde_json::Value>,
     ) -> Result<Response, ApiError> {
         let start = Instant::now();
-        log::info!("[API] -> {} {}", method, url);
+        let log_line = format!("[API] -> {} {}", method, url);
+        log::info!("{}", log_line);
+        self.app_log(&log_line);
 
         let mut req = self.client.request(method.clone(), url);
         for (key, value) in headers.iter() {
@@ -145,13 +161,15 @@ impl ApiClient {
 
         let resp = req.send().await.map_err(ApiError::Http)?;
         let elapsed = start.elapsed();
-        log::info!(
+        let log_line = format!(
             "[API] <- {} {} {} ({:?})",
             resp.status().as_u16(),
             method,
             url,
             elapsed
         );
+        log::info!("{}", log_line);
+        self.app_log(&log_line);
 
         Ok(resp)
     }
@@ -292,13 +310,16 @@ impl ApiClient {
     ) -> Result<serde_json::Value, ApiError> {
         let mut last_error = None;
         for attempt in 0..max_retries {
+            let label = format!("{endpoint} (attempt {}/{})", attempt + 1, max_retries);
             match self.fetch_json::<serde_json::Value>(url_type, endpoint, headers).await {
                 Ok(json) => {
                     if validate(&json) {
                         return Ok(json);
                     }
+                    self.app_log(&format!("[API] retry {label}: validation failed — retrying"));
                 }
                 Err(e) => {
+                    self.app_log(&format!("[API] retry {label}: {e}"));
                     last_error = Some(e);
                 }
             }
@@ -306,6 +327,7 @@ impl ApiClient {
                 tokio::time::sleep(delay).await;
             }
         }
+        self.app_log(&format!("[API] retry exhausted: {endpoint} after {max_retries} attempts"));
         Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
     }
 
