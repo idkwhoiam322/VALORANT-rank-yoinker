@@ -310,9 +310,13 @@ impl MainLoop {
             };
 
             // During INGAME steady state: suppress all heartbeat/API processing
+            // UNLESS we still don't have match_context (map unknown) — keep retrying
             if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
-                tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
-                continue;
+                if match_context.is_some() {
+                    tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
+                    continue;
+                }
+                snap.logger.log("INGAME map still unknown — retrying match context");
             }
 
             // State transition: INGAME -> not INGAME => update encounter results
