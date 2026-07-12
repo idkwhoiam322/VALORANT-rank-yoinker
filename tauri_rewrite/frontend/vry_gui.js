@@ -220,17 +220,23 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         container.append(chip);
     }
 
+    function buildStatChips(player, chipClass, shortName) {
+        var frag = document.createDocumentFragment();
+        setStatChip(frag, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), chipClass);
+        setStatChip(frag, "Rank", rankName(player.rank, shortName), isEmpty(player.rank), chipClass, rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
+        setStatChip(frag, "RR", txt(player.rr), isEmpty(player.rr), chipClass);
+        setStatChip(frag, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), chipClass);
+        setStatChip(frag, "Peak Rank", (function(rn){return rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn})(rankName(player.peakRank, shortName)), isEmpty(player.peakRank), chipClass, rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
+        setStatChip(frag, "Last Act", rankName(player.previousRank, shortName), isEmpty(player.previousRank), chipClass, rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
+        setStatChip(frag, "Level", txt(player.level), isEmpty(player.level), chipClass);
+        setStatChip(frag, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), chipClass);
+        return frag;
+    }
+
     function buildCardStats(player) {
         var grid = document.createElement("div");
         grid.className = "card-stats";
-        setStatChip(grid, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "card-stat");
-        setStatChip(grid, "Rank", rankName(player.rank, true), isEmpty(player.rank), "card-stat", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
-        setStatChip(grid, "RR", txt(player.rr), isEmpty(player.rr), "card-stat");
-        setStatChip(grid, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), "card-stat");
-        setStatChip(grid, "Peak Rank", (rn=>rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn)(rankName(player.peakRank,true)), isEmpty(player.peakRank), "card-stat", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
-        setStatChip(grid, "Last Act", rankName(player.previousRank, true), isEmpty(player.previousRank), "card-stat", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
-        setStatChip(grid, "Level", txt(player.level), isEmpty(player.level), "card-stat");
-        setStatChip(grid, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "card-stat");
+        grid.append(buildStatChips(player, "card-stat", true));
         return grid;
     }
 
@@ -726,16 +732,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function renderStatBar(player) {
         els.statBar.replaceChildren();
-        var frag = document.createDocumentFragment();
-        setStatChip(frag, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), "stat-chip");
-        setStatChip(frag, "Rank", rankName(player.rank, false), isEmpty(player.rank), "stat-chip", rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
-        setStatChip(frag, "RR", txt(player.rr), isEmpty(player.rr), "stat-chip");
-        setStatChip(frag, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), "stat-chip");
-        setStatChip(frag, "Peak Rank", (rn=>rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn)(rankName(player.peakRank,false)), isEmpty(player.peakRank), "stat-chip", rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
-        setStatChip(frag, "Last Act", rankName(player.previousRank, false), isEmpty(player.previousRank), "stat-chip", rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
-        setStatChip(frag, "Level", txt(player.level), isEmpty(player.level), "stat-chip");
-        setStatChip(frag, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), "stat-chip");
-        els.statBar.append(frag);
+        els.statBar.append(buildStatChips(player, "stat-chip", false));
     }
 
     function renderExpressions(player) {
