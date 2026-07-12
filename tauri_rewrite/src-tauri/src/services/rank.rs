@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
@@ -25,8 +25,8 @@ impl RankService {
         }
     }
 
-    pub fn invalidate_cache(&self) {
-        self.cache.lock().unwrap().clear();
+    pub async fn invalidate_cache(&self) {
+        self.cache.lock().await.clear();
     }
 
     pub async fn get_rank(
@@ -38,8 +38,9 @@ impl RankService {
         previous_season_id: Option<&str>,
         _content: &ContentCache,
     ) -> PlayerRank {
+        // Fast path: read lock
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().await;
             if let Some((rank, time)) = cache.get(puuid) {
                 if time.elapsed() < self.cache_ttl {
                     let ttl_left = (self.cache_ttl.as_secs() - time.elapsed().as_secs()).max(0);
@@ -49,9 +50,16 @@ impl RankService {
             }
         }
 
-        match self.fetch_rank(entitlements, client_version, puuid, season_id, previous_season_id, _content).await {
+        // Slow path: release lock before HTTP, re-acquire for double-check + insert
+        let result = self.fetch_rank(entitlements, client_version, puuid, season_id, previous_season_id, _content).await;
+        match result {
             Ok(rank) => {
-                let mut cache = self.cache.lock().unwrap();
+                let mut cache = self.cache.lock().await;
+                if let Some((existing, time)) = cache.get(puuid) {
+                    if time.elapsed() < self.cache_ttl {
+                        return existing.clone();
+                    }
+                }
                 cache.insert(puuid.to_string(), (rank.clone(), Instant::now()));
                 rank
             }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
@@ -38,7 +38,7 @@ impl NamesService {
         let mut missing = Vec::new();
 
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().await;
             for p in puuids {
                 if let Some((name, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
@@ -115,7 +115,7 @@ impl NamesService {
             }
 
             // Store newly resolved names in cache
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().await;
             for (p, name) in &cached_names {
                 cache.insert(p.clone(), (name.clone(), Instant::now()));
             }

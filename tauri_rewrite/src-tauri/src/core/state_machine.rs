@@ -405,8 +405,8 @@ impl MainLoop {
                 }));
 
                 if current_state == GameState::MENUS {
-                    snap.rank.invalidate_cache();
-                    snap.stats.clear_cache();
+                    snap.rank.invalidate_cache().await;
+                    snap.stats.clear_cache().await;
                     snap.clear_match_player_cache();
                 }
 

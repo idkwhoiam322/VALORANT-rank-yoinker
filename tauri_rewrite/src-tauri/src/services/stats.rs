@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use lru::LruCache;
+use tokio::sync::Mutex;
 
 const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
 
@@ -30,9 +30,9 @@ impl StatsService {
         }
     }
 
-    pub fn clear_cache(&self) {
-        self.match_details_cache.lock().unwrap().clear();
-        self.updates_cache.lock().unwrap().clear();
+    pub async fn clear_cache(&self) {
+        self.match_details_cache.lock().await.clear();
+        self.updates_cache.lock().await.clear();
     }
 
     pub async fn get_stats(
@@ -41,9 +41,9 @@ impl StatsService {
         client_version: &str,
         puuid: &str,
     ) -> PlayerStats {
-        // Check TTL cache first
+        // Check TTL cache first (double-checked locking)
         {
-            let cache = self.updates_cache.lock().unwrap();
+            let cache = self.updates_cache.lock().await;
             if let Some((stats, ts)) = cache.get(puuid) {
                 if ts.elapsed() < UPDATES_CACHE_TTL {
                     let ttl_left = (UPDATES_CACHE_TTL.as_secs() - ts.elapsed().as_secs()).max(0);
@@ -66,7 +66,7 @@ impl StatsService {
             .await
         {
             Ok(u) => u,
-                Err(_e) => {
+            Err(_e) => {
                 log::debug!("stats: competitive updates failed for {}: {_e:?}", &puuid[..8]);
                 return PlayerStats::default_stats();
             },
@@ -92,17 +92,18 @@ impl StatsService {
 
         log::debug!("stats: match_id={}", &match_id[..8.min(match_id.len())]);
 
-        // Fetch match details (cached with LRU eviction)
+        // Fetch match details (cached with LRU eviction) - use double-checked locking
         let match_data_opt = {
-            // Check cache first (drop lock before await)
+            // Fast path: check cache
             let cached = {
-                let mut cache = self.match_details_cache.lock().unwrap();
+                let mut cache = self.match_details_cache.lock().await;
                 cache.get(&match_id).cloned()
             };
             if let Some(data) = cached {
                 self.client.cache_hit("match details", &match_id[..8.min(match_id.len())], None);
                 Some(data)
             } else {
+                // Slow path: fetch outside lock, re-acquire for insert
                 match self
                     .client
                     .fetch_json::<MatchDetailsResponse>(
@@ -113,11 +114,17 @@ impl StatsService {
                     .await
                 {
                     Ok(data) => {
-                        log::debug!("stats: match details fetched ok, {} players, {} rounds",
-                            data.players.len(), data.round_results.len());
-                        let mut cache = self.match_details_cache.lock().unwrap();
-                        cache.put(match_id.clone(), data.clone());
-                        Some(data)
+                        let mut cache = self.match_details_cache.lock().await;
+                        // Double-check: another task may have inserted while we fetched
+                        if let Some(existing) = cache.get(&match_id).cloned() {
+                            self.client.cache_hit("match details", &match_id[..8.min(match_id.len())], None);
+                            Some(existing)
+                        } else {
+                            log::debug!("stats: match details fetched ok, {} players, {} rounds",
+                                data.players.len(), data.round_results.len());
+                            cache.put(match_id.clone(), data.clone());
+                            Some(data)
+                        }
                     }
                     Err(e) => {
                         log::debug!("stats: match details fetch failed for {}: {e:?}", &match_id[..8]);
@@ -128,7 +135,12 @@ impl StatsService {
         };
 
         let stats = self.process_match_data(puuid, match_data_opt.as_ref(), match_summary);
-        let mut cache = self.updates_cache.lock().unwrap();
+        let mut cache = self.updates_cache.lock().await;
+        if let Some((existing, ts)) = cache.get(puuid) {
+            if ts.elapsed() < UPDATES_CACHE_TTL {
+                return existing.clone();
+            }
+        }
         cache.insert(puuid.to_string(), (stats.clone(), Instant::now()));
         stats
     }

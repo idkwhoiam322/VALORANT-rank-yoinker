@@ -21,8 +21,8 @@ pub async fn restart_application(
     svc.content = Arc::new(crate::models::content::ContentCache::empty());
     svc.season_id = String::new();
     svc.previous_season_id = None;
-    svc.rank.invalidate_cache();
-    svc.stats.clear_cache();
+    svc.rank.invalidate_cache().await;
+    svc.stats.clear_cache().await;
     svc.log("Backend state reset — reconnecting...");
     drop(svc);
     Ok(())
