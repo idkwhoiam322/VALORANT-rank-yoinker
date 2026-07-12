@@ -678,7 +678,7 @@ async fn build_menus_payload(
     );
 
     let mut all_puuids = vec![puuid.to_string()];
-    all_puuids.extend(party_puuids.iter().filter(|p| *p != puuid).cloned());
+    all_puuids.extend(party_puuids.iter().cloned());
 
     for subject in &all_puuids {
         let subject = subject.clone();
