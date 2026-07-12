@@ -12,6 +12,11 @@ use crate::models::loadout::{
     CoregameLoadoutsResponse, LoadoutJson, PlayerLoadoutData, SprayEntry, WeaponEntry,
 };
 
+const SOCKET_SKIN: &str = "bcef87d6-209b-46c6-8b19-fbe40bd95abc";
+const SOCKET_SKIN_LEVEL: &str = "e7c63390-eda7-46e0-bb7a-a6abdacd2433";
+const SOCKET_SKIN_CHROMA: &str = "3ad1b2b2-acdb-4524-852f-954a76ddae0a";
+const SOCKET_BUDDY: &str = "77258665-71d1-4623-bc72-44db9bd5b3b3";
+
 pub struct LoadoutService {
     client: Arc<ApiClient>,
 }
@@ -142,22 +147,22 @@ impl LoadoutService {
                     let weapon_uuid_lower = weapon_uuid.to_lowercase();
                     if let Some(ref sockets) = slot.sockets {
                         let skin_id = sockets
-                            .get("bcef87d6-209b-46c6-8b19-fbe40bd95abc")
+                            .get(SOCKET_SKIN)
                             .and_then(|s| s.item.as_ref())
                             .and_then(|i| i.id.clone());
 
                         let skin_level_id = sockets
-                            .get("e7c63390-eda7-46e0-bb7a-a6abdacd2433")
+                            .get(SOCKET_SKIN_LEVEL)
                             .and_then(|s| s.item.as_ref())
                             .and_then(|i| i.id.clone());
 
                         let skin_chroma_id = sockets
-                            .get("3ad1b2b2-acdb-4524-852f-954a76ddae0a")
+                            .get(SOCKET_SKIN_CHROMA)
                             .and_then(|s| s.item.as_ref())
                             .and_then(|i| i.id.clone());
 
                         let buddy_id = sockets
-                            .get("77258665-71d1-4623-bc72-44db9bd5b3b3")
+                            .get(SOCKET_BUDDY)
                             .and_then(|s| s.item.as_ref())
                             .and_then(|i| i.id.clone());
 
