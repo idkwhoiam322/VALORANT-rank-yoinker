@@ -359,65 +359,67 @@ impl MainLoop {
                 }
             }
 
-            // State changed or first run
-            if last_state != Some(current_state) {
+            // State changed or first run — log, emit event, invalidate caches
+            let is_transition = last_state != Some(current_state);
+            if is_transition {
                 snap.logger.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
                 let _ = app.emit("state_change", serde_json::json!({
                     "state": current_state.as_str(),
                 }));
 
-                // Invalidate caches on MENUS
                 if current_state == GameState::MENUS {
                     snap.rank.invalidate_cache();
                     snap.stats.clear_cache();
                     snap.clear_match_player_cache();
                 }
 
-                if current_state != GameState::DISCONNECTED {
-                    // Fetch match context first (for INGAME/PREGAME) to avoid redundant
-                    // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
-                    // and the raw match data which is reused by the heartbeat builder.
-                    let match_ctx = match current_state {
-                        GameState::INGAME | GameState::PREGAME => {
-                            crate::core::payload_builder::get_match_context(
-                                &snap, &entitlements, &cv, &puuid, current_state,
-                            ).await
-                        }
-                        _ => None,
-                    };
-
-                    let (known_match_id, pre_fetched_data) = match match_ctx {
-                        Some((id, team, data)) => {
-                            if current_state == GameState::INGAME {
-                                match_context = Some((id.clone(), team));
-                            }
-                            (Some(id), Some(data))
-                        }
-                        None => (None, None),
-                    };
-
-                    let mut heartbeat = build_heartbeat(
-                        &snap, &entitlements, &cv, &puuid, current_state,
-                        known_match_id.as_deref(),
-                        pre_fetched_data,
-                    )
-                    .await;
-
-                    let key = heartbeat.time.to_string();
-                    if last_heartbeat_key.as_deref() != Some(&key) {
-                        heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
-                        snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
-                            heartbeat.version,
-                            heartbeat.state,
-                            heartbeat.mode.as_deref().unwrap_or("unknown"),
-                            heartbeat.map.as_deref().unwrap_or("unknown")));
-                        snap.log_heartbeat(&heartbeat);
-                        let _ = app.emit("heartbeat", &heartbeat);
-                        last_heartbeat_key = Some(key);
-                    }
-                }
-
                 last_state = Some(current_state);
+            }
+
+            // Build heartbeat on state changes or periodic MENUS refresh
+            // (MENUS rebuilds every loop so the frontend gets latest party members)
+            if current_state != GameState::DISCONNECTED && (is_transition || current_state == GameState::MENUS) {
+                // Fetch match context first (for INGAME/PREGAME) to avoid redundant
+                // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
+                // and the raw match data which is reused by the heartbeat builder.
+                let match_ctx = match current_state {
+                    GameState::INGAME | GameState::PREGAME => {
+                        crate::core::payload_builder::get_match_context(
+                            &snap, &entitlements, &cv, &puuid, current_state,
+                        ).await
+                    }
+                    _ => None,
+                };
+
+                let (known_match_id, pre_fetched_data) = match match_ctx {
+                    Some((id, team, data)) => {
+                        if current_state == GameState::INGAME {
+                            match_context = Some((id.clone(), team));
+                        }
+                        (Some(id), Some(data))
+                    }
+                    None => (None, None),
+                };
+
+                let mut heartbeat = build_heartbeat(
+                    &snap, &entitlements, &cv, &puuid, current_state,
+                    known_match_id.as_deref(),
+                    pre_fetched_data,
+                )
+                .await;
+
+                let key = heartbeat.time.to_string();
+                if last_heartbeat_key.as_deref() != Some(&key) {
+                    heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
+                    snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
+                        heartbeat.version,
+                        heartbeat.state,
+                        heartbeat.mode.as_deref().unwrap_or("unknown"),
+                        heartbeat.map.as_deref().unwrap_or("unknown")));
+                    snap.log_heartbeat(&heartbeat);
+                    let _ = app.emit("heartbeat", &heartbeat);
+                    last_heartbeat_key = Some(key);
+                }
             }
 
             tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
