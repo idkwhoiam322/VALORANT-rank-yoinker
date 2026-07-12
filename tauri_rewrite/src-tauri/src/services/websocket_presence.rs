@@ -88,8 +88,9 @@ async fn ws_task(
         let mut stream = match connect_async_tls_with_config(request, None, false, Some(connector.clone())).await
         {
             Ok((ws, _)) => {
+                let was_reconnect = backoff > 1;
                 backoff = 1;
-                logger.log("WS presences connected");
+                logger.log(&format!("WS presences connected{}", if was_reconnect { " (reconnected)" } else { "" }));
                 ws
             }
             Err(e) => {

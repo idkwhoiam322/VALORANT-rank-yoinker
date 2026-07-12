@@ -399,7 +399,11 @@ impl MainLoop {
                 let (known_match_id, pre_fetched_data) = match match_ctx {
                     Some((id, team, data)) => {
                         if current_state == GameState::INGAME {
-                            match_context = Some((id.clone(), team));
+                            let had_context = match_context.is_some();
+                            match_context = Some((id.clone(), team.clone()));
+                            if !had_context {
+                                snap.logger.log(&format!("INGAME match context obtained: match={id} team={team}"));
+                            }
                         }
                         (Some(id), Some(data))
                     }
@@ -454,9 +458,12 @@ impl MainLoop {
             tokio::select! {
                 result = ws_inner.recv() => {
                     match result {
-                        Some(state) => Some(state),  // WS push — instant detection
+                        Some(state) => {
+                            snap.logger.log(&format!("WS state push: {:?}", state));
+                            Some(state)
+                        }
                         None => {
-                            snap.logger.log("WS disconnected — falling back to polling");
+                            snap.logger.log(&format!("WS disconnected (was {:?}) — falling back to polling", last_state));
                             *ws = None;
                             // Poll once to get current state
                             let (state, log_msg) =
