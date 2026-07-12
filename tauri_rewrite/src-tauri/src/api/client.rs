@@ -261,11 +261,15 @@ impl ApiClient {
                     format!("riot:{}", password)
                 )
             );
-            header_map.insert("Authorization", auth.parse().unwrap());
+            header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
+                Ok(v) => v,
+                Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
+            });
         } else {
             for (key, value) in headers {
-                let name = key.as_str().parse::<reqwest::header::HeaderName>().unwrap();
-                header_map.insert(name, value.parse().unwrap());
+                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else { continue; };
+                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else { continue; };
+                header_map.insert(name, val);
             }
         }
 
