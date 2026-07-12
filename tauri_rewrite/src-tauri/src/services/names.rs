@@ -23,6 +23,10 @@ impl NamesService {
         }
     }
 
+    pub async fn clear_cache(&self) {
+        self.cache.lock().await.clear();
+    }
+
     pub async fn get_names_from_puuids(
         &self,
         entitlements: &Entitlements,
