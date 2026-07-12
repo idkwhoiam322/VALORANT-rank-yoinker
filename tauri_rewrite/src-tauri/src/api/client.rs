@@ -116,6 +116,10 @@ impl ApiClient {
         *self.local_port.lock().unwrap() = port;
     }
 
+    pub fn get_local_password(&self) -> String {
+        self.local_password.lock().unwrap().clone()
+    }
+
     fn limiter_index(url_type: UrlType) -> usize {
         match url_type {
             UrlType::Pd => 0,

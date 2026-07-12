@@ -100,18 +100,9 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
     let port = lockfile.port;
     client.set_local_auth(lockfile.password.clone(), port);
 
-    let auth_header = format!(
-        "Basic {}",
-        base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            format!("riot:{}", lockfile.password)
-        )
-    );
-    let headers = vec![("Authorization".into(), auth_header)];
-
     let json = loop {
         let response = client
-            .fetch(UrlType::Local, ENTITLEMENTS_ENDPOINT, &headers, None)
+            .fetch(UrlType::Local, ENTITLEMENTS_ENDPOINT, &[], None)
             .await?;
 
         let text = response.text().await.map_err(ApiError::Http)?;

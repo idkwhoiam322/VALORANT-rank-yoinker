@@ -24,6 +24,8 @@ use crate::services::names::NamesService;
 use crate::services::presences::PresenceService;
 use crate::services::rank::RankService;
 use crate::services::stats::StatsService;
+use crate::services::websocket_presence::ValorantWs;
+
 
 // ---------------------------------------------------------------------------
 // Snapshot of all services & session data extracted from the RwLock so the
@@ -154,13 +156,18 @@ impl AppServices {
 pub struct MainLoop {
     pub services: Arc<RwLock<AppServices>>,
     heartbeat_version: AtomicU64,
+    lockfile_port: std::sync::Mutex<Option<u16>>,
 }
 
 impl MainLoop {
     pub fn new(root: std::path::PathBuf, pd_url: String, glz_url: String) -> Self {
         let client = ApiClient::new(pd_url, glz_url);
         let services = Arc::new(RwLock::new(AppServices::new(root, client)));
-        Self { services, heartbeat_version: AtomicU64::new(1) }
+        Self {
+            services,
+            heartbeat_version: AtomicU64::new(1),
+            lockfile_port: std::sync::Mutex::new(None),
+        }
     }
 
     pub async fn run(&self, app: AppHandle) {
@@ -201,6 +208,7 @@ impl MainLoop {
         }
         let lockfile = auth::parse_lockfile(&lockfile_path)
             .map_err(|e| format!("Lockfile parse: {e}"))?;
+        *self.lockfile_port.lock().unwrap() = Some(lockfile.port);
 
         // 2. Read region from logs
         let log_path = auth::get_log_path();
@@ -243,6 +251,29 @@ impl MainLoop {
         let mut last_heartbeat_key: Option<String> = None;
         let mut match_context: Option<(String, String)> = None;
 
+        // Attempt WebSocket presence detection at startup.
+        let mut ws: Option<ValorantWs> = {
+            let (snap, puuid) = {
+                let svc = services.read().await;
+                let puuid = svc.puuid.clone();
+                let snap = svc.snapshot();
+                (snap, puuid)
+            };
+            let port = { *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) };
+            let password = snap.client.get_local_password();
+            if let Some(port) = port {
+                match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
+                    Some(ws) => Some(ws),
+                    None => {
+                        snap.logger.log("WS presence unavailable — using polling");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        };
+
         loop {
             // --- Snapshot phase: briefly hold read lock, then drop ---
             let (snap, entitlements, cv, puuid) = {
@@ -264,19 +295,14 @@ impl MainLoop {
             // RwLock guard is dropped here – all processing below happens
             // without holding it, allowing concurrent writes (e.g. re-init).
 
-            // Poll game state
-            let current_state = match snap.presences.detect_game_state_from_poll(
-                &entitlements,
-                &cv,
-                &puuid,
-            ).await {
-                (Some(s), _) => s,
-                (None, Some(reason)) => {
-                    snap.logger.log(&reason);
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-                (None, None) => {
+            // ----- State detection: WebSocket (preferred) or polling (fallback) -----
+            let current_state = self
+                .detect_state(&snap, &entitlements, &cv, &puuid, &mut ws, last_state)
+                .await;
+
+            let current_state = match current_state {
+                Some(s) => s,
+                None => {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -397,4 +423,55 @@ impl MainLoop {
             tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
         }
     }
+
+    /// Detect game state using WebSocket (preferred) or HTTP polling (fallback).
+    ///
+    /// When WS is connected, races the WS channel against a cooldown timer:
+    ///   - WS push arrives (~0ms) → return new state immediately, zero API calls.
+    ///   - WS channel returns `None` → connection lost, fall back to polling.
+    ///   - Cooldown timer fires (~5s) → return `last_state` as a wake-up signal for
+    ///     periodic work (pending match results), still zero API calls.
+    ///
+    /// When WS is disconnected or unavailable:
+    ///   - Poll the presence API every `STATE_POLL_INTERVAL_SECS` (1s).
+    async fn detect_state(
+        &self,
+        snap: &ServiceSnapshot,
+        entitlements: &Entitlements,
+        cv: &str,
+        puuid: &str,
+        ws: &mut Option<ValorantWs>,
+        last_state: Option<GameState>,
+    ) -> Option<GameState> {
+        if let Some(ws_inner) = ws.as_mut() {
+            tokio::select! {
+                result = ws_inner.recv() => {
+                    match result {
+                        Some(state) => Some(state),  // WS push — instant detection
+                        None => {
+                            snap.logger.log("WS disconnected — falling back to polling");
+                            *ws = None;
+                            // Poll once to get current state
+                            let (state, log_msg) =
+                                snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
+                            if let Some(msg) = log_msg { snap.logger.log(&msg); }
+                            state
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_secs(snap.cooldown)) => {
+                    last_state  // wake-up only, no API call
+                }
+            }
+        } else {
+            // WS unavailable: poll at 1s interval
+            let (state, log_msg) =
+                snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
+            if let Some(msg) = log_msg {
+                snap.logger.log(&msg);
+            }
+            state
+        }
+    }
+
 }

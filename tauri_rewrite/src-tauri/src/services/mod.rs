@@ -6,3 +6,4 @@ pub mod names;
 pub mod presences;
 pub mod rank;
 pub mod stats;
+pub mod websocket_presence;
