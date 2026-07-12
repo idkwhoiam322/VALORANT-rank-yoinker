@@ -335,6 +335,13 @@
         margin-right: auto;
     }
 
+    .code-block {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
     .json-pre {
         margin: 0;
         max-height: 320px;
@@ -344,11 +351,7 @@
         border: 1px solid var(--line);
         background: #02040a;
         color: #b9c4d6;
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         font-size: 0.72rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
         user-select: text;
     }
 
@@ -744,11 +747,7 @@
         border-radius: 10px;
         background: rgba(10, 12, 13, 0.55);
         color: #9fb0c6;
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         font-size: 0.68rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
     }
 
     #loadingLogTail:empty::before {
