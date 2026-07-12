@@ -42,6 +42,7 @@ impl NamesService {
             for p in puuids {
                 if let Some((name, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
+                        self.client.cache_hit("names", &p[..8.min(p.len())], None);
                         cached_names.insert(p.clone(), name.clone());
                         continue;
                     }

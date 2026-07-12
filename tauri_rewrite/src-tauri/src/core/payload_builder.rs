@@ -311,6 +311,11 @@ async fn build_ingame_payload(
         // Check match-scoped cache first (locked scope only for the lookup)
         let cached = { svc.match_player_cache.lock().unwrap().get(&subject).cloned() };
         let (player_rank, player_stats) = if let Some(entry) = cached {
+            svc.client.cache_hit(
+                "match player",
+                &subject[..8.min(subject.len())],
+                None,
+            );
             entry
         } else {
             let rank = svc

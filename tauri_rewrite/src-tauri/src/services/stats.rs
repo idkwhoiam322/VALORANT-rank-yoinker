@@ -46,6 +46,8 @@ impl StatsService {
             let cache = self.updates_cache.lock().unwrap();
             if let Some((stats, ts)) = cache.get(puuid) {
                 if ts.elapsed() < UPDATES_CACHE_TTL {
+                    let ttl_left = (UPDATES_CACHE_TTL.as_secs() - ts.elapsed().as_secs()).max(0);
+                    self.client.cache_hit("stats", &puuid[..8.min(puuid.len())], Some(ttl_left));
                     return stats.clone();
                 }
             }
@@ -98,6 +100,7 @@ impl StatsService {
                 cache.get(&match_id).cloned()
             };
             if let Some(data) = cached {
+                self.client.cache_hit("match details", &match_id[..8.min(match_id.len())], None);
                 Some(data)
             } else {
                 match self

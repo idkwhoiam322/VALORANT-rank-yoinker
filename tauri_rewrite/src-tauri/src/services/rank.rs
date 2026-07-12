@@ -42,6 +42,8 @@ impl RankService {
             let cache = self.cache.lock().unwrap();
             if let Some((rank, time)) = cache.get(puuid) {
                 if time.elapsed() < self.cache_ttl {
+                    let ttl_left = (self.cache_ttl.as_secs() - time.elapsed().as_secs()).max(0);
+                    self.client.cache_hit("rank", &puuid[..8.min(puuid.len())], Some(ttl_left));
                     return rank.clone();
                 }
             }

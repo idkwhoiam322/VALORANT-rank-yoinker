@@ -137,6 +137,25 @@ impl ApiClient {
         }
     }
 
+    /// Centralized cache-hit logging — mirrors `execute_request` so all cache
+    /// hits go to both the `log` crate (env_logger) and the app backend log.
+    /// `kind` identifies the cache (e.g. "rank", "stats", "match details",
+    /// "match player", "names"). `key` is a short PUUID/match_id fragment.
+    /// `ttl_remaining` optionally reports time left in the cache entry.
+    pub(crate) fn cache_hit(
+        &self,
+        kind: &str,
+        key: &str,
+        ttl_remaining: Option<u64>,
+    ) {
+        let line = match ttl_remaining {
+            Some(t) => format!("[CACHE] {kind} hit for {key} ({t}s remaining)"),
+            None => format!("[CACHE] {kind} hit for {key}"),
+        };
+        log::info!("{}", line);
+        self.app_log(&line);
+    }
+
     /// Unified HTTP request execution with request/response logging.
     /// All public fetch methods route through this to ensure consistent logging.
     async fn execute_request(
