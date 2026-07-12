@@ -47,8 +47,11 @@ pub struct ServiceSnapshot {
     pub previous_season_id: Option<String>,
     pub cooldown: u64,
     pub weapon_name: String,
-    /// Match-scoped cache keyed by PUUID, cleared on MENUS transition.
+    /// Match-scoped cache: match_id -> (puuid -> (PlayerRank, PlayerStats)).
+    /// Cleared on MENUS transition OR when match_id changes.
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
+    /// Current match_id for cache scoping.
+    pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl ServiceSnapshot {
@@ -65,6 +68,31 @@ impl ServiceSnapshot {
 
     pub fn clear_match_player_cache(&self) {
         self.match_player_cache.lock().unwrap().clear();
+    }
+
+    /// Get a single entry from the match-scoped cache for the given match_id and puuid.
+    /// Handles match_id change auto-clear.
+    pub fn get_match_cache_entry(
+        &self,
+        match_id: &str,
+        puuid: &str,
+    ) -> Option<(PlayerRank, PlayerStats)> {
+        let mut current_id = self.current_match_id.lock().unwrap();
+        let mut cache = self.match_player_cache.lock().unwrap();
+        if current_id.as_deref() != Some(match_id) {
+            *current_id = Some(match_id.to_string());
+            cache.clear();
+        }
+        cache.get(puuid).cloned()
+    }
+
+    /// Insert or update an entry in the match-scoped cache.
+    pub fn put_match_cache_entry(
+        &self,
+        puuid: String,
+        entry: (PlayerRank, PlayerStats),
+    ) {
+        self.match_player_cache.lock().unwrap().insert(puuid, entry);
     }
 }
 
@@ -89,6 +117,7 @@ pub struct AppServices {
     pub season_id: String,
     pub previous_season_id: Option<String>,
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
+    pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl AppServices {
@@ -125,6 +154,7 @@ impl AppServices {
             season_id: String::new(),
             previous_season_id: None,
             match_player_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            current_match_id: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -147,6 +177,7 @@ impl AppServices {
             cooldown: self.config.get().cooldown,
             weapon_name: self.config.get().weapon.clone(),
             match_player_cache: self.match_player_cache.clone(),
+            current_match_id: self.current_match_id.clone(),
         }
     }
 

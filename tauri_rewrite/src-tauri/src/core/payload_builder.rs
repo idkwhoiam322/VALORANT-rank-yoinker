@@ -23,6 +23,30 @@ fn parse_server(raw: &str) -> String {
     }
 }
 
+async fn fetch_rank_and_stats(
+    svc: &ServiceSnapshot,
+    entitlements: &Entitlements,
+    client_version: &str,
+    subject: &str,
+) -> (crate::models::mmr::PlayerRank, crate::models::mmr::PlayerStats) {
+    let rank = svc
+        .rank
+        .get_rank(
+            entitlements,
+            client_version,
+            subject,
+            &svc.season_id,
+            svc.previous_season_id.as_deref(),
+            &svc.content,
+        )
+        .await;
+    let stats = svc
+        .stats
+        .get_stats(entitlements, client_version, subject)
+        .await;
+    (rank, stats)
+}
+
 async fn resolve_mode_from_queue_id(queue_id: &str, payload: &mut HeartbeatPayload) {
     if payload.mode.is_some() { return; }
     if !queue_id.is_empty() {
@@ -308,33 +332,30 @@ async fn build_ingame_payload(
         };
         let subject_lower = subject.to_lowercase();
 
-        // Check match-scoped cache first (locked scope only for the lookup)
-        let cached = { svc.match_player_cache.lock().unwrap().get(&subject).cloned() };
-        let (player_rank, player_stats) = if let Some(entry) = cached {
-            svc.client.cache_hit(
-                "match player",
-                &subject[..8.min(subject.len())],
-                None,
-            );
-            entry
+        let (player_rank, player_stats) = if let Some(ref match_id) = known_match_id {
+            if !match_id.is_empty() {
+                if let Some(entry) = svc.get_match_cache_entry(match_id, &subject) {
+                    svc.client.cache_hit(
+                        "match player",
+                        &subject[..8.min(subject.len())],
+                        None,
+                    );
+                    entry
+                } else {
+                    let (rank, stats) = fetch_rank_and_stats(
+                        svc,
+                        entitlements,
+                        client_version,
+                        &subject,
+                    ).await;
+                    svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+                    (rank, stats)
+                }
+            } else {
+                fetch_rank_and_stats(svc, entitlements, client_version, &subject).await
+            }
         } else {
-            let rank = svc
-                .rank
-                .get_rank(
-                    entitlements,
-                    client_version,
-                    &subject,
-                    &svc.season_id,
-                    svc.previous_season_id.as_deref(),
-                    &svc.content,
-                )
-                .await;
-            let stats = svc
-                .stats
-                .get_stats(entitlements, client_version, &subject)
-                .await;
-            svc.match_player_cache.lock().unwrap().insert(subject.clone(), (rank.clone(), stats.clone()));
-            (rank, stats)
+            fetch_rank_and_stats(svc, entitlements, client_version, &subject).await
         };
 
         let previous_rank = player_rank.previous_rank;
@@ -554,6 +575,10 @@ async fn build_pregame_payload(
         .await
         .unwrap_or_default();
 
+    let cache_match_id = known_match_id
+        .filter(|id| !id.is_empty())
+        .map(|id| id.to_string());
+
     // Build loadout_json from saved response (no second HTTP call)
     let loadout_json = if let Some(ref text) = saved_loadouts_text {
         if let Ok(structured) =
@@ -577,30 +602,48 @@ async fn build_pregame_payload(
     for player in &players {
         let subject = player.subject.clone().unwrap_or_default();
 
-        let player_rank = svc
-            .rank
-            .get_rank(
-                entitlements,
-                client_version,
-                &subject,
-                &svc.season_id,
-                svc.previous_season_id.as_deref(),
-                &svc.content,
-            )
-            .await;
+        let cached = match &cache_match_id {
+            Some(id) => svc.get_match_cache_entry(id, &subject),
+            None => None,
+        };
 
-                let previous_rank = player_rank.previous_rank;
+        let (player_rank, player_stats) = if let Some(entry) = cached {
+            svc.client.cache_hit(
+                "match player",
+                &subject[..8.min(subject.len())],
+                None,
+            );
+            entry
+        } else {
+            let rank = svc
+                .rank
+                .get_rank(
+                    entitlements,
+                    client_version,
+                    &subject,
+                    &svc.season_id,
+                    svc.previous_season_id.as_deref(),
+                    &svc.content,
+                )
+                .await;
+            let stats = svc
+                .stats
+                .get_stats(entitlements, client_version, &subject)
+                .await;
 
-                let agent_name = player
+            if let Some(_) = &cache_match_id {
+                svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+            }
+            (rank, stats)
+        };
+
+        let previous_rank = player_rank.previous_rank;
+
+        let agent_name = player
                     .character_id
                     .as_ref()
                     .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
                     .cloned();
-
-                let player_stats = svc
-                    .stats
-                    .get_stats(entitlements, client_version, &subject)
-                    .await;
 
                 let player_loadout = loadout_json.players.get(&subject.to_lowercase());
 
