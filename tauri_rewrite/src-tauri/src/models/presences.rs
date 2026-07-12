@@ -8,10 +8,6 @@ pub struct Presence {
     pub private: Option<String>,
     #[serde(default)]
     pub product: Option<String>,
-    #[serde(default, alias = "game_state")]
-    pub game_state: Option<String>,
-    #[serde(default, alias = "championId")]
-    pub champion_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

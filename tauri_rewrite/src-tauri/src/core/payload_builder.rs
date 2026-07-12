@@ -22,12 +22,10 @@ fn parse_server(raw: &str) -> String {
     }
 }
 
-async fn resolve_mode_from_queue_id(match_data: &serde_json::Value, payload: &mut HeartbeatPayload) {
+async fn resolve_mode_from_queue_id(queue_id: &str, payload: &mut HeartbeatPayload) {
     if payload.mode.is_some() { return; }
-    if let Some(qid) = match_data["QueueID"].as_str() {
-        if !qid.is_empty() {
-            payload.mode = Some(crate::services::config::get_gamemode_name(qid).to_string());
-        }
+    if !queue_id.is_empty() {
+        payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
     }
 }
 
@@ -113,10 +111,10 @@ pub async fn build_heartbeat(
 
     match state {
         GameState::INGAME => {
-            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, presences).await;
+            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, presences).await;
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
         }
         GameState::MENUS => {
             build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences).await;
@@ -205,7 +203,6 @@ async fn build_ingame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
-    _presences: Option<&[Presence]>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
@@ -258,7 +255,9 @@ async fn build_ingame_payload(
         .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
         .cloned();
 
-    resolve_mode_from_queue_id(&match_data, payload).await;
+    if let Some(qid) = match_data["QueueID"].as_str() {
+        resolve_mode_from_queue_id(qid, payload).await;
+    }
     payload.server = match_data["GamePodID"].as_str().map(parse_server);
     resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
     if let Some(map_id) = match_data["MapID"].as_str() {
@@ -419,7 +418,6 @@ async fn build_pregame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
-    _presences: Option<&[Presence]>,
 ) {
     let headers = entitlements.build_headers(client_version);
 
@@ -472,7 +470,9 @@ async fn build_pregame_payload(
         .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
         .cloned();
 
-    resolve_mode_from_queue_id(&match_data, payload).await;
+    if let Some(qid) = match_data["QueueID"].as_str() {
+        resolve_mode_from_queue_id(qid, payload).await;
+    }
     payload.server = match_data["GamePodID"].as_str().map(parse_server);
     resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
     if let Some(map_id) = match_data["MapID"].as_str() {

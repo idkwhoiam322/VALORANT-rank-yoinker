@@ -117,9 +117,6 @@ pub struct MatchDetailsResponse {
 
     #[serde(default, rename = "roundResults")]
     pub round_results: Vec<RoundResult>,
-
-    #[serde(default)]
-    pub teams: Vec<MatchTeam>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,18 +174,6 @@ pub struct DamageEntry {
 
     #[serde(default)]
     pub headshots: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MatchTeam {
-    #[serde(default, alias = "teamId", alias = "teamID", alias = "TeamID", alias = "team_id")]
-    pub team_id: Option<String>,
-
-    #[serde(default, alias = "roundsWon", alias = "RoundsWon")]
-    pub rounds_won: Option<i32>,
-
-    #[serde(default)]
-    pub won: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
