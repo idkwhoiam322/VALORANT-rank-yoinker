@@ -426,6 +426,12 @@
         cursor: pointer;
         font-family: inherit;
         padding: 0;
+        color: var(--text);
+        text-decoration: none;
+    }
+    button.trn-link:hover {
+        text-decoration: none;
+        color: var(--gold);
     }
     button.trn-link.copied {
         color: #4caf50;
