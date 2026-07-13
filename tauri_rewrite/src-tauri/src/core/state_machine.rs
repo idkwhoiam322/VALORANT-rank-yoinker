@@ -525,6 +525,14 @@ impl MainLoop {
         ws: &mut Option<ValorantWs>,
         last_state: Option<GameState>,
     ) -> Option<GameState> {
+        // Cold start: poll immediately instead of waiting for the cooldown timer.
+        if last_state.is_none() {
+            let (state, log_msg) =
+                snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
+            if let Some(msg) = log_msg { snap.logger.log(&msg); }
+            return state;
+        }
+
         if let Some(ws_inner) = ws.as_mut() {
             tokio::select! {
                 result = ws_inner.recv() => {
@@ -536,7 +544,6 @@ impl MainLoop {
                         None => {
                             snap.logger.log(&format!("WS disconnected (was {:?}) — falling back to polling", last_state));
                             *ws = None;
-                            // Poll once to get current state
                             let (state, log_msg) =
                                 snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
                             if let Some(msg) = log_msg { snap.logger.log(&msg); }
@@ -545,7 +552,7 @@ impl MainLoop {
                     }
                 }
                 _ = tokio::time::sleep(Duration::from_secs(snap.cooldown)) => {
-                    last_state  // wake-up only, no API call
+                    last_state
                 }
             }
         } else {
