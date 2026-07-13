@@ -138,7 +138,7 @@ impl ApiClient {
         self.local_password.lock().unwrap().clone()
     }
 
-    fn app_log(&self, msg: &str) {
+    pub(crate) fn app_log(&self, msg: &str) {
         if let Some(logger) = self.logger.lock().unwrap().as_ref() {
             logger.log(msg);
         }
@@ -252,6 +252,7 @@ impl ApiClient {
             wait
         };
         if let Some(delay) = wait {
+            self.app_log(&format!("[API] rate limited ({url_type:?}) — sleeping {delay:?}"));
             tokio::time::sleep(delay).await;
         }
 
@@ -291,6 +292,7 @@ impl ApiClient {
             return Err(ApiError::NotFound);
         }
         if response.status().as_u16() == 429 {
+            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) — sleeping 5s"));
             tokio::time::sleep(Duration::from_secs(5)).await;
             return Err(ApiError::RateLimited);
         }
@@ -395,6 +397,7 @@ impl ApiClient {
                 wait
             };
             if let Some(delay) = wait {
+                self.app_log(&format!("[API] rate limited (ValAPI) — sleeping {delay:?}"));
                 tokio::time::sleep(delay).await;
             }
         }
@@ -407,6 +410,7 @@ impl ApiClient {
         let text = resp.text().await.map_err(ApiError::Http)?;
 
         if status.as_u16() == 429 {
+            self.app_log(&format!("[API] 429 Too Many Requests (ValAPI {endpoint})"));
             return Err(ApiError::RateLimited);
         }
         if !status.is_success() {
