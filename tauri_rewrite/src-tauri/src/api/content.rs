@@ -31,10 +31,6 @@ async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<
 fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent>>) {
     for agent in &resp.data {
         cache.agents.insert(agent.uuid.to_lowercase(), agent.display_name.clone());
-        cache.agent_uuids.insert(
-            agent.display_name.to_lowercase(),
-            agent.uuid.to_lowercase(),
-        );
     }
 }
 
@@ -47,9 +43,6 @@ fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) 
         if let Some(ref url) = map.map_url {
             cache.maps.insert(url.to_lowercase(), map.display_name.clone());
         }
-        cache
-            .map_splashes
-            .insert(map.display_name.clone(), map.splash.clone().unwrap_or_default());
     }
 }
 
@@ -148,7 +141,6 @@ async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiRe
 
 fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
     if let Some(latest) = resp.data.last() {
-        cache.competitive_tiers = latest.tiers.clone();
         let mut icons = Vec::new();
         for tier in &latest.tiers {
             if tier.tier as usize >= icons.len() {
@@ -267,7 +259,7 @@ pub async fn fetch_all_content(
     };
 
     if had_error {
-        log::warn!("One or more content API calls failed — some data may be missing");
+        log::warn!("One or more content API calls failed - some data may be missing");
     }
 
     (cache, season_id, previous_season_id)

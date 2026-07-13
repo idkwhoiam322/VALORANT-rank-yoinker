@@ -328,8 +328,6 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     // ---- Tauri IPC setup ----
-    var unlisteners = [];
-
     function setupTauriListeners() {
         tauriListen("heartbeat", function (event) {
             setStatus("Connected", "live");
@@ -337,21 +335,21 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
                 state.lastGameState = event.payload.state;
                 setPayload(event.payload, true);
             }
-        }).then(function (fn) { unlisteners.push(fn); });
+        });
 
         tauriListen("state_change", function (event) {
             if (event.payload && event.payload.state) {
                 renderStateTransition(event.payload.state);
             }
-        }).then(function (fn) { unlisteners.push(fn); });
+        });
 
         tauriListen("backend_ready", function () {
             setStatus("Connected", "live");
-        }).then(function (fn) { unlisteners.push(fn); });
+        });
 
         tauriListen("cache_cleared", function () {
             resetState();
-        }).then(function (fn) { unlisteners.push(fn); });
+        });
 
         tauriListen("log_update", function (event) {
             var line = event.payload || "";
@@ -366,17 +364,12 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             if (els.logPanel && els.logPanel.open) {
                 renderLogTail();
             }
-        }).then(function (fn) { unlisteners.push(fn); });
+        });
 
         tauriListen("auth_error", function (event) {
             var message = (event.payload && event.payload.message) || "Please sign in to Riot Client and click Refresh.";
             showAuthErrorModal(message);
-        }).then(function (fn) { unlisteners.push(fn); });
-    }
-
-    function cleanupTauriListeners() {
-        unlisteners.forEach(function (fn) { fn(); });
-        unlisteners = [];
+        });
     }
 
     // ---- loading overlay ----

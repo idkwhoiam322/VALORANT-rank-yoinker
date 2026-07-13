@@ -43,10 +43,6 @@ pub struct PlayerHeartbeat {
     pub previous_rank: u32,
     #[serde(default)]
     pub rr: i32,
-    #[serde(default)]
-    pub kd: String,
-    #[serde(default, rename = "headshotPercentage")]
-    pub headshot_percentage: String,
     #[serde(default, rename = "winPercentage")]
     pub win_percentage: Option<String>,
     #[serde(default, rename = "lastActive")]
@@ -61,18 +57,18 @@ pub struct PlayerHeartbeat {
     pub team: Option<String>,
     #[serde(default)]
     pub sprays: Option<HashMap<String, super::loadout::SprayEntry>>,
+
     #[serde(default)]
     pub title: Option<String>,
+
     #[serde(default, rename = "playerCard")]
     pub player_card: Option<String>,
+
     #[serde(default, rename = "playerCardName")]
     pub player_card_name: Option<String>,
-    #[serde(default, rename = "titleName")]
-    pub title_name: Option<String>,
+
     #[serde(default)]
     pub weapons: Option<HashMap<String, super::loadout::WeaponEntry>>,
-    #[serde(default, rename = "earnedRR")]
-    pub earned_rr: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

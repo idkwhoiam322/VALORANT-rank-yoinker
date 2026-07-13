@@ -186,7 +186,7 @@ pub async fn get_match_context(
             let match_id = json["MatchID"].as_str()?.to_string();
 
             // Fetch match data to find self's team from Players array.
-            // Also validates MapID — it may populate later than Players/TeamID.
+            // Also validates MapID - it may populate later than Players/TeamID.
             let match_endpoint = endpoints::glz_core_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz, &match_endpoint, &headers,
@@ -218,7 +218,7 @@ pub async fn get_match_context(
             let match_id = json["MatchID"].as_str()?.to_string();
 
             // Fetch match data to find self's team.
-            // Also validates MapID — it may populate later than AllyTeam.
+            // Also validates MapID - it may populate later than AllyTeam.
             let match_endpoint = endpoints::glz_pregame_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz, &match_endpoint, &headers,
@@ -325,14 +325,13 @@ async fn build_ingame_payload(
         .and_then(|p| p.team_id.as_deref());
 
     // Get loadouts
-    let (_weapon_lists, loadout_json) = svc
+    let loadout_json = svc
         .loadouts
         .get_match_loadouts(
             entitlements,
             client_version,
             &match_id,
             &players,
-            &svc.weapon_name,
             &svc.content,
             &names,
             "game",
@@ -393,15 +392,12 @@ async fn build_ingame_payload(
         let heartbeat_player = PlayerHeartbeat {
             puuid: subject.clone(),
             name: names.get(&subject).cloned(),
-            party_number: 0,
             agent: agent_name.clone(),
             rank: player_rank.rank,
             peak_rank: player_rank.peak_rank,
             peak_rank_act: player_rank.peak_rank_act,
             previous_rank,
             rr: player_rank.rr,
-            kd: player_stats.kd,
-            headshot_percentage: player_stats.hs,
             win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
             last_active: format_last_active(player_stats.last_active_epoch),
             level: player
@@ -415,11 +411,10 @@ async fn build_ingame_payload(
             team: player.team_id.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
             title: player_loadout.and_then(|p| p.title.clone()),
-            title_name: player_loadout.and_then(|p| p.title_name.clone()),
             player_card: player_loadout.and_then(|p| p.player_card.clone()),
             player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
+            party_number: 0,
             weapons: player_loadout.and_then(|p| p.weapons.clone()),
-            earned_rr: Some(player_stats.ranked_rating_earned),
         };
 
         // Save encounters before moving subject into the map (skip self)
@@ -542,8 +537,6 @@ async fn build_pregame_payload(
                 if let Some(identity) = p["PlayerIdentity"].as_object() {
                     player.player_identity = Some(crate::models::match_data::PlayerIdentity {
                         account_level: identity["AccountLevel"].as_u64().map(|v| v as u32),
-                        incognito: identity["Incognito"].as_bool(),
-                        hide_account_level: identity["HideAccountLevel"].as_bool(),
                         player_title_id: identity["PlayerTitleID"].as_str().map(|s| s.to_string()),
                         player_card_id: identity["PlayerCardID"].as_str().map(|s| s.to_string()),
                     });
@@ -553,7 +546,7 @@ async fn build_pregame_payload(
         }
     }
 
-    // Fetch loadouts once — used for enemy extraction
+    // Fetch loadouts once - used for enemy extraction
     let saved_loadouts_text: Option<String> = match svc.client.fetch_json_retry(
         crate::api::client::UrlType::Glz,
         &endpoints::glz_pregame_loadouts(&match_id),
@@ -613,10 +606,9 @@ async fn build_pregame_payload(
         if let Ok(structured) =
             serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
         {
-            let (_wl, lj) = svc.loadouts.build_loadout_json(
+            let lj = svc.loadouts.build_loadout_json(
                 &structured,
                 &players,
-                &svc.weapon_name,
                 &svc.content,
                 &names,
             );
@@ -679,15 +671,12 @@ async fn build_pregame_payload(
                 let heartbeat_player = PlayerHeartbeat {
                     puuid: subject.clone(),
                     name: names.get(&subject).cloned(),
-                    party_number: 0,
                     agent: agent_name,
                     rank: player_rank.rank,
                     peak_rank: player_rank.peak_rank,
                     peak_rank_act: player_rank.peak_rank_act,
                     previous_rank,
                     rr: player_rank.rr,
-                    kd: "N/A".into(),
-                    headshot_percentage: "N/A".into(),
                     win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
                     last_active: format_last_active(player_stats.last_active_epoch),
             level: player
@@ -699,11 +688,10 @@ async fn build_pregame_payload(
             team: player.team_id.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
             title: player_loadout.and_then(|p| p.title.clone()),
-            title_name: player_loadout.and_then(|p| p.title_name.clone()),
             player_card: player_loadout.and_then(|p| p.player_card.clone()),
             player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
+            party_number: 0,
             weapons: player_loadout.and_then(|p| p.weapons.clone()),
-            earned_rr: None,
         };
 
         payload.players.insert(subject, heartbeat_player);
@@ -784,15 +772,12 @@ async fn build_menus_payload(
         let heartbeat_player = PlayerHeartbeat {
             puuid: subject.clone(),
             name: None, // Will be resolved below
-            party_number: 1,
             agent: None,
             rank: player_rank.rank,
             peak_rank: player_rank.peak_rank,
             peak_rank_act: player_rank.peak_rank_act,
             previous_rank,
             rr: player_rank.rr,
-            kd: player_stats.kd.clone(),
-            headshot_percentage: player_stats.hs.clone(),
             win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
             last_active: format_last_active(player_stats.last_active_epoch),
             level: if subject == puuid { self_level } else { None },
@@ -801,11 +786,10 @@ async fn build_menus_payload(
             team: None,
             sprays: None,
             title: None,
-            title_name: None,
             player_card: None,
             player_card_name: None,
+            party_number: 0,
             weapons: None,
-            earned_rr: None,
         };
 
         payload.players.insert(subject, heartbeat_player);

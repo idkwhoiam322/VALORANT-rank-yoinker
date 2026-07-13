@@ -124,13 +124,13 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
 
             if json.get("message").and_then(|m| m.as_str()) == Some("Entitlements token is not ready yet") {
                 if retries >= 5 {
-                    client.app_log(&format!("[AUTH] entitlements token not ready after {} retries — giving up", retries));
+                    client.app_log(&format!("[AUTH] entitlements token not ready after {} retries - giving up", retries));
                     return Err(ApiError::Auth(
                         "Entitlements token not ready after retries. Please sign in to Riot Client and restart vRY.".into()
                     ));
                 }
                 retries += 1;
-                client.app_log(&format!("[AUTH] entitlements token not ready (attempt {}/5) — retrying in 1s", retries));
+                client.app_log(&format!("[AUTH] entitlements token not ready (attempt {}/5) - retrying in 1s", retries));
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }

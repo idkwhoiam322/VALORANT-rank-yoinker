@@ -57,7 +57,6 @@ pub struct PlayerRank {
     pub leaderboard: i32,
     pub peak_rank: u32,
     pub peak_rank_act: Option<String>,
-    pub peak_rank_ep: Option<String>,
     pub previous_rank: u32,
     pub wr: String,
     pub number_of_games: u32,
@@ -72,7 +71,6 @@ impl PlayerRank {
             leaderboard: 0,
             peak_rank: 0,
             peak_rank_act: None,
-            peak_rank_ep: None,
             previous_rank: 0,
             wr: "N/A".into(),
             number_of_games: 0,
@@ -178,20 +176,12 @@ pub struct DamageEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerStats {
-    pub kd: String,
-    pub hs: String,
-    pub ranked_rating_earned: String,
-    pub afk_penalty: String,
     pub last_active_epoch: Option<i64>,
 }
 
 impl PlayerStats {
     pub fn default_stats() -> Self {
         Self {
-            kd: "N/A".into(),
-            hs: "N/A".into(),
-            ranked_rating_earned: "N/A".into(),
-            afk_penalty: "N/A".into(),
             last_active_epoch: None,
         }
     }

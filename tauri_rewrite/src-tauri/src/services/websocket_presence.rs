@@ -67,7 +67,7 @@ impl ValorantWs {
 }
 
 // ---------------------------------------------------------------------------
-// Background task — connect → subscribe → read → reconnect on failure
+// Background task - connect → subscribe → read → reconnect on failure
 // ---------------------------------------------------------------------------
 
 async fn ws_task(
@@ -104,7 +104,7 @@ async fn ws_task(
                 ws
             }
             Err(e) => {
-                logger.log(&format!("WS connect failed: {e} — retry in {backoff}s"));
+                logger.log(&format!("WS connect failed: {e} - retry in {backoff}s"));
                 if tx.is_closed() {
                     return;
                 }
@@ -120,7 +120,7 @@ async fn ws_task(
             .send(Message::Text(r#"[5, "OnJsonApiEvent_chat_v4_presences"]"#.into()))
             .await
         {
-            logger.log(&format!("WS subscribe failed: {e} — reconnecting"));
+            logger.log(&format!("WS subscribe failed: {e} - reconnecting"));
             continue;
         }
 
@@ -129,7 +129,7 @@ async fn ws_task(
             let msg = tokio::select! {
                 msg = stream.next() => msg,
                 _ = tokio::time::sleep(Duration::from_secs(300)) => {
-                    logger.log("WS idle timeout — reconnecting");
+                    logger.log("WS idle timeout - reconnecting");
                     break;
                 }
             };
@@ -137,7 +137,7 @@ async fn ws_task(
             match msg {
                 Some(Ok(Message::Text(text))) => {
                     if let Some(event) =
-                        parse_presence_event(&text, puuid, &logger)
+                        parse_presence_event(&text, puuid)
                     {
                         if event.state.as_str() != last_state {
                             last_state = event.state.as_str().to_string();
@@ -149,11 +149,11 @@ async fn ws_task(
                     }
                 }
                 Some(Ok(Message::Close(_))) | None => {
-                    logger.log("WS closed — reconnecting");
+                    logger.log("WS closed - reconnecting");
                     break;
                 }
                 Some(Err(e)) => {
-                    logger.log(&format!("WS error: {e} — reconnecting"));
+                    logger.log(&format!("WS error: {e} - reconnecting"));
                     break;
                 }
                 _ => {}
@@ -173,7 +173,6 @@ async fn ws_task(
 fn parse_presence_event(
     text: &str,
     puuid: &str,
-    _logger: &Arc<Logger>,
 ) -> Option<WsPresenceEvent> {
     let event: serde_json::Value = serde_json::from_str(text).ok()?;
 

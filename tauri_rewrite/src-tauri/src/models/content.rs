@@ -28,8 +28,6 @@ pub struct Map {
     pub display_name: String,
     #[serde(default)]
     pub map_url: Option<String>,
-    #[serde(default)]
-    pub splash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,8 +78,6 @@ pub struct Level {
     pub uuid: String,
     #[serde(default)]
     pub display_icon: Option<String>,
-    #[serde(default)]
-    pub level_item: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,10 +142,6 @@ pub struct Tier {
     pub small_icon: Option<String>,
     #[serde(default)]
     pub large_icon: Option<String>,
-    #[serde(default)]
-    pub rank_triangle_down_icon: Option<String>,
-    #[serde(default)]
-    pub rank_triangle_up_icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,7 +179,6 @@ pub struct Season {
 pub struct ContentCache {
     pub agents: HashMap<String, String>,
     pub maps: HashMap<String, String>,
-    pub map_splashes: HashMap<String, String>,
     pub weapons: HashMap<String, WeaponData>,
     pub skins_by_uuid: HashMap<String, Skin>,
     pub sprays: HashMap<String, Spray>,
@@ -195,9 +186,7 @@ pub struct ContentCache {
     pub buddies: HashMap<String, Buddy>,
     pub player_titles: HashMap<String, PlayerTitle>,
     pub player_cards: HashMap<String, PlayerCard>,
-    pub competitive_tiers: Vec<Tier>,
     pub rank_icons: Arc<Vec<Option<String>>>,
-    pub agent_uuids: HashMap<String, String>,
     pub seasons: Vec<Season>,
 }
 
@@ -206,7 +195,6 @@ impl ContentCache {
         Self {
             agents: HashMap::new(),
             maps: HashMap::new(),
-            map_splashes: HashMap::new(),
             weapons: HashMap::new(),
             skins_by_uuid: HashMap::new(),
             sprays: HashMap::new(),
@@ -214,9 +202,7 @@ impl ContentCache {
             buddies: HashMap::new(),
             player_titles: HashMap::new(),
             player_cards: HashMap::new(),
-            competitive_tiers: Vec::new(),
             rank_icons: Arc::new(Vec::new()),
-            agent_uuids: HashMap::new(),
             seasons: Vec::new(),
         }
     }

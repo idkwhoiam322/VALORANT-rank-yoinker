@@ -22,12 +22,6 @@ pub struct PlayerIdentity {
     #[serde(default)]
     pub account_level: Option<u32>,
 
-    #[serde(default)]
-    pub incognito: Option<bool>,
-
-    #[serde(default)]
-    pub hide_account_level: Option<bool>,
-
     #[serde(default, alias = "PlayerTitleID")]
     pub player_title_id: Option<String>,
 

@@ -55,6 +55,8 @@ pub const VAL_COMPETITIVE_TIERS: &str = "competitivetiers";
 pub fn media_agent_icon(agent_uuid: &str) -> String {
     format!("https://media.valorant-api.com/agents/{agent_uuid}/displayicon.png")
 }
+
 pub fn media_weapon_icon(weapon_uuid: &str) -> String {
     format!("https://media.valorant-api.com/weapons/{weapon_uuid}/displayicon.png")
 }
+

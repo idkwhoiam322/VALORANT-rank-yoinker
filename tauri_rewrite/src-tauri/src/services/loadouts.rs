@@ -32,11 +32,10 @@ impl LoadoutService {
         client_version: &str,
         match_id: &str,
         players: &[crate::models::match_data::CoregamePlayer],
-        weapon_name: &str,
         content: &ContentCache,
         names: &HashMap<String, String>,
         state: &str,
-    ) -> Result<(HashMap<String, String>, LoadoutJson), ApiError> {
+    ) -> Result<LoadoutJson, ApiError> {
         let headers = entitlements.build_headers(client_version);
         let endpoint = if state == "game" {
             endpoints::glz_core_loadouts(match_id)
@@ -49,21 +48,16 @@ impl LoadoutService {
             .fetch_json(UrlType::Glz, &endpoint, &headers)
             .await?;
 
-        Ok(self.build_loadout_json(&loadouts_resp, players, weapon_name, content, names))
+        Ok(self.build_loadout_json(&loadouts_resp, players, content, names))
     }
 
     pub fn build_loadout_json(
         &self,
         loadouts_resp: &CoregameLoadoutsResponse,
         players: &[CoregamePlayer],
-        weapon_name: &str,
         content: &ContentCache,
         names: &HashMap<String, String>,
-    ) -> (HashMap<String, String>, LoadoutJson) {
-        if content.weapons.is_empty() {
-            log::warn!("Weapons content cache is empty — weapon names will not resolve");
-        }
-        let mut weapon_lists = HashMap::new();
+    ) -> LoadoutJson {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -99,25 +93,19 @@ impl LoadoutService {
                         .as_ref()
                         .and_then(|pi| pi.account_level)
                 }),
-                title: None,
-                title_name: None,
-                player_card: None,
-                player_card_name: None,
                 agent: content.agents.get(&char_id).cloned(),
-                agent_artwork_name: content
-                    .agents
-                    .get(&char_id)
-                    .map(|a| format!("{}Artwork", a)),
                 sprays: None,
                 weapons: None,
+                title: None,
+                player_card: None,
+                player_card_name: None,
             };
 
-            // Resolve title
+            // Resolve title and player card from the CoregamePlayer's identity
             if let Some(ref identity) = player.and_then(|p| p.player_identity.as_ref()) {
                 if let Some(ref title_id) = identity.player_title_id {
                     if let Some(title_obj) = content.player_titles.get(&title_id.to_lowercase()) {
                         player_data.title = title_obj.title_text.clone();
-                        player_data.title_name = title_obj.display_name.clone();
                     }
                 }
                 if let Some(ref card_id) = identity.player_card_id {
@@ -219,18 +207,7 @@ impl LoadoutService {
                                     }
                                 }
                             }
-
-                            // Track the selected weapon for the preview list (reuse weapon_data)
-                            if weapon_data.display_name.to_lowercase() == weapon_name.to_lowercase() {
-                                if let Some(ref sid) = skin_id {
-                                    if let Some(skin) = content.skins_by_uuid.get(&sid.to_lowercase()) {
-                                        weapon_lists.insert(subject.clone(), skin.display_name.clone());
-                                    }
-                                }
-                            }
                         } else {
-                            // Weapon not in content cache — use UUID as fallback name
-                            // and construct display icon from known URL pattern
                             log::warn!("Weapon UUID {} not found in content cache (content.weapons has {} entries)",
                                 weapon_uuid_lower, content.weapons.len());
                             entry.weapon = Some(weapon_uuid.clone());
@@ -241,50 +218,50 @@ impl LoadoutService {
                     }
                 }
                 player_data.weapons = Some(weapons);
+            }
 
-                // Resolve sprays
-                if let Some(expressions) = loadout_expressions {
-                    let mut sprays = HashMap::new();
-                    for (i, expr) in expressions.aes_selections.iter().enumerate() {
-                        if let Some(ref asset_id) = expr.asset_id {
-                            let aid = asset_id.to_lowercase();
-                            let (spray_type, display_name, display_icon, full_transparent_icon) =
-                                if let Some(spray) = content.sprays.get(&aid) {
-                                    (
-                                        Some("spray".into()),
-                                        Some(spray.display_name.clone()),
-                                        spray.display_icon.clone(),
-                                        spray.full_transparent_icon.clone().or_else(|| spray.display_icon.clone()),
-                                    )
-                                } else if let Some(flex) = content.flex.get(&aid) {
-                                    (
-                                        Some("flex".into()),
-                                        Some(flex.display_name.clone()),
-                                        flex.display_icon.clone(),
-                                        flex.full_transparent_icon.clone().or_else(|| flex.display_icon.clone()),
-                                    )
-                                } else {
-                                    (Some("unknown".into()), None, None, None)
-                                };
+            // Resolve sprays
+            if let Some(expressions) = loadout_expressions {
+                let mut sprays = HashMap::new();
+                for (i, expr) in expressions.aes_selections.iter().enumerate() {
+                    if let Some(ref asset_id) = expr.asset_id {
+                        let aid = asset_id.to_lowercase();
+                        let (spray_type, display_name, display_icon, full_transparent_icon) =
+                            if let Some(spray) = content.sprays.get(&aid) {
+                                (
+                                    Some("spray".into()),
+                                    Some(spray.display_name.clone()),
+                                    spray.display_icon.clone(),
+                                    spray.full_transparent_icon.clone().or_else(|| spray.display_icon.clone()),
+                                )
+                            } else if let Some(flex) = content.flex.get(&aid) {
+                                (
+                                    Some("flex".into()),
+                                    Some(flex.display_name.clone()),
+                                    flex.display_icon.clone(),
+                                    flex.full_transparent_icon.clone().or_else(|| flex.display_icon.clone()),
+                                )
+                            } else {
+                                (Some("unknown".into()), None, None, None)
+                            };
 
-                            sprays.insert(
-                                i.to_string(),
-                                SprayEntry {
-                                    spray_type,
-                                    display_name,
-                                    display_icon,
-                                    full_transparent_icon,
-                                },
-                            );
-                        }
+                        sprays.insert(
+                            i.to_string(),
+                            SprayEntry {
+                                spray_type,
+                                display_name,
+                                display_icon,
+                                full_transparent_icon,
+                            },
+                        );
                     }
-                    player_data.sprays = Some(sprays);
                 }
+                player_data.sprays = Some(sprays);
             }
 
             json.players.insert(subject, player_data);
         }
 
-        (weapon_lists, json)
+        json
     }
 }

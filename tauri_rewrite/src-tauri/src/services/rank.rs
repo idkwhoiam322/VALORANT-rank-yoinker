@@ -128,7 +128,6 @@ impl RankService {
                         // Get act/episode for peak rank
                         let (act, episode) = content.get_act_episode_from_act_id(&max_season_id);
                         rank.peak_rank_act = act.clone();
-                        rank.peak_rank_ep = episode.clone();
                         // Format peakRankAct like Python: " (e{ep}a{act})" or " ({ep}a{act})"
                         if let (Some(ep_val), Some(act_val)) = (&episode, &act) {
                             let has_letter = ep_val.chars().any(|c| c.is_ascii_alphabetic());

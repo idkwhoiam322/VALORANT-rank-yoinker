@@ -24,7 +24,7 @@ pub struct EncounterRecord {
     pub score: Option<String>,
 }
 
-/// Internal data behind the single Mutex — holds both the per-puuid records
+/// Internal data behind the single Mutex - holds both the per-puuid records
 /// and a match_id → [puuids] index for O(1) lookups in update_match_result.
 struct EncounterData {
     /// puuid → list of encounter records

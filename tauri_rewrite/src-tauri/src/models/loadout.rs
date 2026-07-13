@@ -21,7 +21,7 @@ pub struct CoregameLoadoutEntry {
     #[serde(default)]
     pub loadout: Option<Loadout>,
 
-    /// Flat fields (used by pregame endpoint — Items/Expressions at top level)
+    /// Flat fields (used by pregame endpoint - Items/Expressions at top level)
     #[serde(default)]
     pub items: Option<HashMap<String, WeaponSlot>>,
 
@@ -112,13 +112,7 @@ pub struct PlayerLoadoutData {
     pub player_card_name: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title_name: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_artwork_name: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprays: Option<HashMap<String, SprayEntry>>,
@@ -165,12 +159,11 @@ pub struct WeaponEntry {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "chromaDisplayName")]
     pub chroma_display_name: Option<String>,
 
-    // NB: the original Python emits this key as a mixed snake/camel hybrid
-    // ("buddy_displayIcon", not "buddyDisplayIcon") — the frontend depends on
-    // this exact spelling, so it's pinned explicitly rather than derived.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "buddy_displayIcon")]
     pub buddy_display_icon: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "buddy_displayName")]
     pub buddy_display_name: Option<String>,
 }
+
+

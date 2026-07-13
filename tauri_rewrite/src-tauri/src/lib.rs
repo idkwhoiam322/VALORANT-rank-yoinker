@@ -28,16 +28,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(services)
 .invoke_handler(tauri::generate_handler![
-            commands::config::get_config,
-            commands::config::set_config,
             commands::config::get_gui_log_tail,
             commands::config::get_heartbeat_log,
             commands::config::open_log_file,
             commands::config::open_heartbeat_file,
-            commands::system::get_version,
             commands::system::clear_all_cache,
             commands::system::restart_application,
-            commands::system::get_status,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

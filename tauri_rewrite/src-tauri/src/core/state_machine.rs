@@ -47,7 +47,6 @@ pub struct ServiceSnapshot {
     pub season_id: String,
     pub previous_season_id: Option<String>,
     pub cooldown: u64,
-    pub weapon_name: String,
     /// Match-scoped cache: match_id -> (puuid -> (PlayerRank, PlayerStats)).
     /// Cleared on MENUS transition OR when match_id changes.
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
@@ -85,7 +84,7 @@ impl ServiceSnapshot {
     }
 
     /// Get a single entry from the match-scoped cache for the given puuid.
-    /// Pure getter — no side effects.
+    /// Pure getter - no side effects.
     pub fn get_match_cache_entry(
         &self,
         puuid: &str,
@@ -184,7 +183,6 @@ impl AppServices {
             season_id: self.season_id.clone(),
             previous_season_id: self.previous_season_id.clone(),
             cooldown: self.config.get().cooldown,
-            weapon_name: self.config.get().weapon.clone(),
             match_player_cache: self.match_player_cache.clone(),
             current_match_id: self.current_match_id.clone(),
         }
@@ -329,7 +327,7 @@ impl MainLoop {
                 match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
                     Some(ws) => Some(ws),
                     None => {
-                        snap.logger.log("WS presence unavailable — using polling");
+                        snap.logger.log("WS presence unavailable - using polling");
                         None
                     }
                 }
@@ -347,7 +345,7 @@ impl MainLoop {
                     Some(e) => e.clone(),
                     None => {
                         drop(svc);
-                        return Err("Entitlements cleared — re-initializing".into());
+                        return Err("Entitlements cleared - re-initializing".into());
                     }
                 };
                 let cv = svc.client_version.clone();
@@ -379,13 +377,13 @@ impl MainLoop {
             }
 
             // During INGAME steady state: suppress all heartbeat/API processing
-            // UNLESS we still don't have match_context (map unknown) — keep retrying
+            // UNLESS we still don't have match_context (map unknown) - keep retrying
             if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
                 if match_context.is_some() {
                     tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
                     continue;
                 }
-                snap.logger.log("INGAME map still unknown — retrying match context");
+                snap.logger.log("INGAME map still unknown - retrying match context");
             }
 
             // State transition: INGAME -> not INGAME => update encounter results
@@ -442,7 +440,7 @@ impl MainLoop {
                 }
             }
 
-            // State changed or first run — log, emit event, invalidate caches
+            // State changed or first run - log, emit event, invalidate caches
             let is_transition = last_state != Some(current_state);
             if is_transition {
                 snap.logger.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
@@ -549,7 +547,7 @@ impl MainLoop {
                             (Some(event.state), Some(event.presences))
                         }
                         None => {
-                            snap.logger.log(&format!("WS disconnected (was {:?}) — falling back to polling", last_state));
+                            snap.logger.log(&format!("WS disconnected (was {:?}) - falling back to polling", last_state));
                             *ws = None;
                             let (state, log_msg) =
                                 snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;

@@ -144,7 +144,7 @@ impl ApiClient {
         }
     }
 
-    /// Centralized cache-hit logging — mirrors `execute_request` so all cache
+    /// Centralized cache-hit logging - mirrors `execute_request` so all cache
     /// hits go to both the `log` crate (env_logger) and the app backend log.
     /// `kind` identifies the cache (e.g. "rank", "stats", "match details",
     /// "match player", "names"). `key` is a short PUUID/match_id fragment.
@@ -252,7 +252,7 @@ impl ApiClient {
             wait
         };
         if let Some(delay) = wait {
-            self.app_log(&format!("[API] rate limited ({url_type:?}) — sleeping {delay:?}"));
+            self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
             tokio::time::sleep(delay).await;
         }
 
@@ -292,7 +292,7 @@ impl ApiClient {
             return Err(ApiError::NotFound);
         }
         if response.status().as_u16() == 429 {
-            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) — sleeping 5s"));
+            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - sleeping 5s"));
             tokio::time::sleep(Duration::from_secs(5)).await;
             return Err(ApiError::RateLimited);
         }
@@ -353,7 +353,7 @@ impl ApiClient {
                     if validate(&json) {
                         return Ok(json);
                     }
-                    self.app_log(&format!("[API] retry {label}: validation failed — retrying"));
+                    self.app_log(&format!("[API] retry {label}: validation failed - retrying"));
                 }
                 Err(e) => {
                     self.app_log(&format!("[API] retry {label}: {e}"));
@@ -397,7 +397,7 @@ impl ApiClient {
                 wait
             };
             if let Some(delay) = wait {
-                self.app_log(&format!("[API] rate limited (ValAPI) — sleeping {delay:?}"));
+                self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
                 tokio::time::sleep(delay).await;
             }
         }
