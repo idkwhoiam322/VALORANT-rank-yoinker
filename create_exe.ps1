@@ -149,9 +149,9 @@ try {
         $envBackup.CARGO_PROFILE_RELEASE_STRIP = $env:CARGO_PROFILE_RELEASE_STRIP
         $env:CARGO_PROFILE_RELEASE_STRIP = "true"
     } else {
-        Write-Step "Applying fast dev profile (opt-level = 0)"
+        Write-Step "Applying fast dev profile (opt-level = 1)"
         $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
-        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "0"
+        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "1"
     }
 
     if ($Clean) {
