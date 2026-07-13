@@ -118,9 +118,15 @@ impl NamesService {
                 }
             }
 
-            // Store newly resolved names in cache
+            // Store newly resolved names in cache (double-check: another task
+            // may have inserted a fresh entry while we were fetching).
             let mut cache = self.cache.lock().await;
             for (p, name) in &cached_names {
+                if let Some((_, time)) = cache.get(p) {
+                    if time.elapsed() < self.cache_ttl {
+                        continue; // a concurrent fetch already cached this
+                    }
+                }
                 cache.insert(p.clone(), (name.clone(), Instant::now()));
             }
         }
