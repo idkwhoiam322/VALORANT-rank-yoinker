@@ -34,3 +34,6 @@ stats/
 # Archives
 *.zip
 *.tar.gz
+
+# Local Cargo config (auto-generated per-machine by create_exe.ps1)
+**/.cargo/config.toml

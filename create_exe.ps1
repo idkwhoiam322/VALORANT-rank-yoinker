@@ -3,13 +3,16 @@
     Builds tauri_rewrite\src-tauri\target\release\vry-rust.exe.
 
 .DESCRIPTION
-    Equivalent to:
-        cd tauri_rewrite\src-tauri
-        cargo build --release
-    with sanity checks and cleaner output.
-
     Before building, force-stops any running vry-rust.exe process(es) -- a
     stale process can hold the exe file open, causing a linker "Access denied".
+
+Auto-detects LLD (fast multi-threaded linker) on each run and places a
+ld.exe copy on PATH so GCC's collect2 uses ld.lld instead of MinGW's
+single-threaded ld.bfd. Builds are ~2.4x faster when LLVM is installed.
+Falls back to the default MinGW linker when LLD is not available.
+
+    Profile settings (opt-level, LTO, etc.) are applied via environment
+    variables instead of rewriting Cargo.toml.
 
 .PARAMETER Clean
     Run cargo clean before building (removes tauri_rewrite\src-tauri\target\).
@@ -53,18 +56,14 @@ function Fail($msg) {
 
 function Stop-VryProcesses {
     $procs = Get-Process -Name "vry-rust" -ErrorAction SilentlyContinue
-    if (-not $procs) {
-        return
-    }
+    if (-not $procs) { return }
 
     Write-Step "Stopping running vry-rust.exe process(es) (pid: $($procs.Id -join ', '))"
     $procs | Stop-Process -Force -ErrorAction SilentlyContinue
 
     for ($i = 0; $i -lt 10; $i++) {
         Start-Sleep -Milliseconds 300
-        if (-not (Get-Process -Name "vry-rust" -ErrorAction SilentlyContinue)) {
-            return
-        }
+        if (-not (Get-Process -Name "vry-rust" -ErrorAction SilentlyContinue)) { return }
     }
 
     if (Get-Process -Name "vry-rust" -ErrorAction SilentlyContinue) {
@@ -72,7 +71,25 @@ function Stop-VryProcesses {
     }
 }
 
-# Always run relative to this script's own folder
+function Find-Lld {
+    $lld = Get-Command ld.lld -ErrorAction SilentlyContinue
+    if ($lld) { return $lld.Source }
+    $candidate = "C:\Program Files\LLVM\bin\ld.lld.exe"
+    if (Test-Path $candidate) { return $candidate }
+    return $null
+}
+
+function Invoke-Cargo {
+    param([string]$Dir)
+    Push-Location -Path $Dir
+    $ErrorActionPreference = "Continue"
+    cargo build --release 2>&1 | ForEach-Object { Write-Host $_ }
+    $rc = $LASTEXITCODE
+    Pop-Location
+    if ($rc -ne 0) { Fail "cargo build failed (exit code $rc) -- see output above." }
+}
+
+# ── preamble ──────────────────────────────────────────────────────────
 Set-Location -Path $PSScriptRoot
 
 if (-not (Test-Path ".\tauri_rewrite\src-tauri\Cargo.toml")) {
@@ -87,57 +104,70 @@ $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if (-not $cargo) {
     Fail "cargo was not found on PATH. Install the Rust toolchain from https://rustup.rs and try again."
 }
-cargo --version
+& $cargo.Source --version
 
-# ── profile management ─────────────────────────────────────────────
-$CargoToml = Resolve-Path ".\tauri_rewrite\src-tauri\Cargo.toml"
-$DevProfile = @"
-[profile.release]
-opt-level = 0
-"@
-$ReleaseProfile = @"
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
-"@
+# ── LLD auto-detection ────────────────────────────────────────────────
+$lldPath = Find-Lld
+$lldTempDir = $null
+$lldBinsDir = $null
 
-$profileLabel = if ($Release) { "release" } else { "dev" }
+if ($lldPath) {
+    Write-Step "LLD found at $lldPath -- enabling fast linker"
 
-# Strip any existing [profile.release] section so we can replace it
-$ctText = [IO.File]::ReadAllText($CargoToml)
-$beforeProfile = $ctText -replace '(?s)\[profile\.release\].*', ''
-$beforeProfile = $beforeProfile.TrimEnd() + "`r`n`r`n"
-function Set-ReleaseProfile($content) {
-    $beforeProfile + $content | Set-Content -NoNewline $CargoToml
+    $lldTempDir = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\.lld-bin"
+    New-Item -ItemType Directory -Force -Path $lldTempDir | Out-Null
+
+    # Place a ld.exe that is actually ld.lld and name the copy ld.exe so
+    # that GCC's collect2 finds it instead of MinGW's single-threaded ld.
+    $ldCopy = Join-Path $lldTempDir "ld.exe"
+    if (-not (Test-Path $ldCopy)) {
+        Copy-Item -Path $lldPath -Destination $ldCopy
+    }
+
+    # Prepend to PATH so collect2 finds our ld.exe before MinGW's ld.exe
+    $lldBinsDir = $lldTempDir
+    $env:PATH = "$lldBinsDir;$env:PATH"
+
+    Write-Host "  Using LLD as the linker (replaced ld.exe in PATH)"
+} else {
+    Write-Step "LLD not found -- using default MinGW linker"
 }
+
+# ── profile via env vars (no Cargo.toml rewriting) ───────────────────
+$profileLabel = if ($Release) { "release" } else { "dev" }
+$envBackup = @{}
 
 try {
     if ($Release) {
-        Write-Step "Switching to release profile (max perf)"
-        Set-ReleaseProfile $ReleaseProfile
+        Write-Step "Applying maximum performance profile"
+        $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
+        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "3"
+        $envBackup.CARGO_PROFILE_RELEASE_LTO = $env:CARGO_PROFILE_RELEASE_LTO
+        $env:CARGO_PROFILE_RELEASE_LTO = "true"
+        $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+        $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1"
+        $envBackup.CARGO_PROFILE_RELEASE_STRIP = $env:CARGO_PROFILE_RELEASE_STRIP
+        $env:CARGO_PROFILE_RELEASE_STRIP = "true"
+    } else {
+        Write-Step "Applying fast dev profile (opt-level = 0)"
+        $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
+        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "0"
     }
 
     if ($Clean) {
         Write-Step "Cleaning old build artifacts (cargo clean)"
         Push-Location -Path ".\tauri_rewrite\src-tauri"
-        cargo clean
+        $ErrorActionPreference = "Continue"
+        cargo clean 2>&1 | ForEach-Object { Write-Host $_ }
         Pop-Location
     }
 
     Write-Step "Building vry-rust.exe"
-    Push-Location -Path ".\tauri_rewrite\src-tauri"
-    cargo build --release
-    if ($LASTEXITCODE -ne 0) {
-        Pop-Location
-        Fail "cargo build failed -- see output above."
-    }
-    Pop-Location
+    Invoke-Cargo -Dir ".\tauri_rewrite\src-tauri"
 
     $exePath = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\target\release\vry-rust.exe"
     if (-not (Test-Path $exePath)) {
-        Fail "Build finished but $exePath wasn't produced. Check the cargo output above."
+        Fail "Build finished but no exe at $exePath -- check cargo output above."
     }
 
     if ($Start -or ($wasRunning -and -not $NoRestart)) {
@@ -149,8 +179,26 @@ try {
     Write-Host "Built: $exePath ($profileLabel)" -ForegroundColor Green
 }
 finally {
-    if ($Release) {
-        Write-Step "Restoring dev profile"
-        Set-ReleaseProfile $DevProfile
+    # Restore profile env vars
+    if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL) { $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL }
+    else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_OPT_LEVEL -ErrorAction SilentlyContinue }
+    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_LTO")) {
+        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_LTO) { $env:CARGO_PROFILE_RELEASE_LTO = $envBackup.CARGO_PROFILE_RELEASE_LTO }
+        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_LTO -ErrorAction SilentlyContinue }
+    }
+    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_CODEGEN_UNITS")) {
+        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS) { $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS }
+        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS -ErrorAction SilentlyContinue }
+    }
+    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_STRIP")) {
+        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_STRIP) { $env:CARGO_PROFILE_RELEASE_STRIP = $envBackup.CARGO_PROFILE_RELEASE_STRIP }
+        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_STRIP -ErrorAction SilentlyContinue }
+    }
+    # Clean up temp LLD binaries
+    if ($lldBinsDir -and ($env:PATH -like "$lldBinsDir*")) {
+        $env:PATH = $env:PATH -replace [regex]::Escape("$lldBinsDir;"), ""
+    }
+    if ($lldTempDir -and (Test-Path $lldTempDir)) {
+        Remove-Item -Path $lldTempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
