@@ -431,6 +431,7 @@ impl MainLoop {
                         }
                         Err(e) => snap.logger.log(&format!("Match details fetch failed for {match_id}: {e}")),
                     }
+                }
             }
 
             // State changed or first run — log, emit event, invalidate caches

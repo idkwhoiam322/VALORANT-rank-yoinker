@@ -24,9 +24,32 @@ pub struct EncounterRecord {
     pub score: Option<String>,
 }
 
+/// Internal data behind the single Mutex — holds both the per-puuid records
+/// and a match_id → [puuids] index for O(1) lookups in update_match_result.
+struct EncounterData {
+    /// puuid → list of encounter records
+    records: HashMap<String, Vec<EncounterRecord>>,
+    /// match_id → puuids that have an encounter with this match_id
+    match_index: HashMap<String, Vec<String>>,
+}
+
+impl EncounterData {
+    fn from_records(records: HashMap<String, Vec<EncounterRecord>>) -> Self {
+        let mut index: HashMap<String, Vec<String>> = HashMap::new();
+        for (puuid, history) in &records {
+            for entry in history {
+                if let Some(ref mid) = entry.match_id {
+                    index.entry(mid.clone()).or_default().push(puuid.clone());
+                }
+            }
+        }
+        Self { records, match_index: index }
+    }
+}
+
 pub struct EncounterService {
     stats_path: PathBuf,
-    data: Mutex<HashMap<String, Vec<EncounterRecord>>>,
+    data: Mutex<EncounterData>,
 }
 
 impl EncounterService {
@@ -35,7 +58,7 @@ impl EncounterService {
         let stats_path = stats_dir.join("encounters.json");
         let _ = fs::create_dir_all(&stats_dir);
 
-        let data = if stats_path.exists() {
+        let records = if stats_path.exists() {
             fs::read_to_string(&stats_path)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
@@ -46,59 +69,51 @@ impl EncounterService {
 
         Self {
             stats_path,
-            data: Mutex::new(data),
+            data: Mutex::new(EncounterData::from_records(records)),
         }
     }
 
     pub fn save_encounter(&self, puuid: &str, record: EncounterRecord) {
         let mut data = self.data.lock().unwrap();
-        let history = data.entry(puuid.to_string()).or_default();
+        let match_id = record.match_id.clone();
 
-        // Deduplicate by match_id
-        if let Some(ref match_id) = record.match_id {
-            if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(match_id)) {
-                // Merge: update fields if new values are non-null
-                if record.name.is_some() {
-                    existing.name = record.name.clone();
-                }
-                if record.agent.is_some() {
-                    existing.agent = record.agent.clone();
-                }
-                if record.map.is_some() {
-                    existing.map = record.map.clone();
-                }
-                if record.rank.is_some() {
-                    existing.rank = record.rank;
-                }
-                if record.rr.is_some() {
-                    existing.rr = record.rr;
-                }
-                if record.relation.is_some() {
-                    existing.relation = record.relation.clone();
-                }
-                if record.team.is_some() {
-                    existing.team = record.team.clone();
-                }
-                if record.my_team.is_some() {
-                    existing.my_team = record.my_team.clone();
-                }
-                if record.result.is_some() {
-                    existing.result = record.result.clone();
-                }
-                if record.score.is_some() {
-                    existing.score = record.score.clone();
-                }
-                if record.epoch.is_some() {
-                    existing.epoch = record.epoch;
+        // Insert or merge the record; track whether a new match_id entry was added
+        let is_new_match = {
+            let history = data.records.entry(puuid.to_string()).or_default();
+
+            if let Some(ref mid) = match_id {
+                if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(mid)) {
+                    // Merge: update fields if new values are non-null
+                    if record.name.is_some() { existing.name = record.name.clone(); }
+                    if record.agent.is_some() { existing.agent = record.agent.clone(); }
+                    if record.map.is_some() { existing.map = record.map.clone(); }
+                    if record.rank.is_some() { existing.rank = record.rank; }
+                    if record.rr.is_some() { existing.rr = record.rr; }
+                    if record.relation.is_some() { existing.relation = record.relation.clone(); }
+                    if record.team.is_some() { existing.team = record.team.clone(); }
+                    if record.my_team.is_some() { existing.my_team = record.my_team.clone(); }
+                    if record.result.is_some() { existing.result = record.result.clone(); }
+                    if record.score.is_some() { existing.score = record.score.clone(); }
+                    if record.epoch.is_some() { existing.epoch = record.epoch; }
+                    false // merged, not a new entry
+                } else {
+                    history.push(record);
+                    true // new entry with a match_id
                 }
             } else {
                 history.push(record);
+                false // no match_id
             }
-        } else {
-            history.push(record);
+        };
+
+        // Update the match index outside the `history` borrow
+        if is_new_match {
+            if let Some(ref mid) = match_id {
+                data.match_index.entry(mid.clone()).or_default().push(puuid.to_string());
+            }
         }
 
-        self.save_to_disk(&data);
+        self.save_to_disk(&data.records);
     }
 
     pub fn update_match_result(
@@ -108,9 +123,6 @@ impl EncounterService {
         winning_team: &str,
         score: Option<String>,
     ) -> bool {
-        let mut data = self.data.lock().unwrap();
-        let mut changed = false;
-
         let my_result = if my_team == winning_team {
             "win"
         } else {
@@ -122,28 +134,36 @@ impl EncounterService {
             "win"
         };
 
-        for (_puuid, history) in data.iter_mut() {
-            for entry in history.iter_mut() {
-                if entry.match_id.as_deref() != Some(match_id) {
-                    continue;
-                }
-                let result = if entry.relation.as_deref() == Some("enemy") {
-                    enemy_result
-                } else {
-                    my_result
-                };
-                if entry.result.as_deref() != Some(result) {
-                    entry.result = Some(result.into());
-                    changed = true;
-                }
-                if score.is_some() {
-                    entry.score = score.clone();
+        let mut data = self.data.lock().unwrap();
+        let mut changed = false;
+
+        // Use the match_index to find only relevant puuids (O(1) instead of scanning all puuids)
+        if let Some(puuids) = data.match_index.get(match_id).cloned() {
+            for puuid in &puuids {
+                if let Some(history) = data.records.get_mut(puuid) {
+                    for entry in history.iter_mut() {
+                        if entry.match_id.as_deref() != Some(match_id) {
+                            continue;
+                        }
+                        let result = if entry.relation.as_deref() == Some("enemy") {
+                            enemy_result
+                        } else {
+                            my_result
+                        };
+                        if entry.result.as_deref() != Some(result) {
+                            entry.result = Some(result.into());
+                            changed = true;
+                        }
+                        if score.is_some() {
+                            entry.score = score.clone();
+                        }
+                    }
                 }
             }
         }
 
         if changed {
-            self.save_to_disk(&data);
+            self.save_to_disk(&data.records);
         }
         changed
     }
@@ -158,7 +178,7 @@ impl EncounterService {
         current_map: Option<&str>,
     ) -> Option<EncounterEntry> {
         let data = self.data.lock().unwrap();
-        let history = data.get(puuid)?;
+        let history = data.records.get(puuid)?;
 
         let mut previous: Vec<&EncounterRecord> = history
             .iter()
@@ -258,7 +278,7 @@ impl EncounterService {
             .unwrap_or_default()
             .as_secs_f64();
 
-        for (puuid, history) in data.iter() {
+        for (puuid, history) in data.records.iter() {
             if puuid == exclude_puuid {
                 continue;
             }
@@ -336,8 +356,8 @@ impl EncounterService {
             });
         }
 
-        // Sort by most recent first
-        results.sort_by(|a, b| b.time_diff.partial_cmp(&a.time_diff).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by most recent first (smaller time_diff = more recent)
+        results.sort_by(|a, b| a.time_diff.partial_cmp(&b.time_diff).unwrap_or(std::cmp::Ordering::Equal));
         results
     }
 
