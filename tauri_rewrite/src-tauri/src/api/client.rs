@@ -80,6 +80,7 @@ fn check_bad_claims(text: &str) -> Result<(), ApiError> {
 
 pub struct ApiClient {
     client: Client,
+    local_client: Client,
     pd_url: Mutex<String>,
     glz_url: Mutex<String>,
     rate_limiters: [Mutex<RateLimiter>; 4],
@@ -91,13 +92,19 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(pd_url: String, glz_url: String) -> Self {
         let client = ClientBuilder::new()
-            .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(15))
             .build()
             .expect("Failed to create HTTP client");
 
+        let local_client = ClientBuilder::new()
+            .danger_accept_invalid_certs(true)
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("Failed to create local HTTP client");
+
         Self {
             client,
+            local_client,
             pd_url: Mutex::new(pd_url),
             glz_url: Mutex::new(glz_url),
             rate_limiters: [
@@ -164,13 +171,18 @@ impl ApiClient {
         url: &str,
         headers: &HeaderMap,
         body: Option<serde_json::Value>,
+        url_type: UrlType,
     ) -> Result<Response, ApiError> {
         let start = Instant::now();
         let log_line = format!("[API] -> {} {}", method, url);
         log::info!("{}", log_line);
         self.app_log(&log_line);
 
-        let mut req = self.client.request(method.clone(), url);
+        let req_client = match url_type {
+            UrlType::Local => &self.local_client,
+            UrlType::Pd | UrlType::Glz | UrlType::Custom => &self.client,
+        };
+        let mut req = req_client.request(method.clone(), url);
         for (key, value) in headers.iter() {
             req = req.header(key, value);
         }
@@ -273,7 +285,7 @@ impl ApiClient {
             }
         }
 
-        let response = self.execute_request(http_method, &url, &header_map, body).await?;
+        let response = self.execute_request(http_method, &url, &header_map, body, url_type).await?;
 
         if response.status().as_u16() == 404 {
             return Err(ApiError::NotFound);
@@ -390,7 +402,7 @@ impl ApiClient {
         let url = format!("{}/{}", endpoints::VALORANT_API_BASE, endpoint);
         let mut headers = HeaderMap::new();
         headers.insert("User-Agent", "VRY/1.0".parse().unwrap());
-        let resp = self.execute_request(Method::GET, &url, &headers, None).await?;
+        let resp = self.execute_request(Method::GET, &url, &headers, None, UrlType::Custom).await?;
         let status = resp.status();
         let text = resp.text().await.map_err(ApiError::Http)?;
 
