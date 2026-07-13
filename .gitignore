@@ -30,3 +30,7 @@ stats/
 *.msi
 *.nsh
 *.nsi
+
+# Archives
+*.zip
+*.tar.gz

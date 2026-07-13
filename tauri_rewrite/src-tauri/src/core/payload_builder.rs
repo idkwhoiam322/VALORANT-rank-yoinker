@@ -325,6 +325,13 @@ async fn build_ingame_payload(
         .await
         .unwrap_or_default();
 
+    // Scope the match cache before processing any player
+    if let Some(ref match_id) = known_match_id {
+        if !match_id.is_empty() {
+            svc.set_match_cache_scope(match_id);
+        }
+    }
+
     for player in &players {
         let subject = match player.subject.as_ref() {
             Some(s) => s.clone(),
@@ -334,7 +341,7 @@ async fn build_ingame_payload(
 
         let (player_rank, player_stats) = if let Some(ref match_id) = known_match_id {
             if !match_id.is_empty() {
-                if let Some(entry) = svc.get_match_cache_entry(match_id, &subject) {
+                if let Some(entry) = svc.get_match_cache_entry(&subject) {
                     svc.client.cache_hit(
                         "match player",
                         &subject[..8.min(subject.len())],
@@ -575,6 +582,13 @@ async fn build_pregame_payload(
         .await
         .unwrap_or_default();
 
+    // Scope the match cache before processing any player
+    if let Some(ref match_id) = known_match_id {
+        if !match_id.is_empty() {
+            svc.set_match_cache_scope(match_id);
+        }
+    }
+
     let cache_match_id = known_match_id
         .filter(|id| !id.is_empty())
         .map(|id| id.to_string());
@@ -603,7 +617,7 @@ async fn build_pregame_payload(
         let subject = player.subject.clone().unwrap_or_default();
 
         let cached = match &cache_match_id {
-            Some(id) => svc.get_match_cache_entry(id, &subject),
+            Some(_) => svc.get_match_cache_entry(&subject),
             None => None,
         };
 

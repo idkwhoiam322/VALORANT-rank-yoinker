@@ -68,23 +68,29 @@ impl ServiceSnapshot {
     }
 
     pub fn clear_match_player_cache(&self) {
-        self.match_player_cache.lock().unwrap().clear();
+        let mut cache = self.match_player_cache.lock().unwrap();
+        cache.clear();
+        *self.current_match_id.lock().unwrap() = None;
     }
 
-    /// Get a single entry from the match-scoped cache for the given match_id and puuid.
-    /// Handles match_id change auto-clear.
-    pub fn get_match_cache_entry(
-        &self,
-        match_id: &str,
-        puuid: &str,
-    ) -> Option<(PlayerRank, PlayerStats)> {
+    /// Set the current match scope. If the match_id differs from the cached
+    /// scope, the entire cache is cleared and the new scope is stored.
+    /// Call once per heartbeat before processing players.
+    pub fn set_match_cache_scope(&self, match_id: &str) {
         let mut current_id = self.current_match_id.lock().unwrap();
-        let mut cache = self.match_player_cache.lock().unwrap();
         if current_id.as_deref() != Some(match_id) {
             *current_id = Some(match_id.to_string());
-            cache.clear();
+            self.match_player_cache.lock().unwrap().clear();
         }
-        cache.get(puuid).cloned()
+    }
+
+    /// Get a single entry from the match-scoped cache for the given puuid.
+    /// Pure getter — no side effects.
+    pub fn get_match_cache_entry(
+        &self,
+        puuid: &str,
+    ) -> Option<(PlayerRank, PlayerStats)> {
+        self.match_player_cache.lock().unwrap().get(puuid).cloned()
     }
 
     /// Insert or update an entry in the match-scoped cache.
