@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -704,10 +705,11 @@ async fn build_menus_payload(
     presences: Option<&[Presence]>,
 ) {
     // Use caller-supplied presences (fetched once in build_heartbeat) or fetch fresh.
-    let presences = match presences {
-        Some(p) => p.to_vec(),
+    // Cow avoids cloning the slice when it's already available.
+    let presences: Cow<'_, [Presence]> = match presences {
+        Some(p) => Cow::Borrowed(p),
         None => match svc.presences.get_presences(entitlements, client_version).await {
-            Ok(p) => p,
+            Ok(p) => Cow::Owned(p),
             Err(_) => return,
         },
     };
