@@ -300,6 +300,7 @@ impl MainLoop {
         svc.log("Content cache initialized");
 
         // 7. Notify frontend
+        let _ = app.emit("cache_cleared", ());
         let _ = app.emit("backend_ready", serde_json::json!({
             "puuid": entitlements.subject,
         }));

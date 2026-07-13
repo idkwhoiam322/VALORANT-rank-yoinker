@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
 
 use crate::core::state_machine::AppServices;
@@ -8,6 +8,20 @@ use crate::core::state_machine::AppServices;
 #[tauri::command]
 pub async fn get_version() -> String {
     "2.99".to_string()
+}
+
+#[tauri::command]
+pub async fn clear_all_cache(
+    app: AppHandle,
+    services: State<'_, Arc<RwLock<AppServices>>>,
+) -> Result<(), String> {
+    let svc = services.write().await;
+    svc.rank.invalidate_cache().await;
+    svc.stats.clear_cache().await;
+    svc.names.clear_cache().await;
+    drop(svc);
+    let _ = app.emit("cache_cleared", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -21,9 +35,6 @@ pub async fn restart_application(
     svc.content = Arc::new(crate::models::content::ContentCache::empty());
     svc.season_id = String::new();
     svc.previous_season_id = None;
-    svc.rank.invalidate_cache().await;
-    svc.stats.clear_cache().await;
-    svc.names.clear_cache().await;
     svc.log("Backend state reset — reconnecting...");
     svc.auth_retry.notify_one();
     drop(svc);

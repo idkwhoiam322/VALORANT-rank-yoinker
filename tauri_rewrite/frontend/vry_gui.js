@@ -318,6 +318,15 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         updateLoadingOverlay(cls);
     }
 
+    function resetState() {
+        try { localStorage.removeItem("vry-rust.cache"); } catch (e) {}
+        state.payload = null;
+        state.players = [];
+        state.lastRenderKey = null;
+        state.selectedPuuid = null;
+        render();
+    }
+
     // ---- Tauri IPC setup ----
     var unlisteners = [];
 
@@ -338,6 +347,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
         tauriListen("backend_ready", function () {
             setStatus("Connected", "live");
+        }).then(function (fn) { unlisteners.push(fn); });
+
+        tauriListen("cache_cleared", function () {
+            resetState();
         }).then(function (fn) { unlisteners.push(fn); });
 
         tauriListen("log_update", function (event) {
@@ -971,14 +984,10 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     function requestRestart() {
         closeModal();
         setRefreshButtonsBusy(true);
-        try { localStorage.removeItem("vry-rust.cache"); } catch (e) {}
-        state.payload = null;
-        state.players = [];
-        state.lastRenderKey = null;
-        state.selectedPuuid = null;
-        render();
         setStatus("Reconnecting", "pending");
-        tauriInvoke("restart_application").then(function () {
+        tauriInvoke("clear_all_cache").then(function () {
+            return tauriInvoke("restart_application");
+        }).then(function () {
             showToast("Reconnecting to backend...");
         }).catch(function () {
             showToast("Connection error, retrying...");
@@ -1066,12 +1075,6 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     });
 
     // ---- boot ----
-    var cached = null;
-    try { cached = localStorage.getItem("vry-rust.cache"); } catch (e) {}
-    if (cached) {
-        try { setPayload(JSON.parse(cached), false); } catch (e) { try { localStorage.removeItem("vry-rust.cache"); } catch (e2) {} }
-    } else { render(); }
-
     setStatus("Starting", "pending");
     setupTauriListeners();
 })();

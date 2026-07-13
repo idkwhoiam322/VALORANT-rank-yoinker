@@ -35,6 +35,7 @@ pub fn run() {
             commands::config::open_log_file,
             commands::config::open_heartbeat_file,
             commands::system::get_version,
+            commands::system::clear_all_cache,
             commands::system::restart_application,
             commands::system::get_status,
         ])
