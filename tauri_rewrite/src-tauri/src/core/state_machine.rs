@@ -385,44 +385,52 @@ impl MainLoop {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
                     snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
                     let headers = entitlements.build_headers(&cv);
-                    if let Ok(resp) = snap.client.fetch(
+                    match snap.client.fetch(
                         UrlType::Pd,
                         &endpoints::pd_match_details(match_id),
                         &headers,
                         None,
                     ).await {
-                        if let Ok(text) = resp.text().await {
-                            if let Ok(match_data) = serde_json::from_str::<serde_json::Value>(&text) {
-                                let winning_team = match_data["matchInfo"]["winningTeam"]
-                                    .as_str()
-                                    .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
-                                    .or_else(|| {
-                                        match_data["teams"].as_array().and_then(|teams| {
-                                            teams.iter().find(|t| t["won"].as_bool() == Some(true))
-                                                .and_then(|t| {
-                                                    t["teamId"].as_str()
-                                                        .or_else(|| t["teamID"].as_str())
-                                                        .or_else(|| t["TeamID"].as_str())
-                                                })
-                                        })
-                                    });
-                                let score = (|| -> Option<String> {
-                                    let teams = match_data["teams"].as_array()?;
-                                    if teams.len() < 2 { return None; }
-                                    let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
-                                    let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
-                                    Some(format!("{t0}-{t1}"))
-                                })();
-                                if let Some(winning_team) = winning_team {
-                                    snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
-                                    snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
-                                } else {
-                                    snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                        Ok(resp) => {
+                            match resp.text().await {
+                                Ok(text) => {
+                                    match serde_json::from_str::<serde_json::Value>(&text) {
+                                        Ok(match_data) => {
+                                            let winning_team = match_data["matchInfo"]["winningTeam"]
+                                                .as_str()
+                                                .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
+                                                .or_else(|| {
+                                                    match_data["teams"].as_array().and_then(|teams| {
+                                                        teams.iter().find(|t| t["won"].as_bool() == Some(true))
+                                                            .and_then(|t| {
+                                                                t["teamId"].as_str()
+                                                                    .or_else(|| t["teamID"].as_str())
+                                                                    .or_else(|| t["TeamID"].as_str())
+                                                            })
+                                                    })
+                                                });
+                                            let score = (|| -> Option<String> {
+                                                let teams = match_data["teams"].as_array()?;
+                                                if teams.len() < 2 { return None; }
+                                                let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
+                                                let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
+                                                Some(format!("{t0}-{t1}"))
+                                            })();
+                                            if let Some(winning_team) = winning_team {
+                                                snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
+                                                snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
+                                            } else {
+                                                snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                                            }
+                                        }
+                                        Err(e) => snap.logger.log(&format!("Match details JSON parse failed for {match_id}: {e}")),
+                                    }
                                 }
+                                Err(e) => snap.logger.log(&format!("Match details read failed for {match_id}: {e}")),
                             }
                         }
+                        Err(e) => snap.logger.log(&format!("Match details fetch failed for {match_id}: {e}")),
                     }
-                }
             }
 
             // State changed or first run — log, emit event, invalidate caches
