@@ -1,0 +1,10 @@
+[build]
+# Committed, repo-wide throttle: caps parallel cargo jobs by default so
+# builds/tests (incl. those run by rust-analyzer, IDEs, or an LLM) don't
+# tank in-game FPS. Applies to everyone who clones the repo.
+#
+# NOTE: jobs must be a static number (cargo can't compute floor(cores/2)
+# per-machine here). 8 suits a ~16-core machine; lower it on smaller CPUs.
+# create_exe.ps1 overrides this at runtime (-NoThrottle uses all cores,
+# -Jobs <n> sets a custom cap).
+jobs = 8

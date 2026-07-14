@@ -21,6 +21,13 @@ Falls back to the default MinGW linker when LLD is not available.
     Build with maximum performance optimizations (LTO, opt-level 3, etc.)
     instead of the fast dev build. Takes longer but produces a faster binary.
 
+.PARAMETER NoThrottle
+    Build using all CPU cores (full speed). By default the build is throttled
+    to about half your cores so it doesn't tank your FPS while gaming.
+
+.PARAMETER Jobs
+    Override the number of parallel cargo jobs. Ignored when -NoThrottle is set.
+
 .PARAMETER NoRestart
     Skip auto-restart even if vry-rust.exe was running before the build.
 
@@ -37,6 +44,8 @@ Falls back to the default MinGW linker when LLD is not available.
 param(
     [switch]$Clean,
     [switch]$Release,
+    [switch]$NoThrottle,
+    [int]$Jobs,
     [switch]$NoRestart,
     [switch]$Start
 )
@@ -138,6 +147,20 @@ $profileLabel = if ($Release) { "release" } else { "dev" }
 $envBackup = @{}
 
 try {
+    # ── job throttling (default: ~half the cores to protect in-game FPS) ──
+    # .cargo/config.toml throttles jobs to floor(cores/2) by default; override
+    # here via CARGO_BUILD_JOBS so -NoThrottle actually uses every core.
+    $cores = [Environment]::ProcessorCount
+    $envBackup.CARGO_BUILD_JOBS = $env:CARGO_BUILD_JOBS
+    if ($NoThrottle) {
+        $env:CARGO_BUILD_JOBS = "$cores"
+        Write-Step "Throttling disabled (-NoThrottle) -- building with all $cores cores"
+    } else {
+        $jobCount = if ($Jobs -gt 0) { $Jobs } else { [math]::Max(1, [math]::Floor($cores / 2)) }
+        $env:CARGO_BUILD_JOBS = "$jobCount"
+        Write-Step "Throttling build to $jobCount of $cores cores (pass -NoThrottle for full speed)"
+    }
+
     if ($Release) {
         Write-Step "Applying maximum performance profile"
         $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
@@ -179,6 +202,11 @@ try {
     Write-Host "Built: $exePath ($profileLabel)" -ForegroundColor Green
 }
 finally {
+    # Restore job throttling env var
+    if ($envBackup.ContainsKey("CARGO_BUILD_JOBS")) {
+        if ($null -ne $envBackup.CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = $envBackup.CARGO_BUILD_JOBS }
+        else { Remove-Item -Path env:CARGO_BUILD_JOBS -ErrorAction SilentlyContinue }
+    }
     # Restore profile env vars
     if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL) { $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL }
     else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_OPT_LEVEL -ErrorAction SilentlyContinue }
