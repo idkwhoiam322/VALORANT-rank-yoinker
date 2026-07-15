@@ -510,7 +510,6 @@ impl MainLoop {
                 }
             }
 
-            tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
         }
     }
 
