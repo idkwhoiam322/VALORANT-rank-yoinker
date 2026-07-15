@@ -30,22 +30,31 @@ async fn fetch_rank_and_stats(
     client_version: &str,
     subject: &str,
 ) -> (crate::models::mmr::PlayerRank, crate::models::mmr::PlayerStats) {
-    let rank = svc
-        .rank
-        .get_rank(
-            entitlements,
-            client_version,
-            subject,
-            &svc.season_id,
-            svc.previous_season_id.as_deref(),
-            &svc.content,
-        )
-        .await;
-    let stats = svc
-        .stats
-        .get_stats(entitlements, client_version, subject)
-        .await;
-    (rank, stats)
+    for attempt in 0..3 {
+        let rank = svc
+            .rank
+            .get_rank(
+                entitlements,
+                client_version,
+                subject,
+                &svc.season_id,
+                svc.previous_season_id.as_deref(),
+                &svc.content,
+            )
+            .await;
+        let stats = svc
+            .stats
+            .get_stats(entitlements, client_version, subject)
+            .await;
+
+        if rank.status_good || attempt >= 2 {
+            return (rank, stats);
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    (crate::models::mmr::PlayerRank::empty(), crate::models::mmr::PlayerStats::default_stats())
 }
 
 async fn resolve_mode_from_queue_id(queue_id: &str, payload: &mut HeartbeatPayload) {
@@ -366,7 +375,9 @@ async fn build_ingame_payload(
                         client_version,
                         &subject,
                     ).await;
-                    svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+                    if rank.status_good {
+                        svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+                    }
                     (rank, stats)
                 }
             } else {
