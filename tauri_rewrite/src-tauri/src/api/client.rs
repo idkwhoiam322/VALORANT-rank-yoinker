@@ -7,6 +7,7 @@ use reqwest::header::HeaderMap;
 use thiserror::Error;
 
 use crate::api::endpoints;
+use crate::models::auth::Entitlements;
 use crate::services::logging::Logger;
 
 #[derive(Error, Debug)]
@@ -71,13 +72,6 @@ impl RateLimiter {
     }
 }
 
-fn check_bad_claims(text: &str) -> Result<(), ApiError> {
-    if text.contains("BAD_CLAIMS") {
-        return Err(ApiError::BadClaims);
-    }
-    Ok(())
-}
-
 pub struct ApiClient {
     client: Client,
     local_client: Client,
@@ -87,6 +81,8 @@ pub struct ApiClient {
     local_password: Mutex<String>,
     local_port: Mutex<u16>,
     logger: Mutex<Option<Arc<Logger>>>,
+    entitlements: Arc<Mutex<Option<Entitlements>>>,
+    client_version: Mutex<String>,
 }
 
 impl ApiClient {
@@ -116,6 +112,8 @@ impl ApiClient {
             local_password: Mutex::new(String::new()),
             local_port: Mutex::new(0),
             logger: Mutex::new(None),
+            entitlements: Arc::new(Mutex::new(None)),
+            client_version: Mutex::new(String::new()),
         }
 
     }
@@ -136,6 +134,113 @@ impl ApiClient {
 
     pub fn get_local_password(&self) -> String {
         self.local_password.lock().unwrap().clone()
+    }
+
+    pub fn entitlements_arc(&self) -> Arc<Mutex<Option<Entitlements>>> {
+        self.entitlements.clone()
+    }
+
+    pub fn set_client_version(&self, version: &str) {
+        *self.client_version.lock().unwrap() = version.to_string();
+    }
+
+    pub fn get_client_version(&self) -> String {
+        self.client_version.lock().unwrap().clone()
+    }
+
+    pub fn get_entitlements(&self) -> Option<Entitlements> {
+        self.entitlements.lock().unwrap().clone()
+    }
+
+    /// Refresh both entitlements and client_version from local Riot client.
+    /// Retries up to 3 times with 1s delay between attempts.
+    async fn refresh_entitlements_with_retry(&self) -> Result<(), ApiError> {
+        const MAX_RETRIES: u32 = 3;
+        const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+        for attempt in 0..MAX_RETRIES {
+            self.app_log(&format!("[AUTH] refreshing entitlements + version from local Riot client (attempt {}/{})", attempt + 1, MAX_RETRIES));
+
+            // Refresh client_version from logs first
+            if let Err(e) = self.refresh_client_version().await {
+                self.app_log(&format!("[AUTH] failed to refresh client_version: {e}"));
+            }
+
+            // Then refresh entitlements
+            match self.fetch_local_entitlements().await {
+                Ok(fresh) => {
+                    *self.entitlements.lock().unwrap() = Some(fresh);
+                    self.app_log("[AUTH] entitlements refreshed successfully");
+                    return Ok(());
+                }
+                Err(e) => {
+                    self.app_log(&format!("[AUTH] refresh failed: {e}"));
+                    if attempt + 1 < MAX_RETRIES {
+                        tokio::time::sleep(RETRY_DELAY).await;
+                    }
+                }
+            }
+        }
+        Err(ApiError::Auth("Entitlements refresh failed after retries".into()))
+    }
+
+    /// Refresh client_version by parsing ShooterGame.log
+    async fn refresh_client_version(&self) -> Result<(), ApiError> {
+        use std::fs;
+        use std::path::PathBuf;
+
+        let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
+            std::env::var("APPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".into())
+        });
+        let log_path = PathBuf::from(localappdata).join(r"VALORANT\Saved\Logs\ShooterGame.log");
+
+        let content = fs::read_to_string(&log_path)
+            .map_err(|e| ApiError::Auth(format!("Cannot read log file for version: {}", e)))?;
+
+        for line in content.lines().rev() {
+            if line.contains("CI server version:") {
+                if let Some(version) = line.split("CI server version: ").nth(1) {
+                    let version = version.trim().to_string();
+                    *self.client_version.lock().unwrap() = version.clone();
+                    self.app_log(&format!("[AUTH] client_version refreshed: {version}"));
+                    return Ok(());
+                }
+            }
+        }
+        Err(ApiError::Auth("Could not determine client version from logs".into()))
+    }
+
+    /// Fetch fresh entitlements from local Riot client endpoint
+    async fn fetch_local_entitlements(&self) -> Result<Entitlements, ApiError> {
+        let response = self.fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None).await?;
+        let status = response.status();
+        let text = response.text().await.map_err(ApiError::Http)?;
+
+        if status.is_client_error() {
+            return Err(ApiError::Auth(format!("Riot client returned error: {}", text)));
+        }
+
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| ApiError::Auth(format!("JSON parse error: {}", e)))?;
+
+        if json.get("accessToken").is_none() {
+            return Err(ApiError::Auth("Entitlements token not available".into()));
+        }
+
+        Ok(Entitlements {
+            access_token: json["accessToken"]
+                .as_str()
+                .ok_or_else(|| ApiError::Auth("Missing accessToken".into()))?
+                .to_string(),
+            token: json["token"]
+                .as_str()
+                .ok_or_else(|| ApiError::Auth("Missing token".into()))?
+                .to_string(),
+            subject: json["subject"]
+                .as_str()
+                .ok_or_else(|| ApiError::Auth("Missing subject".into()))?
+                .to_string(),
+        })
     }
 
     pub(crate) fn app_log(&self, msg: &str) {
@@ -309,12 +414,7 @@ impl ApiClient {
         endpoint: &str,
         headers: &[(String, String)],
     ) -> Result<T, ApiError> {
-        let resp = self.fetch(url_type, endpoint, headers, None).await?;
-        let text = resp.text().await.map_err(ApiError::Http)?;
-        check_bad_claims(&text)?;
-        serde_json::from_str(&text).map_err(|e| {
-            ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
-        })
+        self.fetch_json_with_reauth(url_type, endpoint, headers, None, None).await
     }
 
     pub async fn fetch_json_with_body<T: serde::de::DeserializeOwned>(
@@ -324,31 +424,162 @@ impl ApiClient {
         headers: &[(String, String)],
         body: serde_json::Value,
     ) -> Result<T, ApiError> {
-        let resp = self.fetch(url_type, endpoint, headers, Some(body)).await?;
-        let text = resp.text().await.map_err(ApiError::Http)?;
-        check_bad_claims(&text)?;
-        serde_json::from_str(&text).map_err(|e| {
-            ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
-        })
+        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(body), None).await
     }
 
-    /// Fetch JSON with configurable retry and validation.
+    pub async fn fetch_put_json_with_body<T: serde::de::DeserializeOwned>(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        headers: &[(String, String)],
+        body: serde_json::Value,
+    ) -> Result<T, ApiError> {
+        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(body), Some(Method::PUT)).await
+    }
+
+    /// Internal fetch with centralized automatic re-auth on BAD_CLAIMS.
+    /// On first BadClaims, refreshes entitlements + client_version from local Riot client,
+    /// rebuilds headers from refreshed values, and retries once.
+    async fn fetch_json_with_reauth<T: serde::de::DeserializeOwned>(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        initial_headers: &[(String, String)],
+        body: Option<serde_json::Value>,
+        method: Option<Method>,
+    ) -> Result<T, ApiError> {
+        let mut headers = initial_headers.to_vec();
+        let mut did_refresh = false;
+
+        loop {
+            let resp = self.fetch_with_headers(url_type, endpoint, &headers, body.clone(), method.clone()).await?;
+            let text = resp.text().await.map_err(ApiError::Http)?;
+
+            // Check for BAD_CLAIMS in response
+            if text.contains("BAD_CLAIMS") {
+                if did_refresh {
+                    // Already refreshed once, don't retry again
+                    return Err(ApiError::BadClaims);
+                }
+                did_refresh = true;
+                self.app_log(&format!("[API] {endpoint}: BAD_CLAIMS received - refreshing entitlements + version"));
+
+                // Refresh both entitlements and client_version
+                if let Err(e) = self.refresh_entitlements_with_retry().await {
+                    self.app_log(&format!("[API] re-auth failed: {e}"));
+                    return Err(ApiError::BadClaims);
+                }
+
+                // Rebuild headers from freshly refreshed entitlements + client_version
+                if let Some(fresh_entitlements) = self.get_entitlements() {
+                    let cv = self.get_client_version();
+                    headers = fresh_entitlements.build_headers(&cv);
+                    self.app_log("[API] entitlements + version refreshed - retrying with fresh headers");
+                    continue;
+                } else {
+                    return Err(ApiError::Auth("No entitlements available after refresh".into()));
+                }
+            }
+
+            return serde_json::from_str(&text).map_err(|e| {
+                ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
+            });
+        }
+    }
+
+    /// Fetch with pre-built headers and optional body/method
+    async fn fetch_with_headers(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        headers: &[(String, String)],
+        body: Option<serde_json::Value>,
+        method: Option<Method>,
+    ) -> Result<Response, ApiError> {
+        let idx = Self::limiter_index(url_type);
+        let wait = {
+            let mut limiter = self.rate_limiters[idx].lock().unwrap();
+            let wait = limiter.check_rate();
+            limiter.record_request();
+            wait
+        };
+        if let Some(delay) = wait {
+            self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
+            tokio::time::sleep(delay).await;
+        }
+
+        let url = self.url_for(url_type, endpoint);
+        let http_method = method.unwrap_or_else(|| {
+            match body {
+                Some(_) => Method::POST,
+                None => Method::GET,
+            }
+        });
+
+        let mut header_map = HeaderMap::new();
+        if url_type == UrlType::Local {
+            let password = self.local_password.lock().unwrap().clone();
+            let auth = format!(
+                "Basic {}",
+                base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    format!("riot:{}", password)
+                )
+            );
+            header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
+                Ok(v) => v,
+                Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
+            });
+        } else {
+            for (key, value) in headers {
+                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else { continue; };
+                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else { continue; };
+                header_map.insert(name, val);
+            }
+        }
+
+        let response = self.execute_request(http_method, &url, &header_map, body, url_type).await?;
+
+        if response.status().as_u16() == 404 {
+            return Err(ApiError::NotFound);
+        }
+        if response.status().as_u16() == 429 {
+            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - sleeping 5s"));
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            return Err(ApiError::RateLimited);
+        }
+        if response.status().is_server_error() {
+            return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+        }
+
+        Ok(response)
+    }
+
+    /// Fetch JSON with configurable retry, validation, and automatic re-auth.
     /// Retries up to `max_retries` times with `delay` between attempts.
+    /// Uses centralized reauth in `fetch_json` which handles BAD_CLAIMS
+    /// by refreshing entitlements + client_version and retrying once.
     /// The `validate` closure determines if the response is acceptable;
     /// returns `Err` only after all retries are exhausted.
     pub async fn fetch_json_retry(
         &self,
         url_type: UrlType,
         endpoint: &str,
-        headers: &[(String, String)],
+        entitlements: &Entitlements,
+        client_version: &str,
         max_retries: u32,
         delay: Duration,
         validate: impl Fn(&serde_json::Value) -> bool,
     ) -> Result<serde_json::Value, ApiError> {
         let mut last_error = None;
+        let mut current_entitlements = entitlements.clone();
+        let mut current_cv = client_version.to_string();
+
         for attempt in 0..max_retries {
+            let headers = current_entitlements.build_headers(&current_cv);
             let label = format!("{endpoint} (attempt {}/{})", attempt + 1, max_retries);
-            match self.fetch_json::<serde_json::Value>(url_type, endpoint, headers).await {
+
+            match self.fetch_json::<serde_json::Value>(url_type, endpoint, &headers).await {
                 Ok(json) => {
                     if validate(&json) {
                         return Ok(json);
@@ -360,27 +591,21 @@ impl ApiClient {
                     last_error = Some(e);
                 }
             }
+
+            // On BadClaims, the centralized reauth in fetch_json already tried once.
+            // Rebuild headers from potentially refreshed entitlements for next attempt.
+            if let Some(fresh) = self.get_entitlements() {
+                current_entitlements = fresh;
+                current_cv = self.get_client_version();
+            }
+
             if attempt + 1 < max_retries {
                 tokio::time::sleep(delay).await;
             }
         }
+
         self.app_log(&format!("[API] retry exhausted: {endpoint} after {max_retries} attempts"));
         Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
-    }
-
-    pub async fn fetch_put_json_with_body<T: serde::de::DeserializeOwned>(
-        &self,
-        url_type: UrlType,
-        endpoint: &str,
-        headers: &[(String, String)],
-        body: serde_json::Value,
-    ) -> Result<T, ApiError> {
-        let resp = self.fetch_with_method(url_type, endpoint, headers, Some(body), Some(reqwest::Method::PUT)).await?;
-        let text = resp.text().await.map_err(ApiError::Http)?;
-        check_bad_claims(&text)?;
-        serde_json::from_str(&text).map_err(|e| {
-            ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
-        })
     }
 
     pub async fn fetch_valorant_api<T: serde::de::DeserializeOwned>(

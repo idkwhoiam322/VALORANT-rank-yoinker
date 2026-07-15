@@ -24,7 +24,7 @@ pub async fn restart_application(
     services: State<'_, Arc<RwLock<AppServices>>>,
 ) -> Result<(), String> {
     let mut svc = services.write().await;
-    svc.entitlements = None;
+    *svc.entitlements.lock().unwrap() = None;
     svc.client_version = String::new();
     svc.puuid = String::new();
     svc.content = Arc::new(crate::models::content::ContentCache::empty());

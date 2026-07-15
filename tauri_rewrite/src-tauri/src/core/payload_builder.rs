@@ -175,11 +175,10 @@ pub async fn get_match_context(
     puuid: &str,
     state: GameState,
 ) -> Option<(String, String, serde_json::Value)> {
-    let headers = entitlements.build_headers(client_version);
     match state {
         GameState::INGAME => {
             let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &endpoints::glz_core_player(puuid), &headers,
+                crate::api::client::UrlType::Glz, &endpoints::glz_core_player(puuid), entitlements, client_version,
                 3, Duration::from_secs(1),
                 |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await.ok()?;
@@ -189,7 +188,7 @@ pub async fn get_match_context(
             // Also validates MapID - it may populate later than Players/TeamID.
             let match_endpoint = endpoints::glz_core_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &match_endpoint, &headers,
+                crate::api::client::UrlType::Glz, &match_endpoint, entitlements, client_version,
                 3, Duration::from_secs(2),
                 |j| {
                     j["MapID"].as_str().map_or(false, |s| !s.is_empty())
@@ -211,7 +210,7 @@ pub async fn get_match_context(
         }
         GameState::PREGAME => {
             let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &endpoints::glz_pregame_player(puuid), &headers,
+                crate::api::client::UrlType::Glz, &endpoints::glz_pregame_player(puuid), entitlements, client_version,
                 3, Duration::from_secs(1),
                 |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await.ok()?;
@@ -221,7 +220,7 @@ pub async fn get_match_context(
             // Also validates MapID - it may populate later than AllyTeam.
             let match_endpoint = endpoints::glz_pregame_match(&match_id);
             let match_json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &match_endpoint, &headers,
+                crate::api::client::UrlType::Glz, &match_endpoint, entitlements, client_version,
                 3, Duration::from_secs(2),
                 |j| {
                     j["MapID"].as_str().map_or(false, |s| !s.is_empty())
@@ -245,8 +244,6 @@ async fn build_ingame_payload(
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
 ) {
-    let headers = entitlements.build_headers(client_version);
-
     // Use pre-fetched match data (from get_match_context) if available,
     // otherwise fetch fresh with retry.
     let (mut match_data, match_id) = match existing_match_data {
@@ -262,7 +259,7 @@ async fn build_ingame_payload(
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
                     &endpoints::glz_core_player(puuid),
-                    &headers,
+                    entitlements, client_version,
                     3,
                     Duration::from_secs(2),
                     |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
@@ -278,7 +275,7 @@ async fn build_ingame_payload(
             match svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz,
                 &endpoints::glz_core_match(&mid),
-                &headers,
+                entitlements, client_version,
                 3,
                 Duration::from_secs(2),
                 |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
@@ -462,8 +459,6 @@ async fn build_pregame_payload(
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
 ) {
-    let headers = entitlements.build_headers(client_version);
-
     // Use pre-fetched match data (from get_match_context) if available,
     // otherwise fetch fresh with retry.
     let (match_data, match_id) = match existing_match_data {
@@ -479,7 +474,7 @@ async fn build_pregame_payload(
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
                     &endpoints::glz_pregame_player(puuid),
-                    &headers,
+                    entitlements, client_version,
                     3,
                     Duration::from_secs(2),
                     |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
@@ -495,7 +490,7 @@ async fn build_pregame_payload(
             match svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz,
                 &endpoints::glz_pregame_match(&mid),
-                &headers,
+                entitlements, client_version,
                 3,
                 Duration::from_secs(2),
                 |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
@@ -550,7 +545,7 @@ async fn build_pregame_payload(
     let saved_loadouts_text: Option<String> = match svc.client.fetch_json_retry(
         crate::api::client::UrlType::Glz,
         &endpoints::glz_pregame_loadouts(&match_id),
-        &headers,
+        entitlements, client_version,
         3,
         Duration::from_secs(2),
         |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),

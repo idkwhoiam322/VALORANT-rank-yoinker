@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
@@ -116,14 +116,14 @@ pub struct AppServices {
     pub loadouts: Arc<LoadoutService>,
     pub encounters: Arc<EncounterService>,
     pub heartbeat_log_path: std::path::PathBuf,
-    pub entitlements: Option<Entitlements>,
+    pub entitlements: Arc<Mutex<Option<Entitlements>>>,
     pub client_version: String,
     pub puuid: String,
     pub content: Arc<ContentCache>,
     pub season_id: String,
     pub previous_season_id: Option<String>,
-    pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
-    pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
+    pub match_player_cache: Arc<Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
+    pub current_match_id: Arc<Mutex<Option<String>>>,
     pub auth_retry: Arc<Notify>,
 }
 
@@ -143,6 +143,8 @@ impl AppServices {
         let heartbeat_log_path = root.join("logs").join("heartbeat.jsonl");
         let _ = fs::File::create(&heartbeat_log_path);
 
+        let entitlements = client.entitlements_arc();
+
         Self {
             logger,
             config,
@@ -154,14 +156,14 @@ impl AppServices {
             loadouts,
             encounters,
             heartbeat_log_path,
-            entitlements: None,
+            entitlements,
             client_version: String::new(),
             puuid: String::new(),
             content: Arc::new(ContentCache::empty()),
             season_id: String::new(),
             previous_season_id: None,
-            match_player_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            current_match_id: Arc::new(std::sync::Mutex::new(None)),
+            match_player_cache: Arc::new(Mutex::new(HashMap::new())),
+            current_match_id: Arc::new(Mutex::new(None)),
             auth_retry: Arc::new(Notify::new()),
         }
     }
@@ -282,8 +284,9 @@ impl MainLoop {
         let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile).await
             .map_err(|e| format!("Auth: {e}"))?;
         svc.log(&format!("Authenticated as {}", entitlements.subject));
-        svc.entitlements = Some(entitlements.clone());
+        *svc.entitlements.lock().unwrap() = Some(entitlements.clone());
         svc.client_version = client_version.clone();
+        svc.client.set_client_version(&client_version);
         svc.puuid = entitlements.subject.clone();
 
         // 5. Update local auth on client
@@ -341,12 +344,9 @@ impl MainLoop {
             let (snap, entitlements, cv, puuid) = {
                 let svc = services.read().await;
 
-                let entitlements = match &svc.entitlements {
+                let entitlements = match svc.entitlements.lock().unwrap().as_ref() {
                     Some(e) => e.clone(),
-                    None => {
-                        drop(svc);
-                        return Err("Entitlements cleared - re-initializing".into());
-                    }
+                    None => return Err("Entitlements cleared - re-initializing".into()),
                 };
                 let cv = svc.client_version.clone();
                 let puuid = svc.puuid.clone();
