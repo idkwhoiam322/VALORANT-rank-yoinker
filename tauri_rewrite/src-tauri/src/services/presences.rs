@@ -113,13 +113,27 @@ impl PresenceService {
     }
 
     /// Returns the puuids of every presence that shares `self_puuid`'s current
-    /// party (mirrors Python's `Menu.get_party_members`).
+    /// party.
+    ///
+    /// Iterates past entries that are not VALORANT product presences or
+    /// that lack a decodable partyId.  The Riot local API can return
+    /// multiple presences for the same account (e.g. Riot client +
+    /// Valorant) with different private payload formats; stopping at
+    /// the first puuid match may pick a non-Valorant entry.
     pub fn find_party_member_puuids(presences: &[Presence], self_puuid: &str) -> Vec<String> {
         let own_party_id = presences
             .iter()
-            .find(|p| p.puuid.as_deref() == Some(self_puuid))
-            .and_then(|p| Self::decode_private_presence(&p.private))
-            .and_then(|private| Self::extract_party_id(&private));
+            .filter_map(|p| {
+                if p.puuid.as_deref() != Some(self_puuid) {
+                    return None;
+                }
+                if p.product.as_deref() != Some("valorant") {
+                    return None;
+                }
+                let private = Self::decode_private_presence(&p.private)?;
+                Self::extract_party_id(&private)
+            })
+            .next();
 
         let Some(own_party_id) = own_party_id else {
             return Vec::new();
