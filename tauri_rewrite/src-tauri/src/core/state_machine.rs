@@ -190,6 +190,11 @@ impl AppServices {
         }
     }
 
+    pub fn clear_match_player_cache(&self) {
+        self.match_player_cache.lock().unwrap().clear();
+        *self.current_match_id.lock().unwrap() = None;
+    }
+
     pub fn log(&self, msg: &str) {
         self.logger.log(msg);
     }

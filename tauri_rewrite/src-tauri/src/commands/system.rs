@@ -14,6 +14,7 @@ pub async fn clear_all_cache(
     svc.rank.invalidate_cache().await;
     svc.stats.clear_cache().await;
     svc.names.clear_cache().await;
+    svc.clear_match_player_cache();
     drop(svc);
     let _ = app.emit("cache_cleared", ());
     Ok(())
