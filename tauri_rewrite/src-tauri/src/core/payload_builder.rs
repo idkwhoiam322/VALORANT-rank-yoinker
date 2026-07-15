@@ -98,6 +98,7 @@ pub async fn build_heartbeat(
     state: GameState,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
+    ws_presences: Option<&[Presence]>,
 ) -> HeartbeatPayload {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -118,9 +119,20 @@ pub async fn build_heartbeat(
         already_played_with: vec![],
     };
 
-    // Fetch presences once and reuse — sub-builders receive the data to avoid re-fetching.
-    let presences = svc.presences.get_presences(entitlements, client_version).await;
-    if let Ok(ref p) = presences {
+    // Mode/queue detection: prefer WS-cached presences (no HTTP).
+    // When WS is unavailable fall back to a fresh HTTP fetch.
+    // Sub-builders (e.g. build_menus_payload) always fetch their own
+    // data via HTTP to guarantee a complete presence list for party
+    // detection, because WS data may carry only changed entries.
+    let (presences, ws_data) = match ws_presences {
+        Some(p) => (Some(Cow::Borrowed(p)), true),
+        None => match svc.presences.get_presences(entitlements, client_version).await {
+            Ok(p) => (Some(Cow::Owned(p)), false),
+            Err(_) => (None, false),
+        },
+    };
+
+    if let Some(ref p) = presences {
         if let Some(own) = crate::services::presences::PresenceService::find_own_presence(p, puuid) {
             if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
                 if is_custom_game(&private) {
@@ -133,7 +145,9 @@ pub async fn build_heartbeat(
             }
         }
     }
-    let presences = presences.as_ref().ok().map(|v| v.as_slice());
+    // Only pass HTTP-fetched presences to sub-builders.
+    // WS-cached presences may be incomplete and are not safe for party detection.
+    let presences_slice = if ws_data { None } else { presences.as_deref() };
 
     match state {
         GameState::INGAME => {
@@ -143,7 +157,7 @@ pub async fn build_heartbeat(
             build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
         }
         GameState::MENUS => {
-            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences).await;
+            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences_slice).await;
         }
         GameState::DISCONNECTED => {}
     }

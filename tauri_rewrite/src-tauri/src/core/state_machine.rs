@@ -17,7 +17,7 @@ use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::heartbeat::HeartbeatPayload;
 use crate::models::mmr::{PlayerRank, PlayerStats};
-use crate::models::presences::GameState;
+use crate::models::presences::{GameState, Presence};
 use crate::services::config::ConfigManager;
 use crate::services::encounters::EncounterService;
 use crate::services::loadouts::LoadoutService;
@@ -312,6 +312,7 @@ impl MainLoop {
         let services = self.services.clone();
         let mut last_state: Option<GameState> = None;
         let mut last_heartbeat_key: Option<String> = None;
+        let mut last_presences: Option<Vec<Presence>> = None;
         let mut match_context: Option<(String, String)> = None;
 
         // Attempt WebSocket presence detection at startup.
@@ -359,7 +360,7 @@ impl MainLoop {
             // without holding it, allowing concurrent writes (e.g. re-init).
 
             // ----- State detection: WebSocket (preferred) or polling (fallback) -----
-            let current_state = self
+            let (current_state, new_presences) = self
                 .detect_state(&snap, &entitlements, &cv, &puuid, &mut ws, last_state)
                 .await;
 
@@ -370,6 +371,12 @@ impl MainLoop {
                     continue;
                 }
             };
+
+            // Cache presence data from WS pushes so build_heartbeat can reuse them
+            // for mode/queue resolution without a separate HTTP call.
+            if let Some(p) = new_presences {
+                last_presences = Some(p);
+            }
 
             // During INGAME steady state: suppress all heartbeat/API processing
             // UNLESS we still don't have match_context (map unknown) — keep retrying
@@ -485,6 +492,7 @@ impl MainLoop {
                     &snap, &entitlements, &cv, &puuid, current_state,
                     known_match_id.as_deref(),
                     pre_fetched_data,
+                    last_presences.as_deref(),
                 )
                 .await;
 
@@ -509,7 +517,7 @@ impl MainLoop {
     /// Detect game state using WebSocket (preferred) or HTTP polling (fallback).
     ///
     /// When WS is connected, races the WS channel against a cooldown timer:
-    ///   - WS push arrives (~0ms) → return new state immediately, zero API calls.
+    ///   - WS push arrives (~0ms) → return new state + presence data, zero API calls.
     ///   - WS channel returns `None` → connection lost, fall back to polling.
     ///   - Cooldown timer fires (~5s) → return `last_state` as a wake-up signal for
     ///     periodic work (pending match results), still zero API calls.
@@ -524,22 +532,22 @@ impl MainLoop {
         puuid: &str,
         ws: &mut Option<ValorantWs>,
         last_state: Option<GameState>,
-    ) -> Option<GameState> {
+    ) -> (Option<GameState>, Option<Vec<Presence>>) {
         // Cold start: poll immediately instead of waiting for the cooldown timer.
         if last_state.is_none() {
             let (state, log_msg) =
                 snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
             if let Some(msg) = log_msg { snap.logger.log(&msg); }
-            return state;
+            return (state, None);
         }
 
         if let Some(ws_inner) = ws.as_mut() {
             tokio::select! {
                 result = ws_inner.recv() => {
                     match result {
-                        Some(state) => {
-                            snap.logger.log(&format!("WS state push: {:?}", state));
-                            Some(state)
+                        Some(event) => {
+                            snap.logger.log(&format!("WS state push: {:?}", event.state));
+                            (Some(event.state), Some(event.presences))
                         }
                         None => {
                             snap.logger.log(&format!("WS disconnected (was {:?}) — falling back to polling", last_state));
@@ -547,12 +555,12 @@ impl MainLoop {
                             let (state, log_msg) =
                                 snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
                             if let Some(msg) = log_msg { snap.logger.log(&msg); }
-                            state
+                            (state, None)
                         }
                     }
                 }
                 _ = tokio::time::sleep(Duration::from_secs(snap.cooldown)) => {
-                    last_state
+                    (last_state, None)
                 }
             }
         } else {
@@ -562,7 +570,7 @@ impl MainLoop {
             if let Some(msg) = log_msg {
                 snap.logger.log(&msg);
             }
-            state
+            (state, None)
         }
     }
 

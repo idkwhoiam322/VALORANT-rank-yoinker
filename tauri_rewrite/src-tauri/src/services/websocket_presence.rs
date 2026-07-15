@@ -6,17 +6,27 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async_tls_with_config, Connector, tungstenite::Message};
 
-use crate::models::presences::GameState;
+use crate::models::presences::{GameState, Presence};
 use crate::services::logging::Logger;
 
-/// Receives game-state changes via the Riot local WebSocket.
+/// Full presence snapshot pushed by the Riot local WebSocket.
+/// Carries both the game state and the entire presences array so
+/// the heartbeat builder can reuse the data for mode/queue resolution
+/// instead of a separate HTTP call.
+pub struct WsPresenceEvent {
+    pub state: GameState,
+    pub presences: Vec<Presence>,
+}
+
+/// Receives game-state and presence snapshots via the Riot local
+/// WebSocket.
 ///
 /// Spawns a background task that subscribes to
-/// `OnJsonApiEvent_chat_v4_presences` and pushes `GameState` transitions
-/// into a channel.  The main loop polls this channel instead of making
-/// repeated HTTP calls to `/chat/v4/presences`.
+/// `OnJsonApiEvent_chat_v4_presences` and pushes `WsPresenceEvent`
+/// into a channel.  The main loop uses these for fast state detection
+/// and for mode/queue resolution without a separate HTTP call.
 pub struct ValorantWs {
-    state_rx: mpsc::Receiver<GameState>,
+    state_rx: mpsc::Receiver<WsPresenceEvent>,
 }
 
 impl ValorantWs {
@@ -49,9 +59,9 @@ impl ValorantWs {
         Some(Self { state_rx: rx })
     }
 
-    /// Receive the next game-state change (non-blocking callers should
+    /// Receive the next presence event (non-blocking callers should
     /// use `tokio::select!` with a timeout as fallback).
-    pub async fn recv(&mut self) -> Option<GameState> {
+    pub async fn recv(&mut self) -> Option<WsPresenceEvent> {
         self.state_rx.recv().await
     }
 }
@@ -65,7 +75,7 @@ async fn ws_task(
     connector: Connector,
     password: &str,
     puuid: &str,
-    tx: mpsc::Sender<GameState>,
+    tx: mpsc::Sender<WsPresenceEvent>,
     logger: Arc<Logger>,
 ) {
     let mut backoff = 1u64;
@@ -126,15 +136,15 @@ async fn ws_task(
 
             match msg {
                 Some(Ok(Message::Text(text))) => {
-                    if let Some(new_state) =
-                        parse_state_from_event(&text, puuid, &logger)
+                    if let Some(event) =
+                        parse_presence_event(&text, puuid, &logger)
                     {
-                        if new_state.as_str() != last_state {
-                            last_state = new_state.as_str().to_string();
-                            logger.log(&format!("WS state: {:?}", new_state));
-                            if tx.send(new_state).await.is_err() {
-                                return; // channel closed
-                            }
+                        if event.state.as_str() != last_state {
+                            last_state = event.state.as_str().to_string();
+                            logger.log(&format!("WS state: {:?}", event.state));
+                        }
+                        if tx.send(event).await.is_err() {
+                            return; // channel closed
                         }
                     }
                 }
@@ -160,15 +170,15 @@ async fn ws_task(
 // Event parsing
 // ---------------------------------------------------------------------------
 
-fn parse_state_from_event(
+fn parse_presence_event(
     text: &str,
     puuid: &str,
     _logger: &Arc<Logger>,
-) -> Option<GameState> {
+) -> Option<WsPresenceEvent> {
     let event: serde_json::Value = serde_json::from_str(text).ok()?;
 
     // Try multiple envelope formats to reach the presence array.
-    let presences = event
+    let raw_presences = event
         // [seq, name, {"data": {"presences": [...]}}]
         .get(2)
         .and_then(|d| d.get("data"))
@@ -178,8 +188,14 @@ fn parse_state_from_event(
         .and_then(|o| o.get("presences"))
         .and_then(|v| v.as_array())?;
 
+    // Parse the raw JSON presences into Presence structs.
+    let presences: Vec<Presence> = raw_presences
+        .iter()
+        .filter_map(|p| serde_json::from_value::<Presence>(p.clone()).ok())
+        .collect();
+
     // Find own presence.
-    let own = presences.iter().find(|p| {
+    let own = raw_presences.iter().find(|p| {
         p.get("puuid").and_then(|v| v.as_str()) == Some(puuid)
             && p.get("product").and_then(|v| v.as_str()) == Some("valorant")
     })?;
@@ -204,5 +220,8 @@ fn parse_state_from_event(
         .and_then(|v| v.as_str())
         .or_else(|| private.get("sessionLoopState").and_then(|v| v.as_str()))?;
 
-    Some(GameState::from_str(state_str))
+    Some(WsPresenceEvent {
+        state: GameState::from_str(state_str),
+        presences,
+    })
 }
