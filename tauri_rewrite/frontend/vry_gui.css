@@ -378,18 +378,19 @@
 
     .detail-controls {
         align-items: center;
+        top: 16px;
     }
     .close-fab {
-        width: 46px;
-        height: 46px;
+        width: 38px;
+        height: 38px;
     }
 
     .trn-row {
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 46px;
-        padding: 0 14px;
+        min-height: 38px;
+        height: auto;
         pointer-events: auto;
     }
     .trn-link {
@@ -405,20 +406,49 @@
         text-decoration: none;
     }
     .trn-link:hover {
-        text-decoration: underline;
+        opacity: 1;
+    }
+    .trn-row .trn-link {
+        flex: 0 0 auto;
+        align-self: center;
+        justify-content: center;
+        min-width: 132px;
+        min-height: 36px;
+        padding: 8px 16px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-size: 0.8rem;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .trn-row .trn-link:hover:not(:disabled) {
+        transform: translateY(-1px);
+    }
+    .trn-link:disabled {
+        opacity: 0.45;
+        pointer-events: none;
+        cursor: default;
     }
     button.trn-link {
-        border: none;
-        background: none;
         cursor: pointer;
         font-family: inherit;
-        padding: 0;
-        color: var(--text);
         text-decoration: none;
+        justify-content: center;
+        min-width: 132px;
+        min-height: 36px;
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--line-strong);
+        background: var(--panel-strong);
+        color: var(--text);
     }
-    button.trn-link:hover {
+    .trn-row button.trn-link {
+        border: 1px solid var(--line-strong);
+    }
+    button.trn-link:hover:not(:disabled) {
         text-decoration: none;
         color: var(--gold);
+        box-shadow: 0 0 0 1px var(--gold), 0 8px 24px rgba(241, 199, 102, 0.18);
+        transform: translateY(-1px);
     }
     button.trn-link.copied {
         color: #4caf50;
@@ -428,22 +458,49 @@
     .topbar-actions .trn-link {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         align-self: center;
         flex: 0 0 auto;
+        min-width: 132px;
+        min-height: 36px;
         padding: 8px 16px;
         border-radius: 10px;
         border: 1px solid transparent;
         font-size: 0.8rem;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .topbar-actions .trn-link:hover:not(:disabled) {
+        transform: translateY(-1px);
     }
     .trn-link--tracker {
         background: #e2263c;
         color: #ffffff;
-        border-color: #e2263c;
+        border-color: rgba(255, 255, 255, 0.65);
     }
     .trn-link--vtl {
         background: #000000;
         color: #0dcaf0;
         border-color: #0dcaf0;
+    }
+    .topbar-actions .trn-link--tracker {
+        border-color: rgba(255, 255, 255, 0.65);
+    }
+    .topbar-actions .trn-link--vtl {
+        border-color: #0dcaf0;
+    }
+    .trn-row .trn-link--tracker {
+        border-color: rgba(255, 255, 255, 0.65);
+    }
+    .trn-row .trn-link--vtl {
+        border-color: #0dcaf0;
+    }
+    .trn-link--tracker:hover:not(:disabled) {
+        border-color: #ffffff;
+        box-shadow: 0 8px 24px rgba(226, 38, 60, 0.25);
+    }
+    .trn-link--vtl:hover:not(:disabled) {
+        border-color: #ffffff;
+        box-shadow: 0 0 0 1px #0dcaf0, 0 8px 24px rgba(13, 202, 240, 0.25);
     }
 
     /* --- last played with table --- */
