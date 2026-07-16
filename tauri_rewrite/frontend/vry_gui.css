@@ -65,6 +65,7 @@
     .btn-action:hover:not(:disabled) {
         box-shadow: 0 0 0 1px var(--gold), 0 8px 24px rgba(241, 199, 102, 0.18);
         transform: translateY(-1px);
+        color: var(--gold);
     }
 
     .btn-action:disabled {
