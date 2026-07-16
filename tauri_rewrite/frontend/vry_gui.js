@@ -587,13 +587,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             var name = document.createElement("span");
             name.className = "player-name";
             name.textContent = txt(player.name, "Unknown Player");
-            name.title = name.textContent + COPY_HINT;
             var youBadge = null;
             if (player.isSelf) { youBadge = document.createElement("span"); youBadge.className = "self-badge"; youBadge.textContent = "You"; }
             var agent = document.createElement("span");
             agent.className = "agent-name";
             agent.textContent = txt(player.agent, "Agent " + NA);
-            agent.title = agent.textContent;
             var metaRow = document.createElement("span");
             metaRow.className = "player-meta-row";
             var rankBadge = document.createElement("span");
