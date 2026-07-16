@@ -604,6 +604,9 @@ impl ApiClient {
                     self.app_log(&format!("[API] retry {label}: validation failed - retrying"));
                 }
                 Err(e) => {
+                    if matches!(&e, ApiError::NotFound) {
+                        return Err(e);
+                    }
                     self.app_log(&format!("[API] retry {label}: {e}"));
                     last_error = Some(e);
                 }
@@ -699,6 +702,9 @@ impl ApiClient {
                     }
                 }
                 Err(e) => {
+                    if matches!(&e, ApiError::NotFound) {
+                        return Err(e);
+                    }
                     self.app_log(&format!("[API] retry {label}: {e}"));
                     last_error = Some(e);
                 }
