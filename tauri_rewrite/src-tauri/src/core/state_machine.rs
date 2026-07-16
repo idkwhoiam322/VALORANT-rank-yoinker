@@ -488,7 +488,7 @@ impl MainLoop {
                 )
                 .await;
 
-                let key = heartbeat.time.to_string();
+                let key = format!("{}:{}", heartbeat.time, heartbeat.state);
                 if last_heartbeat_key.as_deref() != Some(&key) {
                     heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
                     snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
