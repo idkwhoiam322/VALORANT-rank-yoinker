@@ -268,6 +268,19 @@ impl ApiClient {
         self.app_log(&line);
     }
 
+    /// Determine delay before retrying a 429 response.
+    /// Uses `Retry-After` header if present; falls back to exponential backoff (5s * 2^attempt, max 60s).
+    fn retry_after_delay(response: &Response, attempt: usize) -> Duration {
+        if let Some(retry_after) = response.headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            return Duration::from_secs(retry_after);
+        }
+        Duration::from_secs((5u64 * 2u64.pow(attempt as u32)).min(60))
+    }
+
     /// Unified HTTP request execution with request/response logging.
     /// All public fetch methods route through this to ensure consistent logging.
     async fn execute_request(
@@ -349,17 +362,7 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<reqwest::Method>,
     ) -> Result<Response, ApiError> {
-        let idx = Self::limiter_index(url_type);
-        let wait = {
-            let mut limiter = self.rate_limiters[idx].lock().unwrap();
-            let wait = limiter.check_rate();
-            limiter.record_request();
-            wait
-        };
-        if let Some(delay) = wait {
-            self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
-            tokio::time::sleep(delay).await;
-        }
+        const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
         let http_method = method.unwrap_or_else(|| {
@@ -391,21 +394,38 @@ impl ApiClient {
             }
         }
 
-        let response = self.execute_request(http_method, &url, &header_map, body, url_type).await?;
+        for attempt in 0..MAX_429_RETRIES {
+            let idx = Self::limiter_index(url_type);
+            let wait = {
+                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let wait = limiter.check_rate();
+                limiter.record_request();
+                wait
+            };
+            if let Some(delay) = wait {
+                self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
+                tokio::time::sleep(delay).await;
+            }
 
-        if response.status().as_u16() == 404 {
-            return Err(ApiError::NotFound);
-        }
-        if response.status().as_u16() == 429 {
-            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - sleeping 5s"));
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            return Err(ApiError::RateLimited);
-        }
-        if response.status().is_server_error() {
-            return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+            let response = self.execute_request(http_method.clone(), &url, &header_map, body.clone(), url_type).await?;
+
+            if response.status().as_u16() == 404 {
+                return Err(ApiError::NotFound);
+            }
+            if response.status().as_u16() == 429 {
+                let delay = Self::retry_after_delay(&response, attempt);
+                self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+            if response.status().is_server_error() {
+                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+            }
+
+            return Ok(response);
         }
 
-        Ok(response)
+        Err(ApiError::RateLimited)
     }
 
     pub async fn fetch_json<T: serde::de::DeserializeOwned>(
@@ -496,17 +516,7 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<Method>,
     ) -> Result<Response, ApiError> {
-        let idx = Self::limiter_index(url_type);
-        let wait = {
-            let mut limiter = self.rate_limiters[idx].lock().unwrap();
-            let wait = limiter.check_rate();
-            limiter.record_request();
-            wait
-        };
-        if let Some(delay) = wait {
-            self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
-            tokio::time::sleep(delay).await;
-        }
+        const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
         let http_method = method.unwrap_or_else(|| {
@@ -538,21 +548,38 @@ impl ApiClient {
             }
         }
 
-        let response = self.execute_request(http_method, &url, &header_map, body, url_type).await?;
+        for attempt in 0..MAX_429_RETRIES {
+            let idx = Self::limiter_index(url_type);
+            let wait = {
+                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let wait = limiter.check_rate();
+                limiter.record_request();
+                wait
+            };
+            if let Some(delay) = wait {
+                self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
+                tokio::time::sleep(delay).await;
+            }
 
-        if response.status().as_u16() == 404 {
-            return Err(ApiError::NotFound);
-        }
-        if response.status().as_u16() == 429 {
-            self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - sleeping 5s"));
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            return Err(ApiError::RateLimited);
-        }
-        if response.status().is_server_error() {
-            return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+            let response = self.execute_request(http_method.clone(), &url, &header_map, body.clone(), url_type).await?;
+
+            if response.status().as_u16() == 404 {
+                return Err(ApiError::NotFound);
+            }
+            if response.status().as_u16() == 429 {
+                let delay = Self::retry_after_delay(&response, attempt);
+                self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+            if response.status().is_server_error() {
+                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+            }
+
+            return Ok(response);
         }
 
-        Ok(response)
+        Err(ApiError::RateLimited)
     }
 
     /// Fetch JSON with configurable retry, validation, and automatic re-auth.
@@ -612,43 +639,54 @@ impl ApiClient {
         &self,
         endpoint: &str,
     ) -> Result<T, ApiError> {
-        // Use Custom rate limiter slot (5 req/s) for valorant-api.com
-        {
-            let idx = Self::limiter_index(UrlType::Custom);
-            let wait = {
-                let mut limiter = self.rate_limiters[idx].lock().unwrap();
-                let wait = limiter.check_rate();
-                limiter.record_request();
-                wait
-            };
-            if let Some(delay) = wait {
-                self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
-                tokio::time::sleep(delay).await;
-            }
-        }
+        const MAX_429_RETRIES: usize = 5;
 
         let url = format!("{}/{}", endpoints::VALORANT_API_BASE, endpoint);
         let mut headers = HeaderMap::new();
         headers.insert("User-Agent", "VRY/1.0".parse().unwrap());
-        let resp = self.execute_request(Method::GET, &url, &headers, None, UrlType::Custom).await?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(ApiError::Http)?;
 
-        if status.as_u16() == 429 {
-            self.app_log(&format!("[API] 429 Too Many Requests (ValAPI {endpoint})"));
-            return Err(ApiError::RateLimited);
-        }
-        if !status.is_success() {
-            return Err(ApiError::ServerError(format!(
-                "ValAPI HTTP {} -> {}: {}",
-                status.as_u16(),
-                endpoint,
-                text.chars().take(200).collect::<String>()
-            )));
+        for attempt in 0..MAX_429_RETRIES {
+            // Use Custom rate limiter slot (5 req/s) for valorant-api.com
+            {
+                let idx = Self::limiter_index(UrlType::Custom);
+                let wait = {
+                    let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                    let wait = limiter.check_rate();
+                    limiter.record_request();
+                    wait
+                };
+                if let Some(delay) = wait {
+                    self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+
+            let resp = self.execute_request(Method::GET, &url, &headers, None, UrlType::Custom).await?;
+            let status = resp.status();
+
+            if status.as_u16() == 429 {
+                let delay = Self::retry_after_delay(&resp, attempt);
+                self.app_log(&format!("[API] 429 Too Many Requests (ValAPI {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+
+            let text = resp.text().await.map_err(ApiError::Http)?;
+
+            if !status.is_success() {
+                return Err(ApiError::ServerError(format!(
+                    "ValAPI HTTP {} -> {}: {}",
+                    status.as_u16(),
+                    endpoint,
+                    text.chars().take(200).collect::<String>()
+                )));
+            }
+
+            return serde_json::from_str(&text).map_err(|e| {
+                ApiError::ServerError(format!("ValAPI JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
+            });
         }
 
-        serde_json::from_str(&text).map_err(|e| {
-            ApiError::ServerError(format!("ValAPI JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
-        })
+        Err(ApiError::RateLimited)
     }
 }
