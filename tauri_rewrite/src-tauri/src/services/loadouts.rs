@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
@@ -36,7 +35,6 @@ impl LoadoutService {
         names: &HashMap<String, String>,
         state: &str,
     ) -> Result<LoadoutJson, ApiError> {
-        let headers = entitlements.build_headers(client_version);
         let endpoint = if state == "game" {
             endpoints::glz_core_loadouts(match_id)
         } else {
@@ -45,7 +43,15 @@ impl LoadoutService {
 
         let loadouts_resp: CoregameLoadoutsResponse = self
             .client
-            .fetch_json(UrlType::Glz, &endpoint, &headers)
+            .fetch_json_retry_typed(
+                UrlType::Glz,
+                &endpoint,
+                entitlements,
+                client_version,
+                3,
+                Duration::from_secs(2),
+                |json| json.get("Loadouts").is_some(),
+            )
             .await?;
 
         Ok(self.build_loadout_json(&loadouts_resp, players, content, names))
