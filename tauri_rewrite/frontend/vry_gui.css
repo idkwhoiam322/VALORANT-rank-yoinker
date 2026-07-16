@@ -376,9 +376,14 @@
     }
 
 
+    /* Right-side control row is intentionally CENTER-aligned with the left
+       stat-chip band. The 48px band height matches .stat-chip's rendered
+       height (~48px: 8px+8px padding + label + gap + value). If you change
+       .stat-chip padding/size, update this height/top so the centers stay aligned. */
     .detail-controls {
         align-items: center;
-        top: 16px;
+        top: 18px;
+        height: 48px;
     }
     .close-fab {
         width: 38px;
