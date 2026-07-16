@@ -3,7 +3,6 @@ use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
@@ -395,49 +394,39 @@ impl MainLoop {
             if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
                     snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
-                    let headers = entitlements.build_headers(&cv);
-                    match snap.client.fetch(
+                    match snap.client.fetch_json_retry(
                         UrlType::Pd,
                         &endpoints::pd_match_details(match_id),
-                        &headers,
-                        None,
+                        &entitlements, &cv,
+                        3, Duration::from_secs(2),
+                        |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
                     ).await {
-                        Ok(resp) => {
-                            match resp.text().await {
-                                Ok(text) => {
-                                    match serde_json::from_str::<serde_json::Value>(&text) {
-                                        Ok(match_data) => {
-                                            let winning_team = match_data["matchInfo"]["winningTeam"]
-                                                .as_str()
-                                                .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
-                                                .or_else(|| {
-                                                    match_data["teams"].as_array().and_then(|teams| {
-                                                        teams.iter().find(|t| t["won"].as_bool() == Some(true))
-                                                            .and_then(|t| {
-                                                                t["teamId"].as_str()
-                                                                    .or_else(|| t["teamID"].as_str())
-                                                                    .or_else(|| t["TeamID"].as_str())
-                                                            })
-                                                    })
-                                                });
-                                            let score = (|| -> Option<String> {
-                                                let teams = match_data["teams"].as_array()?;
-                                                if teams.len() < 2 { return None; }
-                                                let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
-                                                let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
-                                                Some(format!("{t0}-{t1}"))
-                                            })();
-                                            if let Some(winning_team) = winning_team {
-                                                snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
-                                                snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
-                                            } else {
-                                                snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
-                                            }
-                                        }
-                                        Err(e) => snap.logger.log(&format!("Match details JSON parse failed for {match_id}: {e}")),
-                                    }
-                                }
-                                Err(e) => snap.logger.log(&format!("Match details read failed for {match_id}: {e}")),
+                        Ok(match_data) => {
+                            let winning_team = match_data["matchInfo"]["winningTeam"]
+                                .as_str()
+                                .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
+                                .or_else(|| {
+                                    match_data["teams"].as_array().and_then(|teams| {
+                                        teams.iter().find(|t| t["won"].as_bool() == Some(true))
+                                            .and_then(|t| {
+                                                t["teamId"].as_str()
+                                                    .or_else(|| t["teamID"].as_str())
+                                                    .or_else(|| t["TeamID"].as_str())
+                                            })
+                                    })
+                                });
+                            let score = (|| -> Option<String> {
+                                let teams = match_data["teams"].as_array()?;
+                                if teams.len() < 2 { return None; }
+                                let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
+                                let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
+                                Some(format!("{t0}-{t1}"))
+                            })();
+                            if let Some(winning_team) = winning_team {
+                                snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
+                                snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
+                            } else {
+                                snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
                             }
                         }
                         Err(e) => snap.logger.log(&format!("Match details fetch failed for {match_id}: {e}")),
@@ -464,7 +453,7 @@ impl MainLoop {
 
             // Build heartbeat on state changes or periodic MENUS refresh
             // (MENUS rebuilds every loop so the frontend gets latest party members)
-            if current_state != GameState::DISCONNECTED && (is_transition || current_state == GameState::MENUS) {
+            if current_state != GameState::DISCONNECTED && (is_transition || current_state == GameState::MENUS || current_state == GameState::PREGAME || current_state == GameState::INGAME) {
                 // Fetch match context first (for INGAME/PREGAME) to avoid redundant
                 // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
                 // and the raw match data which is reused by the heartbeat builder.
