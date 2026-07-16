@@ -409,6 +409,8 @@
         letter-spacing: 0.06em;
         color: #4CC9F0;
         text-decoration: none;
+        opacity: 0.7;
+        transition: opacity 0.2s ease;
     }
     .trn-link:hover {
         opacity: 1;
