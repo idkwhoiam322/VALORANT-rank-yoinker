@@ -76,12 +76,19 @@ impl RankService {
         previous_season_id: Option<&str>,
         content: &ContentCache,
     ) -> Result<PlayerRank, ApiError> {
-        let headers = entitlements.build_headers(client_version);
         let endpoint = endpoints::pd_mmr_player(puuid);
 
         let resp: MmrResponse = self
             .client
-            .fetch_json(UrlType::Pd, &endpoint, &headers)
+            .fetch_json_retry_typed(
+                UrlType::Pd,
+                &endpoint,
+                entitlements,
+                client_version,
+                3,
+                Duration::from_secs(1),
+                |j| j.get("QueueSkills").or_else(|| j.get("queue_skills")).is_some(),
+            )
             .await?;
 
         let mut rank = PlayerRank::empty();

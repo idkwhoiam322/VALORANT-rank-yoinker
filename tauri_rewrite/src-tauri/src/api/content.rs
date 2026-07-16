@@ -262,6 +262,46 @@ pub async fn fetch_all_content(
         log::warn!("One or more content API calls failed - some data may be missing");
     }
 
+    // Log content cache summary
+    let mut agent_names: Vec<&str> = cache.agents.values().map(|s| s.as_str()).collect();
+    agent_names.sort();
+    client.app_log(&format!(
+        "[CONTENT] Agents ({}): {}",
+        agent_names.len(),
+        agent_names.join(", "),
+    ));
+
+    let mut map_names: Vec<&str> = cache.maps.values().map(|s| s.as_str()).collect();
+    map_names.sort();
+    client.app_log(&format!(
+        "[CONTENT] Maps ({}): {}",
+        map_names.len(),
+        map_names.join(", "),
+    ));
+
+    for weapon in cache.weapons.values() {
+        let skin_names: Vec<&str> = weapon.skins.iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
+        client.app_log(&format!(
+            "[CONTENT] Weapon {} ({} skins): {}",
+            weapon.display_name,
+            weapon.skins.len(),
+            skin_names.join(", "),
+        ));
+    }
+
+    client.app_log(&format!(
+        "[CONTENT] Sprays ({}), Flex ({}), Buddies ({}), Player titles ({}), Player cards ({})",
+        cache.sprays.len(), cache.flex.len(), cache.buddies.len(),
+        cache.player_titles.len(), cache.player_cards.len(),
+    ));
+
+    client.app_log(&format!(
+        "[CONTENT] Competitive tiers ({}), Seasons ({}), Season ID: {}",
+        cache.rank_icons.len(), cache.seasons.len(), season_id,
+    ));
+
     (cache, season_id, previous_season_id)
 }
 

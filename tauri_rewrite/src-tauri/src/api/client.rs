@@ -447,16 +447,6 @@ impl ApiClient {
         self.fetch_json_with_reauth(url_type, endpoint, headers, Some(body), None).await
     }
 
-    pub async fn fetch_put_json_with_body<T: serde::de::DeserializeOwned>(
-        &self,
-        url_type: UrlType,
-        endpoint: &str,
-        headers: &[(String, String)],
-        body: serde_json::Value,
-    ) -> Result<T, ApiError> {
-        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(body), Some(Method::PUT)).await
-    }
-
     /// Internal fetch with centralized automatic re-auth on BAD_CLAIMS.
     /// On first BadClaims, refreshes entitlements + client_version from local Riot client,
     /// rebuilds headers from refreshed values, and retries once.
@@ -633,6 +623,103 @@ impl ApiClient {
 
         self.app_log(&format!("[API] retry exhausted: {endpoint} after {max_retries} attempts"));
         Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
+    }
+
+    /// Typed variant of `fetch_json_retry`: validates the raw JSON, then
+    /// deserializes to `T`.  Saves callers from having to call
+    /// `serde_json::from_value` themselves.
+    pub async fn fetch_json_retry_typed<T: serde::de::DeserializeOwned>(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        entitlements: &Entitlements,
+        client_version: &str,
+        max_retries: u32,
+        delay: Duration,
+        validate: impl Fn(&serde_json::Value) -> bool,
+    ) -> Result<T, ApiError> {
+        let json = self
+            .fetch_json_retry(url_type, endpoint, entitlements, client_version, max_retries, delay, validate)
+            .await?;
+        serde_json::from_value(json).map_err(|e| {
+            ApiError::ServerError(format!("JSON parse error: {} (endpoint: {})", e, endpoint))
+        })
+    }
+
+    /// Retry + validation variant for requests with a body (PUT/POST).
+    /// Same retry/validate semantics as `fetch_json_retry_typed` but passes
+    /// `body` and `method` through to `fetch_json_with_reauth`.
+    pub async fn fetch_json_retry_with_body<T: serde::de::DeserializeOwned>(
+        &self,
+        url_type: UrlType,
+        endpoint: &str,
+        entitlements: &Entitlements,
+        client_version: &str,
+        body: serde_json::Value,
+        method: Option<Method>,
+        max_retries: u32,
+        delay: Duration,
+        validate: impl Fn(&serde_json::Value) -> bool,
+    ) -> Result<T, ApiError> {
+        let mut last_error = None;
+        let mut current_entitlements = entitlements.clone();
+        let mut current_cv = client_version.to_string();
+
+        for attempt in 0..max_retries {
+            let headers = current_entitlements.build_headers(&current_cv);
+            let label = format!("{endpoint} (attempt {}/{})", attempt + 1, max_retries);
+
+            match self
+                .fetch_json_with_reauth::<serde_json::Value>(
+                    url_type,
+                    endpoint,
+                    &headers,
+                    Some(body.clone()),
+                    method.clone(),
+                )
+                .await
+            {
+                Ok(json) => {
+                    if validate(&json) {
+                        match serde_json::from_value::<T>(json) {
+                            Ok(v) => return Ok(v),
+                            Err(e) => {
+                                self.app_log(&format!(
+                                    "[API] retry {label}: JSON parse error: {e}"
+                                ));
+                                last_error = Some(ApiError::ServerError(format!(
+                                    "JSON parse error: {e}"
+                                )));
+                            }
+                        }
+                    } else {
+                        self.app_log(&format!(
+                            "[API] retry {label}: validation failed - retrying"
+                        ));
+                    }
+                }
+                Err(e) => {
+                    self.app_log(&format!("[API] retry {label}: {e}"));
+                    last_error = Some(e);
+                }
+            }
+
+            if let Some(fresh) = self.get_entitlements() {
+                current_entitlements = fresh;
+                current_cv = self.get_client_version();
+            }
+
+            if attempt + 1 < max_retries {
+                tokio::time::sleep(delay).await;
+            }
+        }
+
+        self.app_log(&format!(
+            "[API] retry exhausted: {endpoint} after {max_retries} attempts"
+        ));
+        Err(last_error.unwrap_or(ApiError::ServerError(
+            "max retries exhausted".into(),
+        )))
     }
 
     pub async fn fetch_valorant_api<T: serde::de::DeserializeOwned>(

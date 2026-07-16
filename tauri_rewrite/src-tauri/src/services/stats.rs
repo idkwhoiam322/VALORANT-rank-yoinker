@@ -53,15 +53,17 @@ impl StatsService {
             }
         }
 
-        let headers = entitlements.build_headers(client_version);
-
         // Fetch competitive updates
         let updates: CompetitiveUpdatesResponse = match self
             .client
-            .fetch_json(
+            .fetch_json_retry_typed(
                 UrlType::Pd,
                 &endpoints::pd_competitive_updates(puuid),
-                &headers,
+                entitlements,
+                client_version,
+                3,
+                Duration::from_secs(1),
+                |j| j.get("Matches").or_else(|| j.get("matches")).is_some(),
             )
             .await
         {
@@ -106,10 +108,14 @@ impl StatsService {
                 // Slow path: fetch outside lock, re-acquire for insert
                 match self
                     .client
-                    .fetch_json::<MatchDetailsResponse>(
+                    .fetch_json_retry_typed::<MatchDetailsResponse>(
                         UrlType::Pd,
                         &endpoints::pd_match_details(&match_id),
-                        &headers,
+                        entitlements,
+                        client_version,
+                        3,
+                        Duration::from_secs(1),
+                        |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
                     )
                     .await
                 {

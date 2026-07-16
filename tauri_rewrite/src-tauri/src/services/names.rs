@@ -97,11 +97,16 @@ impl NamesService {
             if !still_missing.is_empty() {
                 if let Ok(val) = self
                     .client
-                    .fetch_put_json_with_body::<serde_json::Value>(
+                    .fetch_json_retry_with_body::<serde_json::Value>(
                         UrlType::Pd,
                         endpoints::PD_NAME_SERVICE,
-                        &headers,
-                        serde_json::json!(still_missing),
+                        entitlements,
+                        client_version,
+                        serde_json::json!(&still_missing),
+                        Some(reqwest::Method::PUT),
+                        3,
+                        Duration::from_secs(1),
+                        |j| j.is_array(),
                     )
                     .await
                 {
