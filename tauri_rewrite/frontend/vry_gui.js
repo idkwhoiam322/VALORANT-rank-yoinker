@@ -73,6 +73,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         selectedName: document.getElementById("selectedName"),
         trnLink: document.getElementById("trnLink"),
         vtlLink: document.getElementById("vtlLink"),
+        topTrnLink: document.getElementById("topTrnLink"),
+        topVtlLink: document.getElementById("topVtlLink"),
         copyStatsBtn: document.getElementById("copyStatsBtn"),
         screenshotPlayerRow: document.getElementById("screenshotPlayerRow"),
         screenshotPlayerBtn: document.getElementById("screenshotPlayerBtn"),
@@ -431,7 +433,27 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function teamRank(team) { if (team === "Blue") return 0; if (team === "Red") return 1; return 2; }
     function teamClass(team) { if (team === "Blue") return "is-blue"; if (team === "Red") return "is-red"; return ""; }
 
-    function render() { renderMeta(); renderPlayers(); renderPlayedWith(); renderDetails(); renderJson(); }
+    function render() { renderMeta(); renderTopLinks(); renderPlayers(); renderPlayedWith(); renderDetails(); renderJson(); }
+
+    function renderTopLinks() {
+        var self = state.players.filter(function (p) { return p.isSelf; })[0];
+        var hasName = self && self.name && self.name.indexOf("#") !== -1;
+        [els.topTrnLink, els.topVtlLink].forEach(function (link) {
+            if (!link) return;
+            if (!hasName) {
+                link.href = "#";
+                link.removeAttribute("title");
+                link.disabled = true;
+                return;
+            }
+            var href = link === els.topTrnLink
+                ? "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(self.name) + "/overview"
+                : "https://vtl.lol/id/" + encodeURIComponent(self.name.replace("#", "_"));
+            link.href = href;
+            link.title = href + COPY_HINT;
+            link.disabled = false;
+        });
+    }
 
     // ---- targeted rendering for click interactions ----
     function selectPlayer(puuid) {
@@ -1007,6 +1029,8 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
     bindContextCopy(els.trnLink);
     bindContextCopy(els.vtlLink);
+    bindContextCopy(els.topTrnLink);
+    bindContextCopy(els.topVtlLink);
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
         var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
