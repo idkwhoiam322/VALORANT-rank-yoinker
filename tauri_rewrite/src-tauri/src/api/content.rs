@@ -1,8 +1,56 @@
 use std::sync::Arc;
 
+use serde::de::DeserializeOwned;
+
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::content::*;
+
+/// Generic retry wrapper for valorant-api.com endpoints.
+/// Retries up to 3 times (1s, 2s, 4s delays) on transient errors or
+/// when the API returns HTTP 200 with an empty `data` array.
+async fn fetch_valorant_api_with_retry<T: DeserializeOwned>(
+    client: &ApiClient,
+    endpoint: &str,
+) -> Result<ValorantApiResponse<Vec<T>>, ApiError> {
+    let delays = [1, 2, 4];
+    let mut last_err = None;
+    for (i, delay) in delays.iter().enumerate() {
+        match client
+            .fetch_valorant_api::<ValorantApiResponse<Vec<T>>>(endpoint)
+            .await
+        {
+            Ok(v) => {
+                if v.data.is_empty() {
+                    log::warn!(
+                        "[CONTENT] {} attempt {} returned empty data, retrying in {}s...",
+                        endpoint,
+                        i + 1,
+                        delay,
+                    );
+                    last_err = Some(ApiError::ServerError(format!(
+                        "empty {} data after attempt {}",
+                        endpoint,
+                        i + 1
+                    )));
+                    tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+                    continue;
+                }
+                return Ok(v);
+            }
+            Err(e) => {
+                log::warn!("[CONTENT] {} attempt {} failed: {}", endpoint, i + 1, e);
+                last_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or(ApiError::ServerError(format!(
+        "{} fetch exhausted after {} attempts",
+        endpoint,
+        delays.len()
+    ))))
+}
 
 const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
     "0df5adb9-4dcb-6899-1306-3e9860661dd3",
@@ -25,17 +73,20 @@ const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
 ];
 
 async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Agent>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_AGENTS).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_AGENTS).await
 }
 
 fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent>>) {
     for agent in &resp.data {
         cache.agents.insert(agent.uuid.to_lowercase(), agent.display_name.clone());
     }
+    if cache.agents.is_empty() {
+        log::warn!("[CONTENT] populate_agents: 0 agents inserted (empty response data)");
+    }
 }
 
 async fn fetch_maps_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Map>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_MAPS).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_MAPS).await
 }
 
 fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) {
@@ -44,26 +95,13 @@ fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) 
             cache.maps.insert(url.to_lowercase(), map.display_name.clone());
         }
     }
+    if cache.maps.is_empty() {
+        log::warn!("[CONTENT] populate_maps: 0 maps inserted (empty response data)");
+    }
 }
 
 async fn fetch_weapons_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_WEAPONS).await
-}
-
-async fn fetch_weapons_with_retry_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
-    let delays = [1, 2, 4];
-    let mut last_err = None;
-    for (i, delay) in delays.iter().enumerate() {
-        match fetch_weapons_raw(client).await {
-            Ok(v) => return Ok(v),
-            Err(e) => {
-                log::warn!("weapons fetch attempt {} failed: {}", i + 1, e);
-                last_err = Some(e);
-                tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
-            }
-        }
-    }
-    Err(last_err.unwrap())
+    fetch_valorant_api_with_retry(client, endpoints::VAL_WEAPONS).await
 }
 
 fn populate_weapons(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<WeaponData>>) {
@@ -77,10 +115,13 @@ fn populate_weapons(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Weap
                 .insert(skin.uuid.to_lowercase(), skin.clone());
         }
     }
+    if cache.weapons.is_empty() {
+        log::warn!("[CONTENT] populate_weapons: 0 weapons inserted (empty response data)");
+    }
 }
 
 async fn fetch_sprays_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Spray>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_SPRAYS).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_SPRAYS).await
 }
 
 fn populate_sprays(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Spray>>) {
@@ -89,30 +130,39 @@ fn populate_sprays(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Spray
             .sprays
             .insert(spray.uuid.to_lowercase(), spray.clone());
     }
+    if cache.sprays.is_empty() {
+        log::warn!("[CONTENT] populate_sprays: 0 sprays inserted (empty response data)");
+    }
 }
 
 async fn fetch_flex_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Flex>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_FLEX).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_FLEX).await
 }
 
 fn populate_flex(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Flex>>) {
     for flex in &resp.data {
         cache.flex.insert(flex.uuid.to_lowercase(), flex.clone());
     }
+    if cache.flex.is_empty() {
+        log::warn!("[CONTENT] populate_flex: 0 flex items inserted (empty response data)");
+    }
 }
 
 async fn fetch_buddies_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Buddy>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_BUDDIES).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_BUDDIES).await
 }
 
 fn populate_buddies(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Buddy>>) {
     for buddy in &resp.data {
         cache.buddies.insert(buddy.uuid.to_lowercase(), buddy.clone());
     }
+    if cache.buddies.is_empty() {
+        log::warn!("[CONTENT] populate_buddies: 0 buddies inserted (empty response data)");
+    }
 }
 
 async fn fetch_player_titles_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerTitle>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_PLAYER_TITLES).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_PLAYER_TITLES).await
 }
 
 fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerTitle>>) {
@@ -121,10 +171,13 @@ fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Ve
             .player_titles
             .insert(title.uuid.to_lowercase(), title.clone());
     }
+    if cache.player_titles.is_empty() {
+        log::warn!("[CONTENT] populate_player_titles: 0 titles inserted (empty response data)");
+    }
 }
 
 async fn fetch_player_cards_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerCard>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_PLAYER_CARDS).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_PLAYER_CARDS).await
 }
 
 fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<PlayerCard>>) {
@@ -133,10 +186,13 @@ fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec
             .player_cards
             .insert(card.uuid.to_lowercase(), card.clone());
     }
+    if cache.player_cards.is_empty() {
+        log::warn!("[CONTENT] populate_player_cards: 0 cards inserted (empty response data)");
+    }
 }
 
 async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<CompetitiveTiers>>, ApiError> {
-    client.fetch_valorant_api(endpoints::VAL_COMPETITIVE_TIERS).await
+    fetch_valorant_api_with_retry(client, endpoints::VAL_COMPETITIVE_TIERS).await
 }
 
 fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
@@ -149,6 +205,9 @@ fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiRespons
             icons[tier.tier as usize] = tier.small_icon.clone();
         }
         cache.rank_icons = Arc::new(icons);
+    }
+    if resp.data.is_empty() {
+        log::warn!("[CONTENT] populate_competitive_tiers: 0 tier sets inserted (empty response data)");
     }
 }
 
@@ -214,7 +273,7 @@ pub async fn fetch_all_content(
     let (agents, maps, weapons, sprays, flex, buddies, titles, cards, tiers, seasons) = tokio::join!(
         fetch_agents_raw(client),
         fetch_maps_raw(client),
-        fetch_weapons_with_retry_raw(client),
+        fetch_weapons_raw(client),
         fetch_sprays_raw(client),
         fetch_flex_raw(client),
         fetch_buddies_raw(client),
