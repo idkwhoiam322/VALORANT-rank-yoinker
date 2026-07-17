@@ -12,6 +12,9 @@ pub struct CoregamePlayer {
     #[serde(default, alias = "CharacterID")]
     pub character_id: Option<String>,
 
+    #[serde(default, alias = "CharacterSelectionState")]
+    pub character_selection_state: Option<String>,
+
     #[serde(default)]
     pub player_identity: Option<PlayerIdentity>,
 }

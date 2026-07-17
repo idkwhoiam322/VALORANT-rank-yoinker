@@ -603,7 +603,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             button.classList.toggle("is-selected", player.puuid === state.selectedPuuid);
             button.title = txt(player.name, "Unknown Player") + COPY_HINT;
             button.dataset.puuid = player.puuid;
-            var avatar = buildAgentAvatar(player.agentImgLink, player.agent);
+            var avatar = buildAgentAvatar(player.agentImgLink, player.agent, player.agentSelectionState);
             var identity = document.createElement("div");
             identity.className = "player-main";
             var name = document.createElement("span");
@@ -725,9 +725,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         if (!hasSelection && state.players.length === 0) { els.emptyStateTitle.textContent = "No match data"; els.emptyStateText.textContent = "Waiting for VRY backend data."; }
         else if (!hasSelection) { els.emptyStateTitle.textContent = "No player selected"; els.emptyStateText.textContent = "Click a player card to view loadout and stats."; }
         if (!selected) return;
+        var agentNotSelected = selected.agentSelectionState === "";
         els.selectedAgent.src = selected.agentImgLink || "";
-        els.selectedAgent.hidden = !selected.agentImgLink;
+        els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
         els.selectedAgent.alt = selected.agent || "";
+        els.selectedAgent.classList.toggle("is-selecting", selected.agentSelectionState === "selected");
         els.selectedName.textContent = txt(selected.name, "Unknown Player");
         els.selectedName.title = txt(selected.name, "Unknown Player") + COPY_HINT;
         var hasName = selected.name && selected.name.indexOf("#") !== -1;
@@ -864,10 +866,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         return (player._weaponMap || {})[weaponName] || null;
     }
 
-    function buildAgentAvatar(src, alt) {
-        if (!src) return makeAvatarPlaceholder();
+    function buildAgentAvatar(src, alt, selectionState) {
+        if (!src || selectionState === "") return makeAvatarPlaceholder();
         var img = document.createElement("img");
         img.className = "agent-avatar";
+        if (selectionState === "selected") img.classList.add("is-selecting");
         img.alt = alt || "";
         img.src = src;
         img.addEventListener("error", function () { img.replaceWith(makeAvatarPlaceholder()); });

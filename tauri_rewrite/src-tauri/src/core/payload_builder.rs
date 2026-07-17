@@ -401,6 +401,7 @@ async fn build_ingame_payload(
             puuid: subject.clone(),
             name: names.get(&subject).cloned(),
             agent: agent_name.clone(),
+            agent_selection_state: player.character_selection_state.clone(),
             rank: player_rank.rank,
             peak_rank: player_rank.peak_rank,
             peak_rank_act: player_rank.peak_rank_act,
@@ -537,6 +538,9 @@ async fn build_pregame_payload(
                     subject: p["Subject"].as_str().map(|s| s.to_string()),
                     team_id: Some(team_id.to_string()),
                     character_id: p["CharacterID"].as_str().map(|s| s.to_string()),
+                    character_selection_state: p["CharacterSelectionState"]
+                        .as_str()
+                        .map(|s| s.to_string()),
                     player_identity: None,
                 };
 
@@ -577,6 +581,7 @@ async fn build_pregame_payload(
                                 subject: Some(l_subject.to_string()),
                                 team_id: Some(enemy_team_id.to_string()),
                                 character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
+                                character_selection_state: None,
                                 player_identity: None,
                             });
                         }
@@ -678,6 +683,7 @@ async fn build_pregame_payload(
                     puuid: subject.clone(),
                     name: names.get(&subject).cloned(),
                     agent: agent_name,
+                    agent_selection_state: player.character_selection_state.clone(),
                     rank: player_rank.rank,
                     peak_rank: player_rank.peak_rank,
                     peak_rank_act: player_rank.peak_rank_act,
@@ -690,7 +696,10 @@ async fn build_pregame_payload(
                 .as_ref()
                 .and_then(|pi| pi.account_level),
             leaderboard: player_rank.leaderboard,
-            agent_img_link: None,
+            agent_img_link: player
+                .character_id
+                .as_ref()
+                .map(|cid| endpoints::media_agent_icon(&cid.to_lowercase())),
             team: player.team_id.clone(),
             sprays: player_loadout.and_then(|p| p.sprays.clone()),
             title: player_loadout.and_then(|p| p.title.clone()),
@@ -779,6 +788,7 @@ async fn build_menus_payload(
             puuid: subject.clone(),
             name: None, // Will be resolved below
             agent: None,
+            agent_selection_state: None,
             rank: player_rank.rank,
             peak_rank: player_rank.peak_rank,
             peak_rank_act: player_rank.peak_rank_act,

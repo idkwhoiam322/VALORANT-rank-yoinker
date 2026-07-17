@@ -33,6 +33,8 @@ pub struct PlayerHeartbeat {
     pub party_number: u32,
     #[serde(default)]
     pub agent: Option<String>,
+    #[serde(default, rename = "agentSelectionState")]
+    pub agent_selection_state: Option<String>,
     #[serde(default)]
     pub rank: u32,
     #[serde(default, rename = "peakRank")]

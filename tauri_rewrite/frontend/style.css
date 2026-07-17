@@ -275,6 +275,11 @@ h3 {
     letter-spacing: 0;
 }
 
+.agent-avatar.is-selecting,
+.selected-agent.is-selecting {
+    opacity: 0.45;
+}
+
 .player-main {
     display: grid;
     gap: 4px;
