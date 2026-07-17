@@ -319,6 +319,9 @@ impl MainLoop {
         let mut last_heartbeat_key: Option<String> = None;
         let mut last_presences: Option<Vec<Presence>> = None;
         let mut match_context: Option<(String, String)> = None;
+        // Pregame loadouts are immutable during agent select, so cache the raw
+        // response per match_id and reuse it across ticks. (match_id, loadouts text)
+        let mut pregame_loadout_cache: Option<(String, String)> = None;
 
         // Attempt WebSocket presence detection at startup.
         let mut ws: Option<ValorantWs> = {
@@ -480,13 +483,34 @@ impl MainLoop {
                     None => (None, None),
                 };
 
-                let mut heartbeat = build_heartbeat(
+                // Reuse cached pregame loadouts when the match id is unchanged.
+                let cached_pregame_loadouts = if current_state == GameState::PREGAME {
+                    let mid = known_match_id.clone().map(|id| id.to_string());
+                    mid.as_deref()
+                        .filter(|id| pregame_loadout_cache.as_ref().map_or(false, |(cid, _)| cid == id))
+                        .and_then(|_id| pregame_loadout_cache.as_ref().map(|(_, text)| text.clone()))
+                } else {
+                    pregame_loadout_cache = None;
+                    None
+                };
+
+                let (mut heartbeat, used_pregame_loadouts) = build_heartbeat(
                     &snap, &entitlements, &cv, &puuid, current_state,
                     known_match_id.as_deref(),
                     pre_fetched_data,
                     last_presences.as_deref(),
+                    cached_pregame_loadouts,
                 )
                 .await;
+
+                // Store the loadouts response for reuse on the next tick.
+                if current_state == GameState::PREGAME {
+                    if let (Some(id), Some(text)) =
+                        (known_match_id.as_deref(), used_pregame_loadouts)
+                    {
+                        pregame_loadout_cache = Some((id.to_string(), text));
+                    }
+                }
 
                 let key = format!("{}:{}", heartbeat.time, heartbeat.state);
                 if last_heartbeat_key.as_deref() != Some(&key) {

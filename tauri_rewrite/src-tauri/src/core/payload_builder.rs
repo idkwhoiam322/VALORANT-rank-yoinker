@@ -108,7 +108,8 @@ pub async fn build_heartbeat(
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
     ws_presences: Option<&[Presence]>,
-) -> HeartbeatPayload {
+    cached_pregame_loadouts: Option<String>,
+) -> (HeartbeatPayload, Option<String>) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -158,20 +159,22 @@ pub async fn build_heartbeat(
     // WS-cached presences may be incomplete and are not safe for party detection.
     let presences_slice = if ws_data { None } else { presences.as_deref() };
 
-    match state {
+    let used_pregame_loadouts: Option<String> = match state {
         GameState::INGAME => {
             build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
+            None
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
+            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, cached_pregame_loadouts).await
         }
         GameState::MENUS => {
             build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences_slice).await;
+            None
         }
-        GameState::DISCONNECTED => {}
-    }
+        GameState::DISCONNECTED => None,
+    };
 
-    payload
+    (payload, used_pregame_loadouts)
 }
 
 /// Returns (match_id, my_team, match_data) for the active match, or None.
@@ -263,7 +266,7 @@ async fn build_ingame_payload(
         }
         None => {
             let mid = if let Some(id) = known_match_id {
-                if !id.is_empty() { id.to_string() } else { return }
+                if !id.is_empty() { id.to_string() } else { return; }
             } else {
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
@@ -462,6 +465,42 @@ async fn build_ingame_payload(
     }
 }
 
+/// Append enemy players (those present in the pregame loadouts response but not on
+/// the ally team) to `players`. Shared by the fresh-fetch and cached-reuse paths
+/// so both produce an identical player list. Loadouts are immutable during agent
+/// select, so reusing a previous tick's response is safe.
+fn append_enemy_players_from_loadouts(
+    loadouts_text: &str,
+    players: &mut Vec<CoregamePlayer>,
+    match_data: &serde_json::Value,
+) {
+    let loadouts_json_value: serde_json::Value = match serde_json::from_str(loadouts_text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
+        let ally_puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
+        let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
+            "Red"
+        } else {
+            "Blue"
+        };
+        for l in loadouts {
+            if let Some(l_subject) = l["Subject"].as_str() {
+                if !ally_puuids.iter().any(|s| s == l_subject) {
+                    players.push(CoregamePlayer {
+                        subject: Some(l_subject.to_string()),
+                        team_id: Some(enemy_team_id.to_string()),
+                        character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
+                        character_selection_state: None,
+                        player_identity: None,
+                    });
+                }
+            }
+        }
+    }
+}
+
 async fn build_pregame_payload(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -470,18 +509,19 @@ async fn build_pregame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
-) {
+    cached_loadouts_text: Option<String>,
+) -> Option<String> {
     // Use pre-fetched match data (from get_match_context) if available,
     // otherwise fetch fresh with retry.
     let (match_data, match_id) = match existing_match_data {
         Some(data) => {
             let mid = known_match_id.unwrap_or_default().to_string();
-            if mid.is_empty() { return; }
+            if mid.is_empty() { return None; }
             (data, mid)
         }
         None => {
             let mid = if let Some(id) = known_match_id {
-                if !id.is_empty() { id.to_string() } else { return }
+                if !id.is_empty() { id.to_string() } else { return None; }
             } else {
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
@@ -493,9 +533,9 @@ async fn build_pregame_payload(
                 ).await {
                     Ok(json) => match json["MatchID"].as_str() {
                         Some(id) if !id.is_empty() => id.to_string(),
-                        _ => return,
+                        _ => return None,
                     }
-                    Err(_) => return,
+                    Err(_) => return None,
                 }
             };
 
@@ -508,7 +548,7 @@ async fn build_pregame_payload(
                 |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await {
                 Ok(json) => (json, mid),
-                Err(_) => return,
+                Err(_) => return None,
             }
         }
     };
@@ -556,41 +596,35 @@ async fn build_pregame_payload(
         }
     }
 
-    // Fetch loadouts once - used for enemy extraction
-    let saved_loadouts_text: Option<String> = match svc.client.fetch_json_retry(
-        crate::api::client::UrlType::Glz,
-        &endpoints::glz_pregame_loadouts(&match_id),
-        entitlements, client_version,
-        3,
-        Duration::from_secs(2),
-        |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
-    ).await {
-        Ok(loadouts_json_value) => {
-            if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
-                let ally_puuids: Vec<String> =
-                    players.iter().filter_map(|p| p.subject.clone()).collect();
-                let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
-                    "Red"
-                } else {
-                    "Blue"
-                };
-                for l in loadouts {
-                    if let Some(l_subject) = l["Subject"].as_str() {
-                        if !ally_puuids.iter().any(|s| s == l_subject) {
-                            players.push(CoregamePlayer {
-                                subject: Some(l_subject.to_string()),
-                                team_id: Some(enemy_team_id.to_string()),
-                                character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
-                                character_selection_state: None,
-                                player_identity: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Some(loadouts_json_value.to_string())
+    // Loadouts are immutable during agent select (skins/sprays are fixed for
+    // the match), so fetch once per match and reuse on unchanged ticks. When the
+    // caller supplies a cached response, skip the HTTP call and just re-extract
+    // enemies from it.
+    let saved_loadouts_text: Option<String> = match cached_loadouts_text {
+        Some(text) => {
+            svc.client.cache_hit(
+                "pregame loadouts",
+                &match_id[..8.min(match_id.len())],
+                None,
+            );
+            append_enemy_players_from_loadouts(&text, &mut players, &match_data);
+            Some(text)
         }
-        Err(_) => None,
+        None => match svc.client.fetch_json_retry(
+            crate::api::client::UrlType::Glz,
+            &endpoints::glz_pregame_loadouts(&match_id),
+            entitlements, client_version,
+            3,
+            Duration::from_secs(2),
+            |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
+        ).await {
+            Ok(loadouts_json_value) => {
+                let text = loadouts_json_value.to_string();
+                append_enemy_players_from_loadouts(&text, &mut players, &match_data);
+                Some(text)
+            }
+            Err(_) => None,
+        },
     };
 
     // Get names (now with enemies populated)
@@ -711,6 +745,11 @@ async fn build_pregame_payload(
 
         payload.players.insert(subject, heartbeat_player);
     }
+
+    // Populate already_played_with from stored encounters
+    payload.already_played_with = svc.encounters.get_all_summaries(puuid);
+
+    saved_loadouts_text
 }
 
 async fn build_menus_payload(
