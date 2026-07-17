@@ -322,6 +322,11 @@ impl MainLoop {
         // Pregame loadouts are immutable during agent select, so cache the raw
         // response per match_id and reuse it across ticks. (match_id, loadouts text)
         let mut pregame_loadout_cache: Option<(String, String)> = None;
+        // Last fully-populated heartbeat, retained per match_id so a tick whose
+        // fresh build comes back empty (e.g. a PREGAME->INGAME 404 handoff) never
+        // downgrades known data (map/server/players) to unknown within the same
+        // match. (match_id, payload)
+        let mut last_known_snapshot: Option<(String, HeartbeatPayload)> = None;
 
         // Attempt WebSocket presence detection at startup.
         let mut ws: Option<ValorantWs> = {
@@ -396,6 +401,9 @@ impl MainLoop {
             // State transition: INGAME -> not INGAME => update encounter results
             if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
+                    // Drop the last-known snapshot so the carry-over safety net
+                    // cannot leak this match's data into the next one.
+                    last_known_snapshot = None;
                     snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
                     match snap.client.fetch_json_retry(
                         UrlType::Pd,
@@ -460,23 +468,59 @@ impl MainLoop {
                 // Fetch match context first (for INGAME/PREGAME) to avoid redundant
                 // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
                 // and the raw match data which is reused by the heartbeat builder.
-                let match_ctx = match current_state {
-                    GameState::INGAME | GameState::PREGAME => {
-                        crate::core::payload_builder::get_match_context(
+                //
+                // When PREGAME context 404s (Riot already moved the player into the
+                // live match but the local WS state is still PREGAME), fall back to an
+                // INGAME context lookup for the same player. This keeps map/server/
+                // players populated across the handoff instead of emitting an empty
+                // "unknown" tick. In that case we build the heartbeat using the INGAME
+                // builder (the fetched data is live-match shaped), so the frontend
+                // sees a seamless transition with correct players/loadouts.
+                let (match_ctx, used_ingame_fallback) = match current_state {
+                    GameState::INGAME => {
+                        let ctx = crate::core::payload_builder::get_match_context(
                             &snap, &entitlements, &cv, &puuid, current_state,
-                        ).await
+                        ).await;
+                        (ctx, false)
                     }
-                    _ => None,
+                    GameState::PREGAME => {
+                        let pregame_ctx = crate::core::payload_builder::get_match_context(
+                            &snap, &entitlements, &cv, &puuid, current_state,
+                        ).await;
+                        match pregame_ctx {
+                            Some(ctx) => (Some(ctx), false),
+                            None => {
+                                // PREGAME 404'd: player likely already in the live match.
+                                snap.logger.log("PREGAME context 404 - falling back to INGAME context");
+                                let ingame_ctx = crate::core::payload_builder::get_match_context(
+                                    &snap, &entitlements, &cv, &puuid, GameState::INGAME,
+                                ).await;
+                                let used_fallback = ingame_ctx.is_some();
+                                (ingame_ctx, used_fallback)
+                            }
+                        }
+                    }
+                    _ => (None, false),
+                };
+
+                // The state used to *build* the heartbeat. If we had to fall back to
+                // the INGAME context, build as INGAME (the data is live-match shaped).
+                let build_state = if used_ingame_fallback {
+                    GameState::INGAME
+                } else {
+                    current_state
                 };
 
                 let (known_match_id, pre_fetched_data) = match match_ctx {
                     Some((id, team, data)) => {
-                        if current_state == GameState::INGAME {
-                            let had_context = match_context.is_some();
-                            match_context = Some((id.clone(), team.clone()));
-                            if !had_context {
-                                snap.logger.log(&format!("INGAME match context obtained: match={id} team={team}"));
-                            }
+                        // The INGAME fallback above means a PREGAME tick may carry a
+                        // committed live match. Treat it exactly like a real INGAME
+                        // context so match-end detection (and the "context obtained"
+                        // log) fire correctly.
+                        let had_context = match_context.is_some();
+                        match_context = Some((id.clone(), team.clone()));
+                        if !had_context {
+                            snap.logger.log(&format!("INGAME match context obtained: match={id} team={team}"));
                         }
                         (Some(id), Some(data))
                     }
@@ -495,7 +539,7 @@ impl MainLoop {
                 };
 
                 let (mut heartbeat, used_pregame_loadouts) = build_heartbeat(
-                    &snap, &entitlements, &cv, &puuid, current_state,
+                    &snap, &entitlements, &cv, &puuid, build_state,
                     known_match_id.as_deref(),
                     pre_fetched_data,
                     last_presences.as_deref(),
@@ -510,6 +554,44 @@ impl MainLoop {
                     {
                         pregame_loadout_cache = Some((id.to_string(), text));
                     }
+                }
+
+                // Safety net: if the fresh build came back empty (no map and no
+                // players) but we already have a fully-populated heartbeat for the
+                // same match, backfill known fields so we never downgrade known
+                // data (map/server/players/mode) to "unknown". Guarded by match_id
+                // equality so it cannot leak stale data across matches.
+                let heartbeat_is_empty =
+                    heartbeat.map.is_none() && heartbeat.players.is_empty();
+                if heartbeat_is_empty {
+                    if let Some((snap_id, snap_payload)) = last_known_snapshot.as_ref() {
+                        if known_match_id.as_deref() == Some(snap_id.as_str()) {
+                            snap.logger.log(&format!(
+                                "Heartbeat build empty for match={snap_id} - restoring last known data (map={})",
+                                snap_payload.map.as_deref().unwrap_or("unknown")
+                            ));
+                            if heartbeat.map.is_none() {
+                                heartbeat.map = snap_payload.map.clone();
+                            }
+                            if heartbeat.server.is_none() {
+                                heartbeat.server = snap_payload.server.clone();
+                            }
+                            if heartbeat.mode.is_none() {
+                                heartbeat.mode = snap_payload.mode.clone();
+                            }
+                            if heartbeat.players.is_empty() {
+                                heartbeat.players = snap_payload.players.clone();
+                            }
+                            heartbeat.rank_icons = snap_payload.rank_icons.clone();
+                            heartbeat.already_played_with =
+                                snap_payload.already_played_with.clone();
+                        }
+                    }
+                } else if let Some(id) = known_match_id.as_deref() {
+                    // Retain this populated heartbeat for potential carry-over on a
+                    // later empty tick within the same match.
+                    last_known_snapshot =
+                        Some((id.to_string(), heartbeat.clone()));
                 }
 
                 let key = format!("{}:{}", heartbeat.time, heartbeat.state);
