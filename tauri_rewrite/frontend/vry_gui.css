@@ -12,7 +12,7 @@
 
     .pill {
         border: 1px solid var(--line);
-        border-radius: 999px;
+        border-radius: 10px;
         background: var(--panel-soft);
     }
 
@@ -423,7 +423,7 @@
         min-width: 132px;
         min-height: 36px;
         padding: 8px 16px;
-        border-radius: 999px;
+        border-radius: 10px;
         border: 1px solid transparent;
         font-size: 0.8rem;
         transition: transform 0.15s ease, box-shadow 0.15s ease;

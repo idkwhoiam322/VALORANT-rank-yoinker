@@ -411,7 +411,7 @@ h3 {
     min-height: 38px;
     padding: 4px 12px 4px 4px;
     border: 1px solid rgba(241, 199, 102, 0.28);
-    border-radius: 999px;
+    border-radius: 10px;
     background: rgba(7, 13, 22, 0.88);
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.36);
     backdrop-filter: blur(12px);
