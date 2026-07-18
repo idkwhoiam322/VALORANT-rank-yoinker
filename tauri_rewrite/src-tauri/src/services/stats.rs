@@ -46,7 +46,7 @@ impl StatsService {
             let cache = self.updates_cache.lock().await;
             if let Some((stats, ts)) = cache.get(puuid) {
                 if ts.elapsed() < UPDATES_CACHE_TTL {
-                    let ttl_left = (UPDATES_CACHE_TTL.as_secs() - ts.elapsed().as_secs()).max(0);
+                    let ttl_left = UPDATES_CACHE_TTL.as_secs().saturating_sub(ts.elapsed().as_secs());
                     self.client.cache_hit("stats", &crate::api::client::anon_id(puuid), Some(ttl_left));
                     return stats.clone();
                 }
