@@ -99,6 +99,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         lastRenderKey: null,
         rankIcons: null,
         lastGameState: null,
+        // State of the last heartbeat we rendered. Used by renderStateTransition
+        // to decide the from->to transition without depending on state_change
+        // event ordering (see renderStateTransition for the race explanation).
+        prevGameState: null,
         playerButtons: new Map(),
         dirty: { meta: true, players: true, playedWith: true, details: true, json: true },
     };
@@ -405,6 +409,20 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         tauriListen("heartbeat", function (event) {
             setStatus("Connected", "live");
             if (event.payload && event.payload.players) {
+                // Snapshot the previous *genuinely different* game state so a later
+                // `state_change` event can compute the from->to transition
+                // independently of delivery order (see renderStateTransition). Only
+                // capture it when the state actually changes: during a PREGAME->
+                // INGAME handoff the backend can emit several consecutive fallback
+                // heartbeats with state "INGAME" before the real state_change fires
+                // (Riot moves the match server-side while WS/poll still reports
+                // PREGAME). Updating prevGameState on every heartbeat would let the
+                // second fallback tick overwrite it with "INGAME" and re-trigger the
+                // UI wipe. Keeping the last *different* state closes the race for any
+                // number of repeated same-state heartbeats in between.
+                if (event.payload.state !== state.lastGameState) {
+                    setState({ prevGameState: state.lastGameState });
+                }
                 setState({ lastGameState: event.payload.state });
                 setPayload(event.payload, true);
             }
@@ -650,12 +668,22 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     }
 
     function renderStateTransition(newState) {
-        // When going from pregame to in-game, keep the existing UI visible
-        // (same players, only stats update). For all other transitions, clear
-        // everything and show a loading state.
-        let isPregameToIngame = (state.lastGameState === "PREGAME" && newState === "INGAME");
+        // Decide whether to keep the current player UI or wipe it based on the
+        // actual from->to transition. We use `prevGameState` (the state of the
+        // last heartbeat we rendered) rather than `lastGameState`, because the
+        // backend's `state_change` event can be delivered AFTER the first INGAME
+        // heartbeat during the pregame->ingame handoff (e.g. when the pregame
+        // endpoint 404s and the backend falls back to an INGAME context lookup,
+        // it emits the INGAME heartbeat before the state_change event). In that
+        // race, `lastGameState` is already "INGAME" when state_change arrives, so
+        // comparing `lastGameState` would wrongly treat it as a non-handoff
+        // transition and wipe the player grid — losing all loaded data. Using
+        // `prevGameState` keeps the UI intact across pregame->ingame.
+        let isPregameToIngame = (state.prevGameState === "PREGAME" && newState === "INGAME");
         let label = STATE_LABELS[newState] || newState || "Unknown";
         if (isPregameToIngame) {
+            // Keep the existing player UI visible; the next INGAME heartbeat
+            // repopulates ranks/stats/loadouts in place.
             setState({ lastRenderKey: null }); // Ensure next heartbeat triggers a re-render
             showLoadingChip(label);
             return;
