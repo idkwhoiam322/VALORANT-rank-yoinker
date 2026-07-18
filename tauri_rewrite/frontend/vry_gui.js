@@ -99,6 +99,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         lastRenderKey: null,
         rankIcons: null,
         lastGameState: null,
+        playerButtons: new Map(),
         dirty: { meta: true, players: true, playedWith: true, details: true, json: true },
     };
 
@@ -106,6 +107,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     // an array (instead of re-parsing DOM textContent on every event) avoids
     // the O(n^2) split/join growth described in Analysis.md 2.2.
     var logLines = [];
+
+    // Handle for the pending screenshot toast-revert timer (Analysis.md 2.7).
+    // Tracked so rapid re-clicks clear the previous timer instead of stacking.
+    var screenshotToastTimer = null;
 
     var els = {
         blueGrid: document.getElementById("blueGrid"),
@@ -300,6 +305,17 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         showToast._t = setTimeout(function () { els.toast.classList.remove("show"); }, 3200);
     }
 
+    // Revert the screenshot success/error toast state after `ms`, clearing any
+    // previously scheduled revert first so timers don't pile up (Analysis.md 2.7).
+    function revertScreenshotToast(ms) {
+        if (screenshotToastTimer) clearTimeout(screenshotToastTimer);
+        screenshotToastTimer = setTimeout(function () {
+            els.toast.classList.remove("is-success");
+            els.toast.classList.remove("is-error");
+            screenshotToastTimer = null;
+        }, ms);
+    }
+
     async function captureToClipboard(target, buttonEl, opts) {
         if (!target) { showToast("No target element."); return; }
         buttonEl.disabled = true;
@@ -324,25 +340,28 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             doCleanup();
             if (opts.showBadge) document.body.classList.remove("show-you-badge");
             var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
-            if (!blob) { showToast("Screenshot failed."); buttonEl.disabled = false; return; }
+            if (!blob) {
+                if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
+                showToast("Screenshot failed."); buttonEl.disabled = false; return;
+            }
             if (navigator.clipboard && navigator.clipboard.write) {
                 try {
                     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-                    if (opts.styleToast) { els.toast.classList.add("is-success"); setTimeout(function () { els.toast.classList.remove("is-success"); }, 600); }
+                    if (opts.styleToast) { els.toast.classList.add("is-success"); revertScreenshotToast(600); }
                     showToast("Screenshot copied!");
                 } catch (e) {
-                    if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+                    if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
                     showToast("Screenshot copy failed.");
                 }
             } else {
-                if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+                if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
                 showToast("Clipboard API unavailable.");
             }
             buttonEl.disabled = false;
         } catch (e) {
             doCleanup();
             if (opts.showBadge) document.body.classList.remove("show-you-badge");
-            if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+            if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
             showToast("Screenshot failed.");
             buttonEl.disabled = false;
         }
@@ -458,15 +477,22 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function normalizePlayers(payload) {
         var rawPlayers = (payload && payload.players) || {};
         var myPuuid = payload && payload.puuid;
-        return Object.keys(rawPlayers).map(function (puuid) {
+        var players = [];
+        for (var puuid in rawPlayers) {
+            if (!Object.prototype.hasOwnProperty.call(rawPlayers, puuid)) continue;
             var p = rawPlayers[puuid] || {};
             p.puuid = p.puuid || puuid;
             p.isSelf = !!(myPuuid && p.puuid === myPuuid);
             p._weaponMap = {};
             var w = p.weapons || {};
-            Object.keys(w).forEach(function (key) { var entry = w[key]; if (entry && entry.weapon) p._weaponMap[entry.weapon] = entry; });
-            return p;
-        }).filter(function (p) { return p.name || p.agent || p.weapons; }).sort(function (a, b) {
+            for (var key in w) {
+                if (!Object.prototype.hasOwnProperty.call(w, key)) continue;
+                var entry = w[key];
+                if (entry && entry.weapon) p._weaponMap[entry.weapon] = entry;
+            }
+            players.push(p);
+        }
+        return players.filter(function (p) { return p.name || p.agent || p.weapons; }).sort(function (a, b) {
             // Self first
             if (a.isSelf) return -1;
             if (b.isSelf) return 1;
@@ -557,7 +583,9 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     }
 
     function updateSelection() {
-        document.querySelectorAll(".player-button").forEach(function (btn) {
+        // Use the cached button map built during renderPlayers() instead of
+        // re-querying the DOM (.player-button) on every selection change.
+        state.playerButtons.forEach(function (btn) {
             btn.classList.toggle("is-selected", btn.dataset.puuid === state.selectedPuuid);
         });
     }
@@ -569,22 +597,35 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         selectPlayer(button.dataset.puuid);
     }
 
-    function handlePlayerGridContextMenu(e) {
-        var button = e.target.closest(".player-button");
-        if (!button) return;
-        e.preventDefault();
-        var text = stripHint(e.target.title || button.title);
-        copyToClipboard(text).then(function () { showToast('Copied: ' + text); }).catch(function () { showToast('Failed to copy.'); });
-    }
-
-    function bindContextCopy(el) {
+    // ---- event delegation ----
+    // A single document-level contextmenu listener replaces the per-element
+    // bindContextCopy() listeners (and the grid-level handler) that were
+    // attached to ~40 freshly-created elements on every render. Those elements
+    // are destroyed on each heartbeat, so the old listeners churned GC. See
+    // Analysis.md 2.3.
+    function handleDelegatedContextMenu(e) {
+        var node = e.target;
+        if (node && node.nodeType === 3) node = node.parentNode; // text node
+        var el = null;
+        while (node && node !== document && node.nodeType === 1) {
+            if (node.title && node.title.indexOf(COPY_HINT) !== -1) { el = node; break; }
+            node = node.parentNode;
+        }
         if (!el) return;
-        el.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            var text = stripHint(this.title || this.textContent);
-            copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function () { showToast("Failed to copy."); });
-        });
+        e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        var text = stripHint(el.title || el.textContent);
+        copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function () { showToast("Failed to copy."); });
+    }
+    document.addEventListener("contextmenu", handleDelegatedContextMenu);
+
+    // Avatar <img> error fallback, delegated in the capture phase (error events
+    // do not bubble) so we no longer attach an onerror listener per avatar image.
+    function handleGridImageError(e) {
+        if (e.target && e.target.tagName === "IMG" && e.target.classList && e.target.classList.contains("agent-avatar")) {
+            var ph = makeAvatarPlaceholder();
+            if (e.target.parentNode) e.target.parentNode.replaceChild(ph, e.target);
+        }
     }
 
     var STATE_LABELS = { INGAME: "In-Game", PREGAME: "Agent Select", MENUS: "In-Menus", DISCONNECTED: "Disconnected" };
@@ -617,6 +658,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         // Clear player grids and show loading state across full width
         els.blueGrid.replaceChildren();
         els.redGrid.replaceChildren();
+        state.playerButtons = new Map();
         els.defHeader.textContent = label;
         els.defSection.hidden = false;
         els.atkSection.hidden = true;
@@ -670,6 +712,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function renderPlayers() {
         els.blueGrid.replaceChildren();
         els.redGrid.replaceChildren();
+        state.playerButtons = new Map();
         renderTeamHeaders();
         if (state.players.length === 0) {
             var msg = document.createElement("div");
@@ -689,6 +732,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             button.classList.toggle("is-selected", player.puuid === state.selectedPuuid);
             button.title = txt(player.name, "Unknown Player") + COPY_HINT;
             button.dataset.puuid = player.puuid;
+            state.playerButtons.set(player.puuid, button);
             var avatar = buildAgentAvatar(player.agentImgLink, player.agent, player.agentSelectionState);
             var identity = document.createElement("div");
             identity.className = "player-main";
@@ -797,7 +841,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             slot.title = skinLabel + COPY_HINT;
             copy.append(label, name);
             slot.append(copy);
-            bindContextCopy(slot);
             row.append(slot);
         });
         return row;
@@ -854,10 +897,14 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
 
     function renderExpressions(player) {
         els.expressionGrid.replaceChildren();
-        var expressions = Object.keys(player.sprays || {}).map(function (idx) {
-            var e = player.sprays[idx] || {};
-            return Object.assign({ index: Number(idx) }, e);
-        }).sort(function (a, b) { return a.index - b.index; });
+        var expressions = [];
+        var sprayKeys = player.sprays || {};
+        for (var idx in sprayKeys) {
+            if (!Object.prototype.hasOwnProperty.call(sprayKeys, idx)) continue;
+            var e = sprayKeys[idx] || {};
+            expressions.push(Object.assign({ index: Number(idx) }, e));
+        }
+        expressions.sort(function (a, b) { return a.index - b.index; });
         var slots = expressions.slice(0, 4);
         while (slots.length < 4) slots.push(null);
         var frag = document.createDocumentFragment();
@@ -881,7 +928,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             copy.append(name, type);
             tile.append(art, copy);
             frag.append(tile);
-            bindContextCopy(tile);
         });
         els.expressionGrid.append(frag);
     }
@@ -934,7 +980,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         name.title = name.textContent + vc + COPY_HINT;
         copy.append(label, name);
         tile.append(art, copy);
-        bindContextCopy(tile);
         if (weapon && weapon.buddy_displayIcon) {
             tile.classList.add("has-buddy");
             var buddy = document.createElement("img");
@@ -942,7 +987,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             buddy.src = safeHttps(weapon.buddy_displayIcon);
             buddy.alt = weapon.buddy_displayName || "Buddy";
             buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
-            bindContextCopy(buddy);
             tile.append(buddy);
         }
         return tile;
@@ -959,7 +1003,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         if (selectionState === "selected") img.classList.add("is-selecting");
         img.alt = alt || "";
         img.src = safeHttps(src);
-        img.addEventListener("error", function () { img.replaceWith(makeAvatarPlaceholder()); });
         return img;
     }
 
@@ -981,11 +1024,13 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         var currentPlayerNames = {};
         if (payload && payload.players) {
             var myPuuid = payload.puuid;
-            Object.keys(payload.players).forEach(function (puuid) {
-                if (puuid !== myPuuid && payload.players[puuid].name) {
-                    currentPlayerNames[payload.players[puuid].name] = true;
+            var pl = payload.players;
+            for (var puuid in pl) {
+                if (!Object.prototype.hasOwnProperty.call(pl, puuid)) continue;
+                if (puuid !== myPuuid && pl[puuid].name) {
+                    currentPlayerNames[pl[puuid].name] = true;
                 }
-            });
+            }
         }
         entries = entries.filter(function (entry) {
             return currentPlayerNames[entry.name] === true;
@@ -1012,6 +1057,9 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     }
 
     function renderJson() {
+        // Skip the (relatively expensive) JSON.stringify entirely when the
+        // debug panel is closed - it's only useful to the user when visible.
+        if (els.hbPanel && !els.hbPanel.open) return;
         var text = state.payload ? JSON.stringify(state.payload, null, 2) : "No data yet.";
         if (els.jsonPre.textContent !== text) {
             els.jsonPre.textContent = text;
@@ -1037,7 +1085,8 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             var original = button.textContent;
             button.textContent = "Copied!";
             button.classList.add("copied");
-            setTimeout(function () { button.textContent = original; button.classList.remove("copied"); }, 1500);
+            if (button._copyT) clearTimeout(button._copyT);
+            button._copyT = setTimeout(function () { button.textContent = original; button.classList.remove("copied"); }, 1500);
         };
         copyToClipboard(text).then(done);
     }
@@ -1113,8 +1162,8 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     // Event delegation for player grids
     els.blueGrid.addEventListener("click", handlePlayerGridClick);
     els.redGrid.addEventListener("click", handlePlayerGridClick);
-    els.blueGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
-    els.redGrid.addEventListener("contextmenu", handlePlayerGridContextMenu);
+    els.blueGrid.addEventListener("error", handleGridImageError, true);
+    els.redGrid.addEventListener("error", handleGridImageError, true);
 
     els.closeDetailsButton.addEventListener("click", deselectPlayer);
     els.detailsPanel.addEventListener("click", function (e) { if (e.target === els.detailsPanel) { deselectPlayer(); } });
@@ -1127,10 +1176,6 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     els.modalConfirm.addEventListener("click", requestRestart);
     els.confirmModal.addEventListener("click", function (e) { if (e.target === els.confirmModal) closeModal(); });
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
-    bindContextCopy(els.trnLink);
-    bindContextCopy(els.vtlLink);
-    bindContextCopy(els.topTrnLink);
-    bindContextCopy(els.topVtlLink);
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
         var p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
@@ -1149,7 +1194,6 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
         ];
         copyToClipboard(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }).catch(function () { showToast("Failed."); });
     });
-    [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(bindContextCopy);
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
     // Open log file
@@ -1188,6 +1232,13 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
         p.copy.addEventListener("click", function () { copyText(p.pre.textContent, p.copy); });
         p.refresh.addEventListener("click", p.render);
     });
+
+    // renderJson() early-returns while els.hbPanel is closed, so refresh
+    // immediately on open to avoid showing stale data. Matches the sibling
+    // open-to-refresh pattern used by the panels above.
+    if (els.hbPanel) {
+        els.hbPanel.addEventListener("toggle", function () { if (els.hbPanel.open) renderJson(); });
+    }
 
     // ---- boot ----
     setStatus("Starting", "pending");
