@@ -1,7 +1,31 @@
 // Tauri IPC bridge
-const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke || (() => Promise.reject(new Error('IPC unavailable')));
-const tauriListen = window.__TAURI__?.event?.listen || window.__TAURI__?.listen || (() => Promise.resolve(() => {}));
-const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (() => Promise.resolve());
+function pickTauriInvoke() {
+    var t = window.__TAURI__;
+    if (t && t.core && t.core.invoke) return t.core.invoke;
+    if (t && t.invoke) return t.invoke;
+    return null;
+}
+function pickTauriListen() {
+    var t = window.__TAURI__;
+    if (t && t.event && t.event.listen) return t.event.listen;
+    if (t && t.listen) return t.listen;
+    return null;
+}
+function pickTauriEmit() {
+    var t = window.__TAURI__;
+    if (t && t.event && t.event.emit) return t.event.emit;
+    if (t && t.emit) return t.emit;
+    return null;
+}
+var _tauriInvoke = pickTauriInvoke();
+var _tauriListen = pickTauriListen();
+var _tauriEmit = pickTauriEmit();
+var tauriInvoke = _tauriInvoke || (() => Promise.reject(new Error('IPC unavailable')));
+var tauriListen = _tauriListen || (() => Promise.resolve(() => {}));
+var tauriEmit = _tauriEmit || (() => Promise.resolve());
+if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
+    console.warn('[VRY] Tauri IPC global not detected; the app appears to be running outside the Tauri runtime. Backend-dependent features will be unavailable.');
+}
 
 (function () {
     "use strict";
@@ -61,6 +85,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         lastGameState: null,
         dirty: { meta: true, players: true, playedWith: true, details: true, json: true },
     };
+
+    // Dedicated buffer for the loading-overlay log tail. Keeping the lines in
+    // an array (instead of re-parsing DOM textContent on every event) avoids
+    // the O(n^2) split/join growth described in Analysis.md 2.2.
+    var logLines = [];
 
     var els = {
         blueGrid: document.getElementById("blueGrid"),
@@ -255,71 +284,74 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         showToast._t = setTimeout(function () { els.toast.classList.remove("show"); }, 3200);
     }
 
-    function takeScreenshot() {
-        if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
-        els.screenshotButton.disabled = true;
-        var target = els.teamsLayout;
-        if (!target) { showToast("No teams layout found."); els.screenshotButton.disabled = false; return; }
+    async function captureToClipboard(target, buttonEl, opts) {
+        if (!target) { showToast("No target element."); return; }
+        buttonEl.disabled = true;
         var cleanup = [];
-        function suppressOverlays() {
+        function doCleanup() { cleanup.forEach(function (fn) { fn(); }); }
+
+        if (opts.overlayStyle) {
             var s = document.createElement("style");
-            s.id = "tmp-scr";
-            s.textContent = "body::before { display: none !important; }.player-button { background: rgba(10, 14, 24, 0.92) !important; }.player-button::after { display: none !important; }.player-button.self-card,.player-button.is-blue,.player-button.is-red { background: rgba(10, 14, 24, 0.92) !important; box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }.player-button:hover,.player-button:focus-visible,.player-button.is-selected { transform: none !important; }* { animation: none !important; }";
+            s.id = opts.styleId || "tmp-scr";
+            s.textContent = opts.overlayStyle;
             document.head.appendChild(s);
-            cleanup.push(function () { var el = document.getElementById("tmp-scr"); if (el) el.remove(); });
+            cleanup.push(function () { var el = document.getElementById(s.id); if (el) el.remove(); });
         }
-        function hideDetailsPanel() {
+        if (opts.hideDetails) {
             var panel = els.detailsPanel;
             if (!panel.hidden) { panel.hidden = true; cleanup.push(function () { panel.hidden = false; }); }
         }
-        suppressOverlays();
-        hideDetailsPanel();
-        document.body.classList.add("show-you-badge");
-        html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" })
-            .then(function (canvas) {
-                cleanup.forEach(function (fn) { fn(); });
-                document.body.classList.remove("show-you-badge");
-                canvas.toBlob(function (blob) {
-                    if (!blob) { els.toast.classList.add("is-error"); showToast("Screenshot failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); els.screenshotButton.disabled = false; return; }
-                    if (navigator.clipboard && navigator.clipboard.write) {
-                        navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
-                            .then(function () { els.toast.classList.add("is-success"); showToast("Screenshot copied!"); setTimeout(function () { els.toast.classList.remove("is-success"); }, 600); })
-                            .catch(function () { els.toast.classList.add("is-error"); showToast("Screenshot copy failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); });
-                    } else { els.toast.classList.add("is-error"); showToast("Clipboard API unavailable."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
-                    els.screenshotButton.disabled = false;
-                }, "image/png");
-            }).catch(function () { cleanup.forEach(function (fn) { fn(); }); document.body.classList.remove("show-you-badge"); els.toast.classList.add("is-error"); showToast("Screenshot failed."); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); els.screenshotButton.disabled = false; });
+        if (opts.showBadge) document.body.classList.add("show-you-badge");
+
+        try {
+            var canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" });
+            doCleanup();
+            if (opts.showBadge) document.body.classList.remove("show-you-badge");
+            var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+            if (!blob) { showToast("Screenshot failed."); buttonEl.disabled = false; return; }
+            if (navigator.clipboard && navigator.clipboard.write) {
+                try {
+                    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                    if (opts.styleToast) { els.toast.classList.add("is-success"); setTimeout(function () { els.toast.classList.remove("is-success"); }, 600); }
+                    showToast("Screenshot copied!");
+                } catch (e) {
+                    if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+                    showToast("Screenshot copy failed.");
+                }
+            } else {
+                if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+                showToast("Clipboard API unavailable.");
+            }
+            buttonEl.disabled = false;
+        } catch (e) {
+            doCleanup();
+            if (opts.showBadge) document.body.classList.remove("show-you-badge");
+            if (opts.styleToast) { els.toast.classList.add("is-error"); setTimeout(function () { els.toast.classList.remove("is-error"); }, 600); }
+            showToast("Screenshot failed.");
+            buttonEl.disabled = false;
+        }
     }
 
-    function takeDetailScreenshot() {
+    async function takeScreenshot() {
+        if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
+        captureToClipboard(els.teamsLayout, els.screenshotButton, {
+            overlayStyle: "body::before { display: none !important; }.player-button { background: rgba(10, 14, 24, 0.92) !important; }.player-button::after { display: none !important; }.player-button.self-card,.player-button.is-blue,.player-button.is-red { background: rgba(10, 14, 24, 0.92) !important; box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }.player-button:hover,.player-button:focus-visible,.player-button.is-selected { transform: none !important; }* { animation: none !important; }",
+            styleId: "tmp-scr",
+            hideDetails: true,
+            showBadge: true,
+            styleToast: true
+        });
+    }
+
+    async function takeDetailScreenshot() {
         if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
         var target = els.detailsPanel;
         if (!target || target.hidden) { showToast("No player loadout open."); return; }
-        els.screenshotPlayerBtn.disabled = true;
-        var cleanup = [];
-        function suppressAnimations() {
-            var s = document.createElement("style");
-            s.id = "tmp-scr-det";
-            s.textContent = "* { animation: none !important; }";
-            document.head.appendChild(s);
-            cleanup.push(function () { var el = document.getElementById("tmp-scr-det"); if (el) el.remove(); });
-        }
-        suppressAnimations();
-        html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" })
-            .then(function (canvas) {
-                cleanup.forEach(function (fn) { fn(); });
-                canvas.toBlob(function (blob) {
-                    if (!blob) { showToast("Screenshot failed."); els.screenshotPlayerBtn.disabled = false; return; }
-                    if (navigator.clipboard && navigator.clipboard.write) {
-                        navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
-                            .then(function () { showToast("Screenshot copied!"); })
-                            .catch(function () { showToast("Screenshot copy failed."); });
-                    } else { showToast("Clipboard API unavailable."); }
-                    els.screenshotPlayerBtn.disabled = false;
-                }, "image/png");
-            }).catch(function () { cleanup.forEach(function (fn) { fn(); }); showToast("Screenshot failed."); els.screenshotPlayerBtn.disabled = false; });
+        captureToClipboard(target, els.screenshotPlayerBtn, {
+            overlayStyle: "* { animation: none !important; }",
+            styleId: "tmp-scr-det"
+        });
     }
-
     function setStatus(text, cls) {
         els.statusPill.className = "pill status-pill " + cls;
         els.statusText.textContent = text;
@@ -327,7 +359,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     }
 
     function resetState() {
-        try { localStorage.removeItem("vry-rust.cache"); } catch (e) {}
+        try { localStorage.removeItem("vry-rust.cache"); } catch (e) { console.warn("resetState: failed to clear localStorage cache:", e); }
         setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null });
         markAllDirty();
         render();
@@ -359,12 +391,10 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
         tauriListen("log_update", function (event) {
             var line = event.payload || "";
+            logLines.push(line);
+            if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
             if (els.loadingLogTail) {
-                var existing = els.loadingLogTail.textContent;
-                var lines = existing ? existing.split("\n") : [];
-                lines.push(line);
-                if (lines.length > 200) lines.splice(0, lines.length - 200);
-                els.loadingLogTail.textContent = lines.join("\n");
+                els.loadingLogTail.textContent = logLines.join("\n");
                 els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
             }
             if (els.logPanel && els.logPanel.open) {
@@ -395,7 +425,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         var unchanged = version !== undefined && version === state.lastRenderKey;
         setState({ payload: payload });
         setState({ rankIcons: payload && payload.rankIcons });
-        if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) {} }
+        if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) { console.warn("setPayload: failed to persist cache to localStorage:", e); } }
         if (unchanged) { bumpTimestampOnly(payload); return; }
         setState({ lastRenderKey: version });
         setState({ players: normalizePlayers(payload) });
@@ -523,7 +553,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         if (!button) return;
         e.preventDefault();
         var text = stripHint(e.target.title || button.title);
-        navigator.clipboard.writeText(text).then(function () { showToast('Copied: ' + text); }, function () { showToast('Failed to copy.'); });
+        copyToClipboard(text).then(function () { showToast('Copied: ' + text); }).catch(function () { showToast('Failed to copy.'); });
     }
 
     function bindContextCopy(el) {
@@ -532,7 +562,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             e.preventDefault();
             e.stopPropagation();
             var text = stripHint(this.title || this.textContent);
-            navigator.clipboard.writeText(text).then(function () { showToast("Copied: " + text); }, function () { showToast("Failed to copy."); });
+            copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function () { showToast("Failed to copy."); });
         });
     }
 
@@ -967,6 +997,19 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         }
     }
 
+    // Single clipboard-write primitive used everywhere. Resolves once `text`
+    // is on the clipboard (via the async Clipboard API or the execCommand
+    // fallback) so callers only need a success handler. Centralises the
+    // previously-inconsistent clipboard error handling.
+    function copyToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).catch(function () {
+                return new Promise(function (resolve) { fallbackCopy(text, resolve); });
+            });
+        }
+        return new Promise(function (resolve) { fallbackCopy(text, resolve); });
+    }
+
     function copyText(text, button) {
         if (!text) { showToast("Nothing to copy yet."); return; }
         var done = function () {
@@ -975,9 +1018,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
             button.classList.add("copied");
             setTimeout(function () { button.textContent = original; button.classList.remove("copied"); }, 1500);
         };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text, done); });
-        } else { fallbackCopy(text, done); }
+        copyToClipboard(text).then(done);
     }
 
     function copyJson(button) {
@@ -1085,7 +1126,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
             "Level: " + txt(p.level),
             "Last Active (Comp): " + txt(p.lastActive),
         ];
-        navigator.clipboard.writeText(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }, function () { showToast("Failed."); });
+        copyToClipboard(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }).catch(function () { showToast("Failed."); });
     });
     [els.playerCardPreview, els.selectedName, els.selectedCardTitle].forEach(bindContextCopy);
     els.screenshotButton.addEventListener("click", takeScreenshot);
