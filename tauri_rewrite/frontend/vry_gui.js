@@ -59,6 +59,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         lastRenderKey: null,
         rankIcons: null,
         lastGameState: null,
+        dirty: { meta: true, players: true, playedWith: true, details: true, json: true },
     };
 
     var els = {
@@ -139,6 +140,11 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     // ---- helpers ----
     function isEmpty(v) { return v === null || v === undefined || v === "" || (typeof v === "number" && Number.isNaN(v)); }
     function txt(v, fb) { return isEmpty(v) ? (fb === undefined ? NA : fb) : String(v); }
+
+    // Centralized state writer (Analysis.md 2.6). All top-level mutations of the
+    // global `state` object now flow through here so writes are explicit and
+    // auditable; it pairs with the dirty-flag change detection added for 4.9/1.4.
+    function setState(partial) { Object.assign(state, partial); }
 
     function rankName(idx, short) {
         if (isEmpty(idx)) return NA;
@@ -322,10 +328,8 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     function resetState() {
         try { localStorage.removeItem("vry-rust.cache"); } catch (e) {}
-        state.payload = null;
-        state.players = [];
-        state.lastRenderKey = null;
-        state.selectedPuuid = null;
+        setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null });
+        markAllDirty();
         render();
     }
 
@@ -334,7 +338,7 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         tauriListen("heartbeat", function (event) {
             setStatus("Connected", "live");
             if (event.payload && event.payload.players) {
-                state.lastGameState = event.payload.state;
+                setState({ lastGameState: event.payload.state });
                 setPayload(event.payload, true);
             }
         });
@@ -389,13 +393,14 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function setPayload(payload, shouldCache) {
         var version = payload && payload.version;
         var unchanged = version !== undefined && version === state.lastRenderKey;
-        state.payload = payload;
-        state.rankIcons = payload && payload.rankIcons;
+        setState({ payload: payload });
+        setState({ rankIcons: payload && payload.rankIcons });
         if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) {} }
         if (unchanged) { bumpTimestampOnly(payload); return; }
-        state.lastRenderKey = version;
-        state.players = normalizePlayers(payload);
-        if (!state.players.some(function (p) { return p.puuid === state.selectedPuuid; })) { state.selectedPuuid = null; }
+        setState({ lastRenderKey: version });
+        setState({ players: normalizePlayers(payload) });
+        if (state.selectedPuuid && !state.players.some(function (p) { return p.puuid === state.selectedPuuid; })) { setState({ selectedPuuid: null }); }
+        markAllDirty();
         render();
     }
 
@@ -433,7 +438,37 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
     function teamRank(team) { if (team === "Blue") return 0; if (team === "Red") return 1; return 2; }
     function teamClass(team) { if (team === "Blue") return "is-blue"; if (team === "Red") return "is-red"; return ""; }
 
-    function render() { renderMeta(); renderTopLinks(); renderPlayers(); renderPlayedWith(); renderDetails(); renderJson(); }
+    function markAllDirty() {
+        state.dirty.meta = true;
+        state.dirty.players = true;
+        state.dirty.playedWith = true;
+        state.dirty.details = true;
+        state.dirty.json = true;
+    }
+
+    // Coalesce the heavy grid rendering (renderMeta + renderPlayers) into a
+    // single requestAnimationFrame so the browser batches layout/paint once
+    // per frame instead of forcing a synchronous reflow on every
+    // replaceChildren()/append() pair. Rapid successive renders (e.g. a
+    // heartbeat immediately followed by a selection) collapse into one paint.
+    var gridRenderScheduled = false;
+    function scheduleGridRender() {
+        if (gridRenderScheduled) return;
+        gridRenderScheduled = true;
+        requestAnimationFrame(function () {
+            gridRenderScheduled = false;
+            if (state.dirty.meta) { renderMeta(); state.dirty.meta = false; }
+            if (state.dirty.players) { renderPlayers(); state.dirty.players = false; }
+        });
+    }
+
+    function render() {
+        scheduleGridRender();
+        renderTopLinks();
+        if (state.dirty.playedWith) { renderPlayedWith(); state.dirty.playedWith = false; }
+        if (state.dirty.details) { renderDetails(); state.dirty.details = false; }
+        if (state.dirty.json) { renderJson(); state.dirty.json = false; }
+    }
 
     function renderTopLinks() {
         var self = state.players.filter(function (p) { return p.isSelf; })[0];
@@ -457,14 +492,16 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
 
     // ---- targeted rendering for click interactions ----
     function selectPlayer(puuid) {
-        state.selectedPuuid = puuid;
+        setState({ selectedPuuid: puuid });
         updateSelection();
-        renderDetails();
+        state.dirty.details = true;
+        render();
     }
 
     function deselectPlayer() {
-        state.selectedPuuid = null;
-        renderDetails();
+        setState({ selectedPuuid: null });
+        state.dirty.details = true;
+        render();
         updateSelection();
     }
 
@@ -519,14 +556,12 @@ const tauriEmit = window.__TAURI__?.event?.emit || window.__TAURI__?.emit || (()
         var isPregameToIngame = (state.lastGameState === "PREGAME" && newState === "INGAME");
         var label = STATE_LABELS[newState] || newState || "Unknown";
         if (isPregameToIngame) {
-            state.lastRenderKey = null; // Ensure next heartbeat triggers a re-render
+            setState({ lastRenderKey: null }); // Ensure next heartbeat triggers a re-render
             showLoadingChip(label);
             return;
         }
         // Original clearing behavior for all other transitions
-        state.payload = null;
-        state.lastRenderKey = null;
-        state.players = [];
+        setState({ payload: null, lastRenderKey: null, players: [] });
         showLoadingChip(label);
         // Clear player grids and show loading state across full width
         els.blueGrid.replaceChildren();
