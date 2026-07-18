@@ -187,6 +187,13 @@
     .modal-confirm {
         background: var(--ember);
         color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .modal-confirm:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 8px 24px rgba(255, 70, 85, 0.25);
     }
 
     .toast {
