@@ -10,12 +10,8 @@ pub async fn clear_all_cache(
     app: AppHandle,
     services: State<'_, Arc<RwLock<AppServices>>>,
 ) -> Result<(), String> {
-    let svc = services.write().await;
-    svc.rank.invalidate_cache().await;
-    svc.stats.clear_cache().await;
-    svc.names.clear_cache().await;
-    svc.clear_match_player_cache();
-    drop(svc);
+    let svc = services.read().await;
+    svc.clear_volatile_caches().await;
     let _ = app.emit("cache_cleared", ());
     Ok(())
 }

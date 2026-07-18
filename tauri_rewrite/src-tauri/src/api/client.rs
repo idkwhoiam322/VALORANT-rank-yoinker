@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -85,6 +86,7 @@ pub struct ApiClient {
     logger: Mutex<Option<Arc<Logger>>>,
     entitlements: Arc<Mutex<Option<Entitlements>>>,
     client_version: Mutex<String>,
+    local_api_dead: AtomicBool,
 }
 
 impl ApiClient {
@@ -117,6 +119,7 @@ impl ApiClient {
             logger: Mutex::new(None),
             entitlements: Arc::new(Mutex::new(None)),
             client_version: Mutex::new(String::new()),
+            local_api_dead: AtomicBool::new(false),
         }
 
     }
@@ -159,13 +162,21 @@ impl ApiClient {
         self.client_version.lock().unwrap().clone()
     }
 
+    pub(crate) fn is_local_api_dead(&self) -> bool {
+        self.local_api_dead.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn clear_local_api_dead(&self) {
+        self.local_api_dead.store(false, Ordering::Relaxed);
+    }
+
     pub fn get_entitlements(&self) -> Option<Entitlements> {
         self.entitlements.lock().unwrap().clone()
     }
 
     /// Refresh both entitlements and client_version from local Riot client.
     /// Retries up to 3 times with 1s delay between attempts.
-    async fn refresh_entitlements_with_retry(&self) -> Result<(), ApiError> {
+    pub(crate) async fn refresh_entitlements_with_retry(&self) -> Result<(), ApiError> {
         const MAX_RETRIES: u32 = 3;
         const RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -449,6 +460,10 @@ impl ApiClient {
                 tokio::time::sleep(delay).await;
                 continue;
             }
+            if url_type == UrlType::Local && response.status().as_u16() == 503 {
+                self.local_api_dead.store(true, Ordering::Relaxed);
+                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+            }
             if response.status().is_server_error() {
                 return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
             }
@@ -600,6 +615,10 @@ impl ApiClient {
                 self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
                 tokio::time::sleep(delay).await;
                 continue;
+            }
+            if url_type == UrlType::Local && response.status().as_u16() == 503 {
+                self.local_api_dead.store(true, Ordering::Relaxed);
+                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
             }
             if response.status().is_server_error() {
                 return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
