@@ -792,12 +792,8 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             return;
         }
         let selfTeam = myTeam(payload);
-        var hasBlue = false, hasRed = false;
-        for (var k in payload.players) {
-            var p = payload.players[k];
-            if (p.team === "Blue") hasBlue = true;
-            if (p.team === "Red") hasRed = true;
-        }
+        let hasBlue = state.players.some(function (p) { return p.team === "Blue"; });
+        let hasRed = state.players.some(function (p) { return p.team === "Red"; });
         let singleTeam = (hasBlue && !hasRed) || (!hasBlue && hasRed);
         els.teamsLayout.classList.toggle("is-unified", singleTeam);
         if (singleTeam) {
