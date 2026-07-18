@@ -298,27 +298,15 @@
         position: relative;
     }
 
-    .json-copy-btn {
-        position: absolute;
-        top: 10px;
-        right: 20px;
-        padding: 6px 12px;
-        font-size: 0.68rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        border-radius: 6px;
-        border: 1px solid var(--line-strong);
-        background: var(--panel-strong);
-        color: var(--text);
-        z-index: 2;
-        cursor: pointer;
-    }
-
-    .json-copy-btn.copied {
+    .btn-action.copied {
         background: var(--green);
         color: #04241a;
         border-color: var(--green);
+    }
+
+    .btn-action.copied:hover:not(:disabled) {
+        box-shadow: none;
+        color: #04241a;
     }
 
     .json-btn-row {
@@ -327,10 +315,6 @@
         justify-content: flex-end;
         align-items: center;
         margin-bottom: 8px;
-    }
-
-    .json-btn-row .json-copy-btn {
-        position: static;
     }
 
     .json-section-label {
@@ -846,4 +830,10 @@
     #loadingLogTail:empty::before {
         content: "Waiting for the vRY backend to start logging...";
         color: var(--muted);
+    }
+
+    .loading-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
     }

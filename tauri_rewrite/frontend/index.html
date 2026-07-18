@@ -13,10 +13,13 @@
         <span class="loading-spinner"></span>
         <h2>Starting VRY&hellip;</h2>
         <p>Waiting for the backend to connect.</p>
-        <button id="loadingRefreshButton" class="btn-action refresh-btn" type="button" title="Restart vRY">
-            <span class="refresh-icon"></span>
-            Refresh
-        </button>
+        <div class="loading-actions">
+            <button id="loadingLogBtn" class="btn-action" type="button">Open logs</button>
+            <button id="loadingRefreshButton" class="btn-action refresh-btn" type="button" title="Restart vRY">
+                <span class="refresh-icon"></span>
+                Refresh
+            </button>
+        </div>
         <pre id="loadingLogTail" class="code-block"></pre>
     </div>
 
@@ -74,9 +77,9 @@
                 <summary id="logPanelSummary">Backend Log</summary>
                 <div class="json-panel-body">
                     <div class="json-btn-row">
-                        <button id="logOpenBtn" class="json-copy-btn" type="button" title="Open log file in default application">Open</button>
-                        <button id="logCopyBtn" class="json-copy-btn" type="button">Copy</button>
-                        <button id="logRefreshBtn" class="json-copy-btn" type="button">Refresh</button>
+                        <button id="logOpenBtn" class="btn-action" type="button" title="Open log file in default application">Open</button>
+                        <button id="logCopyBtn" class="btn-action" type="button">Copy</button>
+                        <button id="logRefreshBtn" class="btn-action" type="button">Refresh</button>
                     </div>
                     <pre id="logPre" class="code-block json-pre">No log data yet.</pre>
                 </div>
@@ -87,15 +90,15 @@
                 <div class="json-panel-body">
                     <div class="json-btn-row">
                         <span class="json-section-label">Raw JSON</span>
-                        <button id="jsonCopyBtn" class="json-copy-btn" type="button">Copy</button>
+                        <button id="jsonCopyBtn" class="btn-action" type="button">Copy</button>
                     </div>
                     <pre id="jsonPre" class="code-block json-pre">No data yet.</pre>
 
                     <div class="json-btn-row" style="margin-top:16px;">
                         <span class="json-section-label">History</span>
-                        <button id="hbOpenBtn" class="json-copy-btn" type="button" title="Open heartbeat file in default application">Open</button>
-                        <button id="hbCopyBtn" class="json-copy-btn" type="button">Copy</button>
-                        <button id="hbRefreshBtn" class="json-copy-btn" type="button">Refresh</button>
+                        <button id="hbOpenBtn" class="btn-action" type="button" title="Open heartbeat file in default application">Open</button>
+                        <button id="hbCopyBtn" class="btn-action" type="button">Copy</button>
+                        <button id="hbRefreshBtn" class="btn-action" type="button">Refresh</button>
                     </div>
                     <pre id="hbPre" class="code-block json-pre">No heartbeat data yet.</pre>
                 </div>
@@ -172,6 +175,7 @@
             <h3>Riot Client Sign-In Required</h3>
             <p id="authErrorMessage"></p>
             <div class="modal-actions">
+                <button class="btn-action" id="authErrorLogBtn" type="button">Open logs</button>
                 <button class="modal-confirm" id="authErrorRefreshBtn" type="button">Refresh</button>
             </div>
         </div>

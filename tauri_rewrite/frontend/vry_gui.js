@@ -1219,6 +1219,19 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
         });
     }
 
+    // Start-up view: Open logs buttons
+    function openLogFile() {
+        tauriInvoke("open_log_file").catch(function () { showToast("Failed to open log file"); });
+    }
+    let loadingLogBtn = document.getElementById("loadingLogBtn");
+    if (loadingLogBtn) {
+        loadingLogBtn.addEventListener("click", openLogFile);
+    }
+    let authErrorLogBtn = document.getElementById("authErrorLogBtn");
+    if (authErrorLogBtn) {
+        authErrorLogBtn.addEventListener("click", openLogFile);
+    }
+
     // Open log file
     [
         { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, refresh: els.logRefreshBtn, render: renderLogTail },
