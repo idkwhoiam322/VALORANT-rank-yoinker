@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
+use crate::api::response_helpers::first_str;
 use crate::models::auth::Entitlements;
 
 pub struct NamesService {
@@ -74,9 +75,9 @@ impl NamesService {
                         for entry in entries {
                             let puuid = entry.get("puuid").and_then(|v| v.as_str());
                             let alias = entry.get("alias");
-                            if let (Some(puuid), Some(alias)) = (puuid, alias) {
-                                let game_name = alias.get("gameName").or_else(|| alias.get("game_name")).or_else(|| alias.get("GameName")).and_then(|v| v.as_str());
-                                let tag_line = alias.get("tagLine").or_else(|| alias.get("tag_line")).or_else(|| alias.get("TagLine")).and_then(|v| v.as_str());
+                                if let (Some(puuid), Some(alias)) = (puuid, alias) {
+                                let game_name = first_str(alias, &["gameName", "game_name", "GameName"]);
+                                let tag_line = first_str(alias, &["tagLine", "tag_line", "TagLine"]);
                                 if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
                                     cached_names.insert(puuid.to_string(), format!("{}#{}", game_name, tag_line));
                                 }
@@ -84,7 +85,9 @@ impl NamesService {
                         }
                     }
                 }
-                Err(_e) => {}
+                Err(e) => {
+                    log::warn!("names: local name lookup failed: {e}");
+                }
             }
 
             // Fallback: fetch remaining via PD name-service
@@ -95,7 +98,7 @@ impl NamesService {
                 .collect();
 
             if !still_missing.is_empty() {
-                if let Ok(val) = self
+                match self
                     .client
                     .fetch_json_retry_with_body::<serde_json::Value>(
                         UrlType::Pd,
@@ -110,15 +113,20 @@ impl NamesService {
                     )
                     .await
                 {
-                    if let Some(arr) = val.as_array() {
-                        for player in arr {
-                            let subject = player.get("Subject").or_else(|| player.get("subject")).and_then(|v| v.as_str());
-                            let game_name = player.get("GameName").or_else(|| player.get("game_name")).and_then(|v| v.as_str());
-                            let tag_line = player.get("TagLine").or_else(|| player.get("tag_line")).and_then(|v| v.as_str());
-                            if let (Some(subject), Some(game_name), Some(tag_line)) = (subject, game_name, tag_line) {
-                                cached_names.insert(subject.to_string(), format!("{}#{}", game_name, tag_line));
+                    Ok(val) => {
+                        if let Some(arr) = val.as_array() {
+                            for player in arr {
+                                let subject = first_str(player, &["Subject", "subject"]);
+                                let game_name = first_str(player, &["GameName", "game_name"]);
+                                let tag_line = first_str(player, &["TagLine", "tag_line"]);
+                                if let (Some(subject), Some(game_name), Some(tag_line)) = (subject, game_name, tag_line) {
+                                    cached_names.insert(subject.to_string(), format!("{}#{}", game_name, tag_line));
+                                }
                             }
                         }
+                    }
+                    Err(e) => {
+                        log::warn!("names: PD name service fallback failed: {e}");
                     }
                 }
             }

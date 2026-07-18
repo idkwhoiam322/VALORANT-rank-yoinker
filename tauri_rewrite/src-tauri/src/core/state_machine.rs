@@ -11,6 +11,7 @@ use crate::api::auth;
 use crate::api::client::{ApiClient, UrlType};
 use crate::api::content::fetch_all_content;
 use crate::api::endpoints;
+use crate::api::response_helpers::{get_match_score, get_winning_team};
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
@@ -448,28 +449,10 @@ impl MainLoop {
                         |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
                     ).await {
                         Ok(match_data) => {
-                            let winning_team = match_data["matchInfo"]["winningTeam"]
-                                .as_str()
-                                .or_else(|| match_data["matchInfo"]["WinningTeam"].as_str())
-                                .or_else(|| {
-                                    match_data["teams"].as_array().and_then(|teams| {
-                                        teams.iter().find(|t| t["won"].as_bool() == Some(true))
-                                            .and_then(|t| {
-                                                t["teamId"].as_str()
-                                                    .or_else(|| t["teamID"].as_str())
-                                                    .or_else(|| t["TeamID"].as_str())
-                                            })
-                                    })
-                                });
-                            let score = (|| -> Option<String> {
-                                let teams = match_data["teams"].as_array()?;
-                                if teams.len() < 2 { return None; }
-                                let t0 = teams[0]["roundsWon"].as_i64().or_else(|| teams[0]["RoundsWon"].as_i64()).unwrap_or(0);
-                                let t1 = teams[1]["roundsWon"].as_i64().or_else(|| teams[1]["RoundsWon"].as_i64()).unwrap_or(0);
-                                Some(format!("{t0}-{t1}"))
-                            })();
+                            let winning_team = get_winning_team(&match_data);
+                            let score = get_match_score(&match_data);
                             if let Some(winning_team) = winning_team {
-                                snap.encounters.update_match_result(match_id, my_team, winning_team, score.clone());
+                                snap.encounters.update_match_result(match_id, my_team, &winning_team, score.clone());
                                 snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
                             } else {
                                 snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");

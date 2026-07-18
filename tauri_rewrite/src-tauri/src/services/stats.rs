@@ -68,8 +68,8 @@ impl StatsService {
             .await
         {
             Ok(u) => u,
-            Err(_e) => {
-                log::debug!("stats: competitive updates failed for {}: {_e:?}", &crate::api::client::anon_id(puuid));
+            Err(e) => {
+                log::warn!("stats: competitive updates failed for {}: {e:?}", &crate::api::client::anon_id(puuid));
                 return PlayerStats::default_stats();
             },
         };
@@ -133,7 +133,7 @@ impl StatsService {
                         }
                     }
                     Err(e) => {
-                        log::debug!("stats: match details fetch failed for {}: {e:?}", &crate::api::client::anon_id(&match_id));
+                        log::warn!("stats: match details fetch failed for {}: {e:?}", &crate::api::client::anon_id(&match_id));
                         None
                     },
                 }
