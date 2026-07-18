@@ -80,6 +80,7 @@ pub struct ApiClient {
     pd_base: Mutex<Arc<str>>,
     glz_base: Mutex<Arc<str>>,
     rate_limiters: [Mutex<RateLimiter>; 4],
+    rate_cooldown: [Mutex<Option<Instant>>; 4],
     local_password: Mutex<SecretString>,
     local_auth_header: Mutex<Option<SecretString>>,
     local_base: Mutex<Arc<str>>,
@@ -112,6 +113,12 @@ impl ApiClient {
                 Mutex::new(RateLimiter::new(5)),  // Glz
                 Mutex::new(RateLimiter::new(20)), // Local
                 Mutex::new(RateLimiter::new(5)),  // Custom
+            ],
+            rate_cooldown: [
+                Mutex::new(None), // Pd
+                Mutex::new(None), // Glz
+                Mutex::new(None), // Local
+                Mutex::new(None), // Custom
             ],
             local_password: Mutex::new(SecretString::from(String::new())),
             local_auth_header: Mutex::new(None),
@@ -293,14 +300,20 @@ impl ApiClient {
     }
 
     /// Determine delay before retrying a 429 response.
-    /// Uses `Retry-After` header if present; falls back to exponential backoff (5s * 2^attempt, max 60s).
+    /// Uses `Retry-After` header if present and non-zero; otherwise falls back to
+    /// exponential backoff (5s * 2^attempt, max 60s). A `Retry-After: 0` (or missing)
+    /// header no longer means "retry immediately" — it would otherwise busy-loop while
+    /// the server is still throttling.
     fn retry_after_delay(response: &Response, attempt: usize) -> Duration {
-        if let Some(retry_after) = response.headers()
+        let header_secs = response
+            .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-        {
-            return Duration::from_secs(retry_after);
+            .and_then(|s| s.parse::<u64>().ok());
+        if let Some(secs) = header_secs {
+            if secs > 0 {
+                return Duration::from_secs(secs);
+            }
         }
         Duration::from_secs((5u64 * 2u64.pow(attempt as u32)).min(60))
     }
@@ -354,6 +367,39 @@ impl ApiClient {
             UrlType::Local => 2,
             UrlType::Custom => 3,
         }
+    }
+
+    /// Remaining cooldown for `url_type`, if a 429 with `Retry-After` was seen
+    /// recently. `Local` (localhost Riot client) is never cooled down.
+    fn cooldown_remaining(&self, url_type: UrlType) -> Option<Duration> {
+        if url_type == UrlType::Local {
+            return None;
+        }
+        let guard = self.rate_cooldown[Self::limiter_index(url_type)].lock().unwrap();
+        match *guard {
+            Some(expiry) => {
+                let rem = expiry.saturating_duration_since(Instant::now());
+                if rem.is_zero() {
+                    None
+                } else {
+                    Some(rem)
+                }
+            }
+            None => None,
+        }
+    }
+
+    /// Record a cooldown for `url_type` so all subsequent calls to that host back
+    /// off together. `Local` and zero/negative durations are ignored. Extends any
+    /// existing cooldown (max of old and new expiry) rather than overwriting, so a
+    /// shorter backoff from a later 429 can't shrink an already-established window.
+    fn set_cooldown(&self, url_type: UrlType, dur: Duration) {
+        if url_type == UrlType::Local || dur.is_zero() {
+            return;
+        }
+        let new_expiry = Instant::now() + dur;
+        let mut guard = self.rate_cooldown[Self::limiter_index(url_type)].lock().unwrap();
+        *guard = Some(guard.map_or(new_expiry, |e| e.max(new_expiry)));
     }
 
     fn url_for(&self, url_type: UrlType, endpoint: &str) -> String {
@@ -438,11 +484,16 @@ impl ApiClient {
 
         for attempt in 0..MAX_429_RETRIES {
             let idx = Self::limiter_index(url_type);
+            // Shared per-host cooldown: once any call to this host is told to back
+            // off (429 + Retry-After), every subsequent call to the same host waits
+            // out the remainder together instead of each rediscovering the limit.
+            if let Some(rem) = self.cooldown_remaining(url_type) {
+                self.app_log(&format!("[API] rate limited ({url_type:?}) - cooling down {rem:?}"));
+                tokio::time::sleep(rem).await;
+            }
             let wait = {
                 let mut limiter = self.rate_limiters[idx].lock().unwrap();
-                let wait = limiter.check_rate();
-                limiter.record_request();
-                wait
+                limiter.check_rate()
             };
             if let Some(delay) = wait {
                 self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
@@ -456,6 +507,7 @@ impl ApiClient {
             }
             if response.status().as_u16() == 429 {
                 let delay = Self::retry_after_delay(&response, attempt);
+                self.set_cooldown(url_type, delay);
                 self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
                 tokio::time::sleep(delay).await;
                 continue;
@@ -468,6 +520,10 @@ impl ApiClient {
                 return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
             }
 
+            // Only count successful requests against the per-second limiter; 429s
+            // would otherwise inflate the window and tighten throttling further.
+            let mut limiter = self.rate_limiters[idx].lock().unwrap();
+            limiter.record_request();
             return Ok(response);
         }
 
@@ -594,11 +650,16 @@ impl ApiClient {
 
         for attempt in 0..MAX_429_RETRIES {
             let idx = Self::limiter_index(url_type);
+            // Shared per-host cooldown: once any call to this host is told to back
+            // off (429 + Retry-After), every subsequent call to the same host waits
+            // out the remainder together instead of each rediscovering the limit.
+            if let Some(rem) = self.cooldown_remaining(url_type) {
+                self.app_log(&format!("[API] rate limited ({url_type:?}) - cooling down {rem:?}"));
+                tokio::time::sleep(rem).await;
+            }
             let wait = {
                 let mut limiter = self.rate_limiters[idx].lock().unwrap();
-                let wait = limiter.check_rate();
-                limiter.record_request();
-                wait
+                limiter.check_rate()
             };
             if let Some(delay) = wait {
                 self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
@@ -612,6 +673,7 @@ impl ApiClient {
             }
             if response.status().as_u16() == 429 {
                 let delay = Self::retry_after_delay(&response, attempt);
+                self.set_cooldown(url_type, delay);
                 self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
                 tokio::time::sleep(delay).await;
                 continue;
@@ -624,6 +686,10 @@ impl ApiClient {
                 return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
             }
 
+            // Only count successful requests against the per-second limiter; 429s
+            // would otherwise inflate the window and tighten throttling further.
+            let mut limiter = self.rate_limiters[idx].lock().unwrap();
+            limiter.record_request();
             return Ok(response);
         }
 
@@ -797,14 +863,18 @@ impl ApiClient {
         headers.insert("User-Agent", "VRY/1.0".parse().unwrap());
 
         for attempt in 0..MAX_429_RETRIES {
-            // Use Custom rate limiter slot (5 req/s) for valorant-api.com
+            // Use Custom rate limiter slot (5 req/s) for valorant-api.com.
+            // Shared per-host cooldown so a 429 on one ValAPI call backs off all
+            // subsequent ValAPI calls together.
+            let idx = Self::limiter_index(UrlType::Custom);
+            if let Some(rem) = self.cooldown_remaining(UrlType::Custom) {
+                self.app_log(&format!("[API] rate limited (ValAPI) - cooling down {rem:?}"));
+                tokio::time::sleep(rem).await;
+            }
             {
-                let idx = Self::limiter_index(UrlType::Custom);
                 let wait = {
                     let mut limiter = self.rate_limiters[idx].lock().unwrap();
-                    let wait = limiter.check_rate();
-                    limiter.record_request();
-                    wait
+                    limiter.check_rate()
                 };
                 if let Some(delay) = wait {
                     self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
@@ -817,6 +887,7 @@ impl ApiClient {
 
             if status.as_u16() == 429 {
                 let delay = Self::retry_after_delay(&resp, attempt);
+                self.set_cooldown(UrlType::Custom, delay);
                 self.app_log(&format!("[API] 429 Too Many Requests (ValAPI {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
                 tokio::time::sleep(delay).await;
                 continue;
@@ -833,6 +904,9 @@ impl ApiClient {
                 )));
             }
 
+            // Only count successful requests against the per-second limiter.
+            let mut limiter = self.rate_limiters[idx].lock().unwrap();
+            limiter.record_request();
             return serde_json::from_str(&text).map_err(|e| {
                 ApiError::ServerError(format!("ValAPI JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
             });
