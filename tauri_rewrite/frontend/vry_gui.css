@@ -182,6 +182,12 @@
         background: var(--panel-soft);
         border: 1px solid var(--line);
         color: var(--text);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .modal-cancel:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 1px var(--line-strong), 0 8px 24px rgba(0, 0, 0, 0.3);
     }
 
     .modal-confirm {
