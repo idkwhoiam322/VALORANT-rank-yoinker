@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use reqwest::{Client, ClientBuilder, Method, Response};
 use reqwest::header::HeaderMap;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
 use crate::api::endpoints;
@@ -75,11 +76,12 @@ impl RateLimiter {
 pub struct ApiClient {
     client: Client,
     local_client: Client,
-    pd_url: Mutex<String>,
-    glz_url: Mutex<String>,
+    pd_base: Mutex<Arc<str>>,
+    glz_base: Mutex<Arc<str>>,
     rate_limiters: [Mutex<RateLimiter>; 4],
-    local_password: Mutex<String>,
-    local_port: Mutex<u16>,
+    local_password: Mutex<SecretString>,
+    local_auth_header: Mutex<Option<SecretString>>,
+    local_base: Mutex<Arc<str>>,
     logger: Mutex<Option<Arc<Logger>>>,
     entitlements: Arc<Mutex<Option<Entitlements>>>,
     client_version: Mutex<String>,
@@ -101,16 +103,17 @@ impl ApiClient {
         Self {
             client,
             local_client,
-            pd_url: Mutex::new(pd_url),
-            glz_url: Mutex::new(glz_url),
+            pd_base: Mutex::new(pd_url.into()),
+            glz_base: Mutex::new(glz_url.into()),
             rate_limiters: [
                 Mutex::new(RateLimiter::new(8)),  // Pd
                 Mutex::new(RateLimiter::new(5)),  // Glz
                 Mutex::new(RateLimiter::new(20)), // Local
                 Mutex::new(RateLimiter::new(5)),  // Custom
             ],
-            local_password: Mutex::new(String::new()),
-            local_port: Mutex::new(0),
+            local_password: Mutex::new(SecretString::from(String::new())),
+            local_auth_header: Mutex::new(None),
+            local_base: Mutex::new("https://127.0.0.1:0".into()),
             logger: Mutex::new(None),
             entitlements: Arc::new(Mutex::new(None)),
             client_version: Mutex::new(String::new()),
@@ -123,17 +126,25 @@ impl ApiClient {
     }
 
     pub fn update_urls(&self, pd_url: String, glz_url: String) {
-        *self.pd_url.lock().unwrap() = pd_url;
-        *self.glz_url.lock().unwrap() = glz_url;
+        *self.pd_base.lock().unwrap() = pd_url.into();
+        *self.glz_base.lock().unwrap() = glz_url.into();
     }
 
     pub fn set_local_auth(&self, password: String, port: u16) {
-        *self.local_password.lock().unwrap() = password;
-        *self.local_port.lock().unwrap() = port;
+        let header = format!(
+            "Basic {}",
+            base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                format!("riot:{password}")
+            )
+        );
+        *self.local_password.lock().unwrap() = SecretString::from(password);
+        *self.local_auth_header.lock().unwrap() = Some(SecretString::from(header));
+        *self.local_base.lock().unwrap() = format!("https://127.0.0.1:{}", port).into();
     }
 
     pub fn get_local_password(&self) -> String {
-        self.local_password.lock().unwrap().clone()
+        self.local_password.lock().unwrap().clone().expose_secret().to_string()
     }
 
     pub fn entitlements_arc(&self) -> Arc<Mutex<Option<Entitlements>>> {
@@ -333,12 +344,22 @@ impl ApiClient {
     }
 
     fn url_for(&self, url_type: UrlType, endpoint: &str) -> String {
+        // Clone the Arc (a cheap atomic refcount bump) while the lock is held
+        // for that instant only, then build the final URL string after the
+        // guard has already been dropped, so the mutex is never held across
+        // the string formatting work. See Analysis.md 1.7.
         match url_type {
-            UrlType::Pd => format!("{}{}", self.pd_url.lock().unwrap(), endpoint),
-            UrlType::Glz => format!("{}{}", self.glz_url.lock().unwrap(), endpoint),
+            UrlType::Pd => {
+                let base = self.pd_base.lock().unwrap().clone();
+                format!("{}{}", base, endpoint)
+            }
+            UrlType::Glz => {
+                let base = self.glz_base.lock().unwrap().clone();
+                format!("{}{}", base, endpoint)
+            }
             UrlType::Local => {
-                let port = *self.local_port.lock().unwrap();
-                format!("https://127.0.0.1:{}{}", port, endpoint)
+                let base = self.local_base.lock().unwrap().clone();
+                format!("{}{}", base, endpoint)
             }
             UrlType::Custom => endpoint.to_string(),
         }
@@ -374,14 +395,22 @@ impl ApiClient {
 
         let mut header_map = HeaderMap::new();
         if url_type == UrlType::Local {
-            let password = self.local_password.lock().unwrap().clone();
-            let auth = format!(
-                "Basic {}",
-                base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    format!("riot:{}", password)
-                )
-            );
+            let auth = {
+                let guard = self.local_auth_header.lock().unwrap();
+                if let Some(h) = guard.as_ref() {
+                    h.expose_secret().to_string()
+                } else {
+                    drop(guard);
+                    let pw = self.local_password.lock().unwrap().clone().expose_secret().to_string();
+                    format!(
+                        "Basic {}",
+                        base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            format!("riot:{pw}")
+                        )
+                    )
+                }
+            };
             header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
                 Ok(v) => v,
                 Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
@@ -518,14 +547,22 @@ impl ApiClient {
 
         let mut header_map = HeaderMap::new();
         if url_type == UrlType::Local {
-            let password = self.local_password.lock().unwrap().clone();
-            let auth = format!(
-                "Basic {}",
-                base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    format!("riot:{}", password)
-                )
-            );
+            let auth = {
+                let guard = self.local_auth_header.lock().unwrap();
+                if let Some(h) = guard.as_ref() {
+                    h.expose_secret().to_string()
+                } else {
+                    drop(guard);
+                    let pw = self.local_password.lock().unwrap().clone().expose_secret().to_string();
+                    format!(
+                        "Basic {}",
+                        base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            format!("riot:{pw}")
+                        )
+                    )
+                }
+            };
             header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
                 Ok(v) => v,
                 Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),

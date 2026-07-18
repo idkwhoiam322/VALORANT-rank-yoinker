@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use secrecy::{ExposeSecret, SecretString};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lockfile {
@@ -9,18 +11,21 @@ pub struct Lockfile {
     pub protocol: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// Entitlements is held in memory only and turned into request headers via
+// `build_headers`. It is intentionally NOT Serialize/Deserialize: the token and
+// access_token are secrets and must never be (de)serialized to JSON/logs.
+#[derive(Debug, Clone)]
 pub struct Entitlements {
-    pub access_token: String,
-    pub token: String,
+    pub access_token: SecretString,
+    pub token: SecretString,
     pub subject: String,
 }
 
 impl Entitlements {
     pub fn build_headers(&self, client_version: &str) -> Vec<(String, String)> {
         vec![
-            ("Authorization".into(), format!("Bearer {}", self.access_token)),
-            ("X-Riot-Entitlements-JWT".into(), self.token.clone()),
+            ("Authorization".into(), format!("Bearer {}", self.access_token.expose_secret())),
+            ("X-Riot-Entitlements-JWT".into(), self.token.expose_secret().to_string()),
             ("X-Riot-ClientPlatform".into(), CLIENT_PLATFORM.into()),
             ("X-Riot-ClientVersion".into(), client_version.into()),
             ("User-Agent".into(), USER_AGENT.into()),

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use secrecy::SecretString;
+
 use crate::models::auth::{Entitlements, Lockfile, Region};
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
@@ -144,14 +146,18 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
     }
 
     let entitlements = Entitlements {
-        access_token: json["accessToken"]
-            .as_str()
-            .ok_or_else(|| ApiError::Auth("Missing accessToken".into()))?
-            .to_string(),
-        token: json["token"]
-            .as_str()
-            .ok_or_else(|| ApiError::Auth("Missing token".into()))?
-            .to_string(),
+        access_token: SecretString::from(
+            json["accessToken"]
+                .as_str()
+                .ok_or_else(|| ApiError::Auth("Missing accessToken".into()))?
+                .to_string(),
+        ),
+        token: SecretString::from(
+            json["token"]
+                .as_str()
+                .ok_or_else(|| ApiError::Auth("Missing token".into()))?
+                .to_string(),
+        ),
         subject: json["subject"]
             .as_str()
             .ok_or_else(|| ApiError::Auth("Missing subject".into()))?
