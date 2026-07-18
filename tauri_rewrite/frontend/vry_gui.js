@@ -426,6 +426,14 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             setStatus("Connected", "live");
         });
 
+        tauriListen("riot_client_launching", function () {
+            setStatus("Launching Riot Client…", "loading");
+        });
+
+        tauriListen("riot_client_waiting", function () {
+            setStatus("Waiting for Riot Client…", "loading");
+        });
+
         tauriListen("cache_cleared", function () {
             resetState();
         });

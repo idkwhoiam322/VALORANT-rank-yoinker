@@ -24,6 +24,111 @@ pub fn get_log_path() -> PathBuf {
     PathBuf::from(localappdata).join(LOG_PATH)
 }
 
+/// Path to `RiotClientInstalls.json`, which records the installed Riot Client
+/// executable location. Mirrors the Python launcher
+/// (`account_config.py:get_riot_client_path`).
+fn get_riot_client_installs_path() -> PathBuf {
+    let allusers = std::env::var("ALLUSERSPROFILE")
+        .unwrap_or_else(|_| r"C:\ProgramData".into());
+    PathBuf::from(allusers).join(r"Riot Games\RiotClientInstalls.json")
+}
+
+/// Resolve the Riot Client executable path.
+///
+/// Reads `RiotClientInstalls.json` (a JSON dict of client key -> install path)
+/// and returns the first value whose path exists; falls back to the common
+/// fixed install locations. Returns `None` only if nothing is found.
+pub fn get_riot_client_install_path() -> Option<PathBuf> {
+    let candidates: Vec<PathBuf> = {
+        let installs = get_riot_client_installs_path();
+        let mut list = Vec::new();
+        if let Ok(text) = std::fs::read_to_string(&installs) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(obj) = json.as_object() {
+                    for (_k, v) in obj {
+                        if let Some(s) = v.as_str() {
+                            list.push(PathBuf::from(s));
+                        }
+                    }
+                }
+            }
+        }
+        list
+    };
+
+    for path in &candidates {
+        if path.exists() {
+            return Some(path.clone());
+        }
+    }
+
+    let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let fallbacks = [
+        PathBuf::from(localappdata).join(r"Riot Games\Riot Client\RiotClientServices.exe"),
+        PathBuf::from(r"C:\Riot Games\Riot Client\RiotClientServices.exe"),
+    ];
+    for path in &fallbacks {
+        if path.exists() {
+            return Some(path.clone());
+        }
+    }
+    None
+}
+
+/// Launch the Riot Client only (no `--launch-product` flag, so VALORANT is
+/// not auto-started). The Riot Client alone creates the lockfile we wait on,
+/// which is all vRY needs to read ranks/presence. Uses `cmd /c start` so the
+/// child is detached from vRY — no extra crate required.
+///
+/// The presence of the lockfile is the only signal we use to decide whether to
+/// launch. A backgrounded / signed-out RC keeps its lockfile, so we never
+/// relaunch on top of an existing instance (avoids duplicate processes).
+pub fn launch_riot_client() {
+    if let Some(path) = get_riot_client_install_path() {
+        let path_str = path.to_string_lossy().to_string();
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path_str])
+            .spawn();
+    }
+}
+
+/// Block until the Riot Client lockfile is present and parseable, launching the
+/// Riot Client once if it is absent.
+///
+/// The lockfile's mere existence is a *free* on-disk `Path::exists()` check
+/// (no API call, negligible CPU/disk), so polling it is safe to repeat. We use
+/// `budget` as the outer timeout; inside it we poll existence every ~1s so we
+/// react promptly once RC starts, then attempt to parse the lockfile.
+///
+/// Note: existence does NOT mean the local API is ready (e.g. a backgrounded RC
+/// whose endpoints are not yet bound). Callers must still attempt the real
+/// auth/connect and treat failure as "not ready yet", exactly like Python's
+/// `get_headers()` retry-on-ConnectionError.
+pub async fn ensure_lockfile_ready(budget: Duration) -> Option<Lockfile> {
+    let path = get_lockfile_path();
+    if path.exists() {
+        if let Ok(lf) = parse_lockfile(&path) {
+            return Some(lf);
+        }
+    }
+
+    // Lockfile absent (RC fully closed) — launch once, then wait for it.
+    launch_riot_client();
+
+    let start = std::time::Instant::now();
+    loop {
+        if path.exists() {
+            if let Ok(lf) = parse_lockfile(&path) {
+                return Some(lf);
+            }
+        }
+        if start.elapsed() >= budget {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 pub fn parse_lockfile(path: &PathBuf) -> Result<Lockfile, ApiError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ApiError::Lockfile(format!("Cannot read lockfile: {}", e)))?;

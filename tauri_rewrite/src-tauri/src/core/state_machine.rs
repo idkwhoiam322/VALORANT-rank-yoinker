@@ -307,13 +307,17 @@ impl MainLoop {
         let mut svc = services.write().await;
         svc.log("Initializing...");
 
-        // 1. Read lockfile
-        let lockfile_path = auth::get_lockfile_path();
-        if !lockfile_path.exists() {
-            return Err("Lockfile not found. Is Riot Client running?".into());
-        }
-        let lockfile = auth::parse_lockfile(&lockfile_path)
-            .map_err(|e| format!("Lockfile parse: {e}"))?;
+        // 1. Read lockfile (launch Riot Client if fully closed, then wait)
+        svc.log("Launching Riot Client if needed, waiting for lockfile…");
+        let _ = app.emit("riot_client_launching", serde_json::json!({}));
+        let lockfile = match auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await {
+            Some(lf) => lf,
+            None => return Err(
+                "Riot Client did not start / lockfile not found within 60s. Is it installed?"
+                    .into(),
+            ),
+        };
+        let _ = app.emit("riot_client_waiting", serde_json::json!({}));
         *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) = Some(lockfile.port);
 
         // 2. Read region from logs
@@ -471,6 +475,25 @@ impl MainLoop {
                         match_context = None;
                         last_state = None;
                         last_heartbeat_key = None;
+
+                        // If RC is fully closed the lockfile is gone; wait for the
+                        // user to (re)launch it and re-read the *fresh* port /
+                        // password. A backgrounded RC keeps its lockfile, so this
+                        // only triggers on a genuine close — never relaunches.
+                        if !auth::get_lockfile_path().exists() {
+                            snap.logger.log("Riot Client closed — waiting for it to come back…");
+                            let _ = app.emit("riot_client_waiting", serde_json::json!({}));
+                            if let Some(lf) = auth::ensure_lockfile_ready(
+                                std::time::Duration::from_secs(60),
+                            )
+                            .await
+                            {
+                                let fresh_port = lf.port;
+                                snap.client.set_local_auth(lf.password.clone(), fresh_port);
+                                *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
+                                    Some(fresh_port);
+                            }
+                        }
 
                         loop {
                             tokio::time::sleep(Duration::from_secs(5)).await;
