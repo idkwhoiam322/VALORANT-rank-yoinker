@@ -124,9 +124,6 @@ pub struct MatchInfo {
 
     #[serde(default, rename = "gameLengthMillis")]
     pub game_length_millis: Option<i64>,
-
-    #[serde(default, alias = "winningTeam", alias = "WinningTeam", alias = "winningTeamId", alias = "WinningTeamID")]
-    pub winning_team: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
