@@ -217,7 +217,10 @@ pub async fn get_match_context(
                 .and_then(|p| p["TeamID"].as_str())?;
 
             let map_id = match_json["MapID"].as_str().unwrap_or("?");
-            svc.logger.log(&format!("INGAME match context: match={match_id} map={map_id} team={my_team}"));
+            let resolved = svc.content.get_map_name(map_id).unwrap_or_else(|| map_id.to_string());
+            svc.logger.log(&format!(
+                "INGAME match context: match={match_id} raw_map={map_id} resolved_map={resolved} team={my_team}"
+            ));
 
             Some((match_id, my_team.to_string(), match_json))
         }
