@@ -248,7 +248,10 @@ pub async fn get_match_context(
     }
 }
 
-async fn build_ingame_payload(
+/// Shared match-data fetcher for both INGAME and PREGAME heartbeat builders.
+/// Extracts the ~40-line duplicated fetch+retry block (Analysis.md 1.8) and the
+/// adjacent map/mode/server resolution block (Analysis.md 1.9).
+async fn fetch_match_context(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,
@@ -256,22 +259,22 @@ async fn build_ingame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
-) {
-    // Use pre-fetched match data (from get_match_context) if available,
-    // otherwise fetch fresh with retry.
-    let (mut match_data, match_id) = match existing_match_data {
+    player_endpoint: fn(&str) -> String,
+    match_endpoint: fn(&str) -> String,
+) -> Option<(serde_json::Value, String)> {
+    let (match_data, match_id) = match existing_match_data {
         Some(data) => {
             let mid = known_match_id.unwrap_or_default().to_string();
-            if mid.is_empty() { return; }
+            if mid.is_empty() { return None; }
             (data, mid)
         }
         None => {
             let mid = if let Some(id) = known_match_id {
-                if !id.is_empty() { id.to_string() } else { return; }
+                if !id.is_empty() { id.to_string() } else { return None; }
             } else {
                 match svc.client.fetch_json_retry(
                     crate::api::client::UrlType::Glz,
-                    &endpoints::glz_core_player(puuid),
+                    &player_endpoint(puuid),
                     entitlements, client_version,
                     3,
                     Duration::from_secs(2),
@@ -279,22 +282,22 @@ async fn build_ingame_payload(
                 ).await {
                     Ok(json) => match json["MatchID"].as_str() {
                         Some(id) if !id.is_empty() => id.to_string(),
-                        _ => return,
+                        _ => return None,
                     }
-                    Err(_) => return,
+                    Err(_) => return None,
                 }
             };
 
             match svc.client.fetch_json_retry(
                 crate::api::client::UrlType::Glz,
-                &endpoints::glz_core_match(&mid),
+                &match_endpoint(&mid),
                 entitlements, client_version,
                 3,
                 Duration::from_secs(2),
                 |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
             ).await {
                 Ok(json) => (json, mid),
-                Err(_) => return,
+                Err(_) => return None,
             }
         }
     };
@@ -312,6 +315,27 @@ async fn build_ingame_payload(
     if let Some(map_id) = match_data["MapID"].as_str() {
         resolve_mode_from_map(map_id, payload);
     }
+
+    Some((match_data, match_id))
+}
+
+async fn build_ingame_payload(
+    svc: &ServiceSnapshot,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
+    payload: &mut HeartbeatPayload,
+    known_match_id: Option<&str>,
+    existing_match_data: Option<serde_json::Value>,
+) {
+    let (mut match_data, match_id) = match fetch_match_context(
+        svc, entitlements, client_version, puuid, payload,
+        known_match_id, existing_match_data,
+        endpoints::glz_core_player, endpoints::glz_core_match,
+    ).await {
+        Some(v) => v,
+        None => return,
+    };
 
     // Parse players (take ownership of Players to avoid clone)
     let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].take())
@@ -511,61 +535,14 @@ async fn build_pregame_payload(
     existing_match_data: Option<serde_json::Value>,
     cached_loadouts_text: Option<String>,
 ) -> Option<String> {
-    // Use pre-fetched match data (from get_match_context) if available,
-    // otherwise fetch fresh with retry.
-    let (match_data, match_id) = match existing_match_data {
-        Some(data) => {
-            let mid = known_match_id.unwrap_or_default().to_string();
-            if mid.is_empty() { return None; }
-            (data, mid)
-        }
-        None => {
-            let mid = if let Some(id) = known_match_id {
-                if !id.is_empty() { id.to_string() } else { return None; }
-            } else {
-                match svc.client.fetch_json_retry(
-                    crate::api::client::UrlType::Glz,
-                    &endpoints::glz_pregame_player(puuid),
-                    entitlements, client_version,
-                    3,
-                    Duration::from_secs(2),
-                    |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
-                ).await {
-                    Ok(json) => match json["MatchID"].as_str() {
-                        Some(id) if !id.is_empty() => id.to_string(),
-                        _ => return None,
-                    }
-                    Err(_) => return None,
-                }
-            };
-
-            match svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz,
-                &endpoints::glz_pregame_match(&mid),
-                entitlements, client_version,
-                3,
-                Duration::from_secs(2),
-                |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
-            ).await {
-                Ok(json) => (json, mid),
-                Err(_) => return None,
-            }
-        }
+    let (match_data, match_id) = match fetch_match_context(
+        svc, entitlements, client_version, puuid, payload,
+        known_match_id, existing_match_data,
+        endpoints::glz_pregame_player, endpoints::glz_pregame_match,
+    ).await {
+        Some(v) => v,
+        None => return None,
     };
-
-    payload.map = match_data["MapID"]
-        .as_str()
-        .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
-        .cloned();
-
-    if let Some(qid) = match_data["QueueID"].as_str() {
-        resolve_mode_from_queue_id(qid, payload).await;
-    }
-    payload.server = match_data["GamePodID"].as_str().map(parse_server);
-    resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
-    if let Some(map_id) = match_data["MapID"].as_str() {
-        resolve_mode_from_map(map_id, payload);
-    }
 
     // Extract ally team players
     let mut players: Vec<CoregamePlayer> = vec![];
