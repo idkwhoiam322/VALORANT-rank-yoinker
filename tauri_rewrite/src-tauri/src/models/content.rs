@@ -234,6 +234,50 @@ impl ContentCache {
 
         (act, episode)
     }
+
+    /// Resolve a Riot `MapID` to its display name.
+    ///
+    /// Riot's live match endpoints return `MapID` values that do NOT match the
+    /// valorant-api `map_url` keys we cache. Two known shapes:
+    ///   * Pregame/core-game sometimes return a bare codename like `Summit`.
+    ///   * Core-game can also return a full asset path like
+    ///     `/Game/Maps/Plummet/Plummet`, where `Plummet` is Riot's *internal*
+    ///     codename for the public map `Summit` — valorant-api knows it only as
+    ///     `Summit`. There is no alias layer in the upstream data, so we must
+    ///     reconcile codenames ourselves.
+    ///
+    /// Strategy: strip any `/Game/Maps/.../` prefix and lower-case the trailing
+    /// segment, then (1) look it up in the cache, and (2) apply a hardcoded alias
+    /// map for known Riot-codename mismatches before re-checking the cache. This
+    /// keeps both pregame (`Summit`) and ingame (`/Game/Maps/Plummet/Plummet`)
+    /// endpoints resolving to the same display name (`Summit`).
+    pub fn get_map_name(&self, map_id: &str) -> Option<String> {
+        let raw = map_id.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        // Take the last path segment after "/Game/Maps/" (handles both
+        // "/Game/Maps/Plummet/Plummet" and bare "Summit").
+        let codename = raw
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or(raw)
+            .to_lowercase();
+
+        // Known Riot internal codename -> valorant-api display-name codename.
+        // Add new mismatches here as they are discovered.
+        let aliases: &[(&str, &str)] = &[("plummet", "summit")];
+
+        // Try the codename directly, then each alias target.
+        for candidate in std::iter::once(codename.as_str())
+            .chain(aliases.iter().filter(|(from, _)| *from == codename).map(|(_, to)| *to))
+        {
+            if let Some(name) = self.maps.get(candidate) {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
 }
 
 fn has_letter_and_number(text: &str) -> bool {

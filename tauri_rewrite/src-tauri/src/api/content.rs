@@ -92,7 +92,16 @@ async fn fetch_maps_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Ma
 fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) {
     for map in &resp.data {
         if let Some(ref url) = map.map_url {
+            // Key by the full valorant-api map_url (existing behavior).
             cache.maps.insert(url.to_lowercase(), map.display_name.clone());
+            // Also key by the bare codename (last path segment, lower-cased) so
+            // Riot's live MapID values resolve directly via ContentCache::get_map_name
+            // without needing the full asset path. e.g. valorant-api url
+            // "/Game/Maps/Summit/Summit" also becomes key "summit".
+            if let Some(codename) = url.rsplit('/').find(|s| !s.is_empty()) {
+                let key = codename.to_lowercase();
+                cache.maps.entry(key).or_insert_with(|| map.display_name.clone());
+            }
         }
     }
     if cache.maps.is_empty() {

@@ -242,6 +242,12 @@ pub async fn get_match_context(
             ).await.ok()?;
 
             let my_team = match_json["AllyTeam"]["TeamID"].as_str()?;
+            let resolved = svc.content.get_map_name(&match_json["MapID"].as_str().unwrap_or("?"))
+                .unwrap_or_else(|| match_json["MapID"].as_str().unwrap_or("?").to_string());
+            svc.logger.log(&format!(
+                "PREGAME match context: match={match_id} raw_map={} resolved_map={resolved} team={my_team}",
+                match_json["MapID"].as_str().unwrap_or("?")
+            ));
             Some((match_id.to_string(), my_team.to_string(), match_json))
         }
         _ => None,
@@ -302,10 +308,24 @@ async fn fetch_match_context(
         }
     };
 
-    payload.map = match_data["MapID"]
-        .as_str()
-        .and_then(|map_id| svc.content.maps.get(&map_id.to_lowercase()))
-        .cloned();
+    let raw_map = match_data["MapID"].as_str().unwrap_or("?");
+    payload.map = svc
+        .content
+        .get_map_name(raw_map)
+        .or_else(|| {
+            // Fallback: some endpoints return a display name verbatim (e.g. the
+            // pregame endpoint returned a bare "Summit"). Preserve it as-is
+            // rather than dropping to unknown.
+            if raw_map.is_empty() || raw_map == "?" {
+                None
+            } else {
+                Some(raw_map.to_string())
+            }
+        });
+    svc.logger.log(&format!(
+        "match map resolved: raw={raw_map} -> display={}",
+        payload.map.as_deref().unwrap_or("unknown")
+    ));
 
     if let Some(qid) = match_data["QueueID"].as_str() {
         resolve_mode_from_queue_id(qid, payload).await;
