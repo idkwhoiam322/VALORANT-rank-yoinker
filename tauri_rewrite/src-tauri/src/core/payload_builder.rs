@@ -249,8 +249,8 @@ pub async fn get_match_context(
 }
 
 /// Shared match-data fetcher for both INGAME and PREGAME heartbeat builders.
-/// Extracts the ~40-line duplicated fetch+retry block (Analysis.md 1.8) and the
-/// adjacent map/mode/server resolution block (Analysis.md 1.9).
+/// Extracts the ~40-line duplicated fetch+retry block and the
+/// adjacent map/mode/server resolution block.
 async fn fetch_match_context(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,

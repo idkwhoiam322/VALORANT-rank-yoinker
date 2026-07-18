@@ -346,7 +346,7 @@ impl MainLoop {
 
         // Emit rank icons once at startup. The frontend only needs them to
         // render rank badges; sending them on every heartbeat (30 URLs) was
-        // wasteful - see Analysis.md 2.4.
+        // wasteful - rank icons now sent once via dedicated event.
         let _ = app.emit("rank_icons", svc.content.rank_icons.as_ref().clone());
 
         // 7. Notify frontend
@@ -357,7 +357,7 @@ impl MainLoop {
         // Re-emit rank icons alongside backend_ready so a frontend that loads
         // (or hot-reloads) after the one-time startup emit still receives them.
         // try_initialize() re-runs on reconnect, so this also covers reconnects.
-        // See reviewer note on Analysis.md 2.4.
+        // Re-emit so a frontend that loads after the one-time emit still receives them.
         let _ = app.emit("rank_icons", svc.content.rank_icons.as_ref().clone());
 
         // Clear any stale 503 flag that may remain from a failed re-auth in a

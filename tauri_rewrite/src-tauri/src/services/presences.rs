@@ -39,7 +39,7 @@ impl PresenceService {
     /// Decode a base64-encoded Riot presence `private` field (using the
     /// Indifferent padding mode Riot emits) into JSON. Shared by both the
     /// REST presence path and the WebSocket presence path so the decode
-    /// behaviour can never drift between them (Analysis.md 6.4).
+    /// behaviour can never drift between the two code paths.
     pub(crate) fn decode_private_presence_json(b64: &str) -> Option<serde_json::Value> {
         let bytes = base64::Engine::decode(
             &base64::engine::general_purpose::GeneralPurpose::new(

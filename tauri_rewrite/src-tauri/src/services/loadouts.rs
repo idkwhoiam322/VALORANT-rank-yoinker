@@ -82,7 +82,7 @@ impl LoadoutService {
 
             // Build player loadout data. Only the fields actually copied into
             // PlayerHeartbeat (title, player_card, player_card_name, sprays,
-            // weapons) are computed - see Analysis.md 2.5.
+            // weapons) are computed (the full LoadoutJson is built to access these fields).
             let mut player_data = PlayerLoadoutData {
                 sprays: None,
                 weapons: None,

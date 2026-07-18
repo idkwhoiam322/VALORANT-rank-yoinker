@@ -105,10 +105,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
 
     // Dedicated buffer for the loading-overlay log tail. Keeping the lines in
     // an array (instead of re-parsing DOM textContent on every event) avoids
-    // the O(n^2) split/join growth described in Analysis.md 2.2.
+    // the O(n^2) split/join growth from re-parsing DOM textContent on every event.
     let logLines = [];
 
-    // Handle for the pending screenshot toast-revert timer (Analysis.md 2.7).
+    // Handle for the pending screenshot toast-revert timer.
     // Tracked so rapid re-clicks clear the previous timer instead of stacking.
     let screenshotToastTimer = null;
 
@@ -191,7 +191,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function isEmpty(v) { return v === null || v === undefined || v === "" || (typeof v === "number" && Number.isNaN(v)); }
     function txt(v, fb) { return isEmpty(v) ? (fb === undefined ? NA : fb) : String(v); }
 
-    // Centralized state writer (Analysis.md 2.6). All top-level mutations of the
+    // Centralized state writer. All top-level mutations of the
     // global `state` object now flow through here so writes are explicit and
     // auditable; it pairs with the dirty-flag change detection added for 4.9/1.4.
     function setState(partial) { Object.assign(state, partial); }
@@ -306,7 +306,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     }
 
     // Revert the screenshot success/error toast state after `ms`, clearing any
-    // previously scheduled revert first so timers don't pile up (Analysis.md 2.7).
+    // previously scheduled revert first so timers don't pile up.
     function revertScreenshotToast(ms) {
         if (screenshotToastTimer) clearTimeout(screenshotToastTimer);
         screenshotToastTimer = setTimeout(function () {
@@ -410,7 +410,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             }
         });
 
-        // Rank icons are emitted once at startup (Analysis.md 2.4) and cached
+        // Rank icons are emitted once at startup and cached
         // here; they are no longer carried on every heartbeat payload.
         tauriListen("rank_icons", function (event) {
             state.rankIcons = event.payload || null;
@@ -602,7 +602,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     // bindContextCopy() listeners (and the grid-level handler) that were
     // attached to ~40 freshly-created elements on every render. Those elements
     // are destroyed on each heartbeat, so the old listeners churned GC. See
-    // Analysis.md 2.3.
+    // so the old listeners churned GC.
     function handleDelegatedContextMenu(e) {
         let node = e.target;
         if (node && node.nodeType === 3) node = node.parentNode; // text node
