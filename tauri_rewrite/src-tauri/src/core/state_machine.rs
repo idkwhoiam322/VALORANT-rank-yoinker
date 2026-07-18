@@ -526,7 +526,9 @@ impl MainLoop {
             let current_state = match current_state {
                 Some(s) => s,
                 None => {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    // Presence unavailable (e.g. VALORANT not running).
+                    // No need to spam the local API; wait longer.
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                     continue;
                 }
             };
