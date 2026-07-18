@@ -35,6 +35,9 @@ stats/
 *.zip
 *.tar.gz
 
+# LLD temp directory (created by create_exe.ps1 for faster MinGW linking)
+.lld-bin/
+
 # Local Cargo config (auto-generated per-machine by create_exe.ps1)
 **/.cargo/config.toml
 # ...except the committed throttle config, so everyone who clones gets it.

@@ -10,17 +10,17 @@ name = "vry_rust_lib"
 crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-serde = { version = "1", features = ["derive", "rc"] }
+tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-opener = "=2.5.4"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 secrecy = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "__rustls-tls"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["json", "rustls-tls", "gzip", "http2"] }
+tokio = { version = "=1.52.3", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+tokio-tungstenite = { version = "=0.24.0", default-features = false, features = ["connect", "__rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 http = "1"
 futures-util = "0.3"
