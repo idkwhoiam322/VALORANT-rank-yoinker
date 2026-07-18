@@ -658,7 +658,7 @@
     /* ---- compact roster: shrink everything in the default (non-expanded)
        view so all 10 players (5 + 5) fit on screen without scrolling ---- */
     .players-grid {
-        grid-template-columns: repeat(auto-fill, minmax(210px, 240px)) !important;
+        grid-template-columns: repeat(3, minmax(250px, 1fr)) !important;
         justify-content: start !important;
         gap: 8px !important;
     }
