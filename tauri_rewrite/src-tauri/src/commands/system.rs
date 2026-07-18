@@ -29,7 +29,7 @@ pub async fn restart_application(
     svc.client_version = String::new();
     svc.puuid = String::new();
     svc.content = Arc::new(crate::models::content::ContentCache::empty());
-    svc.season_id = String::new();
+    svc.season_id = Arc::from("");
     svc.previous_season_id = None;
     svc.log("Backend state reset - reconnecting...");
     svc.auth_retry.notify_one();

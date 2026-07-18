@@ -242,11 +242,13 @@ impl ApiClient {
             access_token: json["accessToken"]
                 .as_str()
                 .ok_or_else(|| ApiError::Auth("Missing accessToken".into()))?
-                .to_string(),
+                .to_string()
+                .into(),
             token: json["token"]
                 .as_str()
                 .ok_or_else(|| ApiError::Auth("Missing token".into()))?
-                .to_string(),
+                .to_string()
+                .into(),
             subject: json["subject"]
                 .as_str()
                 .ok_or_else(|| ApiError::Auth("Missing subject".into()))?
@@ -819,4 +821,19 @@ impl ApiClient {
 
         Err(ApiError::RateLimited)
     }
+}
+
+/// Produce a stable, non-reversible short identifier for logging so that
+/// PUUIDs / match_ids are never written to logs in a recoverable form.
+///
+/// Uses FNV-1a over the full id and renders 16 hex chars. The same input always
+/// maps to the same output, so log lines for one player/match stay correlatable,
+/// but the original identifier cannot be recovered from the hash.
+pub(crate) fn anon_id(id: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in id.as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
 }

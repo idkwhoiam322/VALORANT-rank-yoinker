@@ -47,7 +47,7 @@ impl StatsService {
             if let Some((stats, ts)) = cache.get(puuid) {
                 if ts.elapsed() < UPDATES_CACHE_TTL {
                     let ttl_left = (UPDATES_CACHE_TTL.as_secs() - ts.elapsed().as_secs()).max(0);
-                    self.client.cache_hit("stats", &puuid[..8.min(puuid.len())], Some(ttl_left));
+                    self.client.cache_hit("stats", &crate::api::client::anon_id(puuid), Some(ttl_left));
                     return stats.clone();
                 }
             }
@@ -69,17 +69,17 @@ impl StatsService {
         {
             Ok(u) => u,
             Err(_e) => {
-                log::debug!("stats: competitive updates failed for {}: {_e:?}", &puuid[..8]);
+                log::debug!("stats: competitive updates failed for {}: {_e:?}", &crate::api::client::anon_id(puuid));
                 return PlayerStats::default_stats();
             },
         };
 
-        log::debug!("stats: got {} updates for {}", updates.matches.len(), &puuid[..8]);
+        log::debug!("stats: got {} updates for {}", updates.matches.len(), &crate::api::client::anon_id(puuid));
 
         let match_summary = match updates.matches.first() {
             Some(m) => m,
             None => {
-                log::debug!("stats: no matches for {}", &puuid[..8]);
+                log::debug!("stats: no matches for {}", &crate::api::client::anon_id(puuid));
                 return PlayerStats::default_stats();
             },
         };
@@ -87,12 +87,12 @@ impl StatsService {
         let match_id = match &match_summary.match_id {
             Some(id) => id.clone(),
             None => {
-                log::debug!("stats: match_id is None for {}", &puuid[..8]);
+                log::debug!("stats: match_id is None for {}", &crate::api::client::anon_id(puuid));
                 return PlayerStats::default_stats();
             },
         };
 
-        log::debug!("stats: match_id={}", &match_id[..8.min(match_id.len())]);
+        log::debug!("stats: match_id={}", &crate::api::client::anon_id(&match_id));
 
         // Fetch match details (cached with LRU eviction) - use double-checked locking
         let match_data_opt = {
@@ -102,7 +102,7 @@ impl StatsService {
                 cache.get(&match_id).cloned()
             };
             if let Some(data) = cached {
-                self.client.cache_hit("match details", &match_id[..8.min(match_id.len())], None);
+                self.client.cache_hit("match details", &crate::api::client::anon_id(&match_id), None);
                 Some(data)
             } else {
                 // Slow path: fetch outside lock, re-acquire for insert
@@ -123,7 +123,7 @@ impl StatsService {
                         let mut cache = self.match_details_cache.lock().await;
                         // Double-check: another task may have inserted while we fetched
                         if let Some(existing) = cache.get(&match_id).cloned() {
-                            self.client.cache_hit("match details", &match_id[..8.min(match_id.len())], None);
+                            self.client.cache_hit("match details", &crate::api::client::anon_id(&match_id), None);
                             Some(existing)
                         } else {
                             log::debug!("stats: match details fetched ok, {} players, {} rounds",
@@ -133,7 +133,7 @@ impl StatsService {
                         }
                     }
                     Err(e) => {
-                        log::debug!("stats: match details fetch failed for {}: {e:?}", &match_id[..8]);
+                        log::debug!("stats: match details fetch failed for {}: {e:?}", &crate::api::client::anon_id(&match_id));
                         None
                     },
                 }

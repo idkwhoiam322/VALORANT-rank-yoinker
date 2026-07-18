@@ -34,6 +34,22 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     var stripHint = function (t) { return t ? t.replace(COPY_HINT, "") : ""; };
     var chromaColor = function (name) { var m = name && name.match(/\(Variant \d+ (.+)\)$/); return m ? m[1] : ""; };
 
+    // Reject any URL that is not https: or data: so payload-derived values can
+    // never inject javascript:/other schemes into DOM attributes (img src,
+    // background-image, etc.). Also reject raw quote/backslash/backtick/angle/
+    // control characters, which a valid URL would carry percent-encoded; those
+    // bytes would otherwise break out of a CSS url("-") or attribute context.
+    // Returns "" when the input is unsafe/empty.
+    var safeHttps = function (url) {
+        if (!url || typeof url !== "string") return "";
+        if (/["\\<>`\r\n]/.test(url)) return "";
+        try {
+            var u = new URL(url, window.location.href);
+            if (u.protocol === "https:" || u.protocol === "data:") return url;
+        } catch (e) {}
+        return "";
+    };
+
     var RANK_NAMES_FULL = [
         "Unranked", "Unranked", "Unranked",
         "Iron 1", "Iron 2", "Iron 3",
@@ -246,7 +262,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         if (iconUrl) {
             var img = document.createElement("img");
             img.className = "rank-icon";
-            img.src = iconUrl;
+            img.src = safeHttps(iconUrl);
             img.loading = "lazy";
             v.append(img);
             v.append(" ");
@@ -375,6 +391,12 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             }
         });
 
+        // Rank icons are emitted once at startup (Analysis.md 2.4) and cached
+        // here; they are no longer carried on every heartbeat payload.
+        tauriListen("rank_icons", function (event) {
+            state.rankIcons = event.payload || null;
+        });
+
         tauriListen("state_change", function (event) {
             if (event.payload && event.payload.state) {
                 renderStateTransition(event.payload.state);
@@ -424,7 +446,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         var version = payload && payload.version;
         var unchanged = version !== undefined && version === state.lastRenderKey;
         setState({ payload: payload });
-        setState({ rankIcons: payload && payload.rankIcons });
         if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) { console.warn("setPayload: failed to persist cache to localStorage:", e); } }
         if (unchanged) { bumpTimestampOnly(payload); return; }
         setState({ lastRenderKey: version });
@@ -684,7 +705,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             var rankBadge = document.createElement("span");
             rankBadge.className = "player-meta";
             var rankIconUrl = state.rankIcons && state.rankIcons[player.rank];
-            if (rankIconUrl) { var ri = document.createElement("img"); ri.className = "rank-icon"; ri.src = rankIconUrl; ri.loading = "lazy"; rankBadge.append(ri); rankBadge.append(" "); }
+            if (rankIconUrl) { var ri = document.createElement("img"); ri.className = "rank-icon"; ri.src = safeHttps(rankIconUrl); ri.loading = "lazy"; rankBadge.append(ri); rankBadge.append(" "); }
             rankBadge.append(document.createTextNode(rankName(player.rank, true)));
             var bc = rankColor(player.rank);
             if (bc) rankBadge.style.color = bc;
@@ -762,7 +783,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             var weapon = getWeapon(player, weaponName);
             var slot = document.createElement("span");
             slot.className = "preview-slot";
-            if (weapon && weapon.skinDisplayIcon) { var img = document.createElement("img"); img.src = weapon.skinDisplayIcon; img.alt = weapon.skinDisplayName || weapon.weapon || "Weapon"; slot.append(img); }
+            if (weapon && weapon.skinDisplayIcon) { var img = document.createElement("img"); img.src = safeHttps(weapon.skinDisplayIcon); img.alt = weapon.skinDisplayName || weapon.weapon || "Weapon"; slot.append(img); }
             var copy = document.createElement("span");
             copy.className = "preview-copy";
             var label = document.createElement("span");
@@ -791,7 +812,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         else if (!hasSelection) { els.emptyStateTitle.textContent = "No player selected"; els.emptyStateText.textContent = "Click a player card to view loadout and stats."; }
         if (!selected) return;
         var agentNotSelected = selected.agentSelectionState === "";
-        els.selectedAgent.src = selected.agentImgLink || "";
+        els.selectedAgent.src = safeHttps(selected.agentImgLink);
         els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
         els.selectedAgent.alt = selected.agent || "";
         els.selectedAgent.classList.toggle("is-selecting", selected.agentSelectionState === "selected");
@@ -801,8 +822,8 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         if (hasName) {
             var trnHref = "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(selected.name) + "/overview";
             var vtlHref = "https://vtl.lol/id/" + encodeURIComponent(selected.name.replace("#", "_"));
-            els.trnLink.href = trnHref; els.trnLink.title = trnHref + COPY_HINT; els.trnLink.hidden = false;
-            els.vtlLink.href = vtlHref; els.vtlLink.title = vtlHref + COPY_HINT; els.vtlLink.hidden = false;
+            els.trnLink.href = trnHref; els.trnLink.title = trnHref + COPY_HINT; els.trnLink.rel = "noopener noreferrer"; els.trnLink.hidden = false;
+            els.vtlLink.href = vtlHref; els.vtlLink.title = vtlHref + COPY_HINT; els.vtlLink.rel = "noopener noreferrer"; els.vtlLink.hidden = false;
         } else { els.trnLink.hidden = true; els.vtlLink.hidden = true; }
         els.copyStatsBtn.hidden = false;
         els.screenshotPlayerRow.hidden = false;
@@ -814,7 +835,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         els.selectedTeam.textContent = selected.team ? ((myTeam(state.payload) === selected.team) ? "ALLY" : "ENEMY") : "Unknown";
         els.selectedTeam.className = "team-pill " + teamClass(selected.team);
         if (selected.playerCard) {
-            els.playerCardPreview.style.backgroundImage = "url(\"" + selected.playerCard + "\")";
+            els.playerCardPreview.style.backgroundImage = "url(\"" + safeHttps(selected.playerCard) + "\")";
             els.playerCardPreview.title = (selected.playerCardName || "Player Card") + COPY_HINT;
         } else {
             els.playerCardPreview.style.backgroundImage = "";
@@ -849,7 +870,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             var art = document.createElement("div");
             art.className = "expression-art";
             var iconSrc = expression && (expression.fullTransparentIcon || expression.displayIcon);
-            if (iconSrc) { var img = document.createElement("img"); img.src = iconSrc; img.alt = (expression && expression.displayName) || "Expression"; art.append(img); }
+            if (iconSrc) { var img = document.createElement("img"); img.src = safeHttps(iconSrc); img.alt = (expression && expression.displayName) || "Expression"; art.append(img); }
             var copy = document.createElement("div");
             copy.className = "expression-copy";
             var name = document.createElement("strong");
@@ -902,7 +923,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         var art = document.createElement("div");
         art.className = "weapon-art";
         var iconSrc = weapon && (weapon.skinDisplayIcon || weapon.weaponDisplayIcon);
-        if (iconSrc) { var img = document.createElement("img"); img.src = iconSrc; img.alt = weapon.skinDisplayName || weapon.weapon || weaponName; art.append(img); }
+        if (iconSrc) { var img = document.createElement("img"); img.src = safeHttps(iconSrc); img.alt = weapon.skinDisplayName || weapon.weapon || weaponName; art.append(img); }
         var copy = document.createElement("div");
         copy.className = "weapon-copy";
         var label = document.createElement("span");
@@ -918,7 +939,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             tile.classList.add("has-buddy");
             var buddy = document.createElement("img");
             buddy.className = "buddy";
-            buddy.src = weapon.buddy_displayIcon;
+            buddy.src = safeHttps(weapon.buddy_displayIcon);
             buddy.alt = weapon.buddy_displayName || "Buddy";
             buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
             bindContextCopy(buddy);
@@ -937,7 +958,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         img.className = "agent-avatar";
         if (selectionState === "selected") img.classList.add("is-selecting");
         img.alt = alt || "";
-        img.src = src;
+        img.src = safeHttps(src);
         img.addEventListener("error", function () { img.replaceWith(makeAvatarPlaceholder()); });
         return img;
     }

@@ -44,7 +44,7 @@ impl RankService {
             if let Some((rank, time)) = cache.get(puuid) {
                 if time.elapsed() < self.cache_ttl {
                     let ttl_left = (self.cache_ttl.as_secs() - time.elapsed().as_secs()).max(0);
-                    self.client.cache_hit("rank", &puuid[..8.min(puuid.len())], Some(ttl_left));
+                    self.client.cache_hit("rank", &crate::api::client::anon_id(puuid), Some(ttl_left));
                     return rank.clone();
                 }
             }

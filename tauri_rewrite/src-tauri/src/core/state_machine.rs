@@ -27,6 +27,36 @@ use crate::services::rank::RankService;
 use crate::services::stats::StatsService;
 use crate::services::websocket_presence::ValorantWs;
 
+/// Redact obvious secrets (JWTs, long base64/hex blobs) from text that will be
+/// surfaced to the frontend via the `auth_error` event. The backend log file may
+/// still contain the full text; this only protects what leaves the process.
+fn redact_secrets(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut token = String::new();
+    let flush = |tok: &mut String, out: &mut String| {
+        // A JWT is three dot-separated base64url segments; redact anything that
+        // looks like one, plus any long alphanumeric blob (>= 32 chars).
+        if tok.matches('.').count() == 2 && tok.len() >= 20 {
+            out.push_str("[REDACTED]");
+        } else if tok.len() >= 32 && tok.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/' || c == '=') {
+            out.push_str("[REDACTED]");
+        } else {
+            out.push_str(tok);
+        }
+        tok.clear();
+    };
+    for c in input.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+' || c == '/' || c == '=' {
+            token.push(c);
+        } else {
+            flush(&mut token, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut token, &mut out);
+    out
+}
+
 
 // ---------------------------------------------------------------------------
 // Snapshot of all services & session data extracted from the RwLock so the
@@ -43,7 +73,7 @@ pub struct ServiceSnapshot {
     pub encounters: Arc<EncounterService>,
     pub heartbeat_log_path: std::path::PathBuf,
     pub content: Arc<ContentCache>,
-    pub season_id: String,
+    pub season_id: Arc<str>,
     pub previous_season_id: Option<String>,
     pub cooldown: u64,
     /// Match-scoped cache: match_id -> (puuid -> (PlayerRank, PlayerStats)).
@@ -119,7 +149,7 @@ pub struct AppServices {
     pub client_version: String,
     pub puuid: String,
     pub content: Arc<ContentCache>,
-    pub season_id: String,
+    pub season_id: Arc<str>,
     pub previous_season_id: Option<String>,
     pub match_player_cache: Arc<Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     pub current_match_id: Arc<Mutex<Option<String>>>,
@@ -159,7 +189,7 @@ impl AppServices {
             client_version: String::new(),
             puuid: String::new(),
             content: Arc::new(ContentCache::empty()),
-            season_id: String::new(),
+            season_id: Arc::from(""),
             previous_season_id: None,
             match_player_cache: Arc::new(Mutex::new(HashMap::new())),
             current_match_id: Arc::new(Mutex::new(None)),
@@ -247,7 +277,7 @@ impl MainLoop {
                             svc.auth_retry.clone()
                         };
                         let _ = app.emit("auth_error", serde_json::json!({
-                            "message": e,
+                            "message": redact_secrets(&e),
                             "action": "Please sign in to Riot Client and click Refresh below."
                         }));
                         auth_retry.notified().await;
@@ -300,9 +330,14 @@ impl MainLoop {
         let (content, season_id, previous_season_id) =
             fetch_all_content(&svc.client, &region.shard, &entitlements, &client_version).await;
         svc.content = Arc::new(content);
-        svc.season_id = season_id;
+        svc.season_id = Arc::from(season_id);
         svc.previous_season_id = previous_season_id;
         svc.log("Content cache initialized");
+
+        // Emit rank icons once at startup. The frontend only needs them to
+        // render rank badges; sending them on every heartbeat (30 URLs) was
+        // wasteful - see Analysis.md 2.4.
+        let _ = app.emit("rank_icons", svc.content.rank_icons.as_ref().clone());
 
         // 7. Notify frontend
         let _ = app.emit("cache_cleared", ());

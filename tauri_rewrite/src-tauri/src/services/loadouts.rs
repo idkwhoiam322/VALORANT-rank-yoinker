@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
@@ -32,7 +32,6 @@ impl LoadoutService {
         match_id: &str,
         players: &[crate::models::match_data::CoregamePlayer],
         content: &ContentCache,
-        names: &HashMap<String, String>,
         state: &str,
     ) -> Result<LoadoutJson, ApiError> {
         let endpoint = if state == "game" {
@@ -54,7 +53,7 @@ impl LoadoutService {
             )
             .await?;
 
-        Ok(self.build_loadout_json(&loadouts_resp, players, content, names))
+        Ok(self.build_loadout_json(&loadouts_resp, players, content))
     }
 
     pub fn build_loadout_json(
@@ -62,16 +61,9 @@ impl LoadoutService {
         loadouts_resp: &CoregameLoadoutsResponse,
         players: &[CoregamePlayer],
         content: &ContentCache,
-        names: &HashMap<String, String>,
     ) -> LoadoutJson {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
         let mut json = LoadoutJson {
             players: HashMap::new(),
-            time: now,
             map: None,
         };
 
@@ -88,18 +80,10 @@ impl LoadoutService {
 
             let player = entry.subject.as_deref().and_then(|s| player_map.get(s).copied());
 
-            let char_id = entry.character_id.as_deref().unwrap_or("").to_lowercase();
-
-            // Build player loadout data
+            // Build player loadout data. Only the fields actually copied into
+            // PlayerHeartbeat (title, player_card, player_card_name, sprays,
+            // weapons) are computed - see Analysis.md 2.5.
             let mut player_data = PlayerLoadoutData {
-                name: names.get(&subject).cloned(),
-                team: player.and_then(|p| p.team_id.clone()),
-                level: player.and_then(|p| {
-                    p.player_identity
-                        .as_ref()
-                        .and_then(|pi| pi.account_level)
-                }),
-                agent: content.agents.get(&char_id).cloned(),
                 sprays: None,
                 weapons: None,
                 title: None,

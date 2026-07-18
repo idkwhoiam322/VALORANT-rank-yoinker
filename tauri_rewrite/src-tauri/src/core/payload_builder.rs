@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::api::endpoints;
@@ -124,8 +125,8 @@ pub async fn build_heartbeat(
         map: None,
         server: None,
         players: HashMap::new(),
+        rank_icons: Arc::new(Vec::new()),
         version: 0,
-        rank_icons: svc.content.rank_icons.clone(),
         already_played_with: vec![],
     };
 
@@ -342,7 +343,6 @@ async fn build_ingame_payload(
             &match_id,
             &players,
             &svc.content,
-            &names,
             "game",
         )
         .await
@@ -367,7 +367,7 @@ async fn build_ingame_payload(
                 if let Some(entry) = svc.get_match_cache_entry(&subject) {
                     svc.client.cache_hit(
                         "match player",
-                        &subject[..8.min(subject.len())],
+                        &crate::api::client::anon_id(&subject),
                         None,
                     );
                     entry
@@ -604,7 +604,7 @@ async fn build_pregame_payload(
         Some(text) => {
             svc.client.cache_hit(
                 "pregame loadouts",
-                &match_id[..8.min(match_id.len())],
+                &crate::api::client::anon_id(&match_id),
                 None,
             );
             append_enemy_players_from_loadouts(&text, &mut players, &match_data);
@@ -655,7 +655,6 @@ async fn build_pregame_payload(
                 &structured,
                 &players,
                 &svc.content,
-                &names,
             );
             lj
         } else {
@@ -676,7 +675,7 @@ async fn build_pregame_payload(
         let (player_rank, player_stats) = if let Some(entry) = cached {
             svc.client.cache_hit(
                 "match player",
-                &subject[..8.min(subject.len())],
+                &crate::api::client::anon_id(&subject),
                 None,
             );
             entry

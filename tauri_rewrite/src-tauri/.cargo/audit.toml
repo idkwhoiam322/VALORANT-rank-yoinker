@@ -1,0 +1,33 @@
+# cargo-audit configuration for VRY (vry-rust).
+#
+# Run with: cargo install cargo-audit && cargo audit
+# Docs: https://github.com/rustsec/cargo-audit
+#
+# Keep this file so `cargo audit` behaves consistently in CI and locally.
+
+[advisories]
+# Add time-boxed ignores ONLY with a documented reason, e.g.:
+# ignore = [{ id = "RUSTSEC-2024-0000", reason = "no upstream fix yet; low risk because ..." }]
+
+[database]
+# Cache the RustSec advisory DB under the default cargo home.
+# path = "~/.cargo/advisory-db"
+
+# Note: cargo-audit already reports yanked-crate warnings by default, and the
+# CI workflow passes `--deny warnings`, so any advisory (yanked or otherwise)
+# fails the build without needing an override here.
+#
+# An earlier draft of this file also had `yanked = "deny"` nested under
+# [advisories] and a [sources] section with unknown-registry/unknown-git
+# keys, intended to reject dependencies from unofficial registries. Neither
+# belongs to cargo-audit's config schema: yanked-crate handling is its own
+# top-level [yanked] section (not a field of [advisories]), and
+# source/registry allow-listing is a cargo-deny concept - cargo-audit's
+# AuditConfig only recognizes [advisories], [database], [output], and
+# [target] (plus [yanked]). Depending on how cargo-audit's TOML parsing
+# handles unrecognized keys, that draft risked either being silently
+# ignored (false confidence that dependency-confusion protection was
+# active) or failing every CI run outright. Adding cargo-deny for
+# source/license policing would be a reasonable follow-up, but it's a
+# different tool and a larger change than 3.3 asks for, so it's left out of
+# this patch.

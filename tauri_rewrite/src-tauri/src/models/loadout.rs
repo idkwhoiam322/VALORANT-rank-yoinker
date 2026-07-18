@@ -85,23 +85,12 @@ pub struct LoadoutJson {
     #[serde(flatten)]
     pub players: HashMap<String, PlayerLoadoutData>,
 
-    pub time: i64,
-
     #[serde(default)]
     pub map: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerLoadoutData {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<u32>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 
@@ -110,9 +99,6 @@ pub struct PlayerLoadoutData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player_card_name: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprays: Option<HashMap<String, SprayEntry>>,
