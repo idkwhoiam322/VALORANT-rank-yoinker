@@ -345,6 +345,11 @@ impl MainLoop {
         let _ = app.emit("backend_ready", serde_json::json!({
             "puuid": entitlements.subject,
         }));
+        // Re-emit rank icons alongside backend_ready so a frontend that loads
+        // (or hot-reloads) after the one-time startup emit still receives them.
+        // try_initialize() re-runs on reconnect, so this also covers reconnects.
+        // See reviewer note on Analysis.md 2.4.
+        let _ = app.emit("rank_icons", svc.content.rank_icons.as_ref().clone());
 
         Ok(())
     }
