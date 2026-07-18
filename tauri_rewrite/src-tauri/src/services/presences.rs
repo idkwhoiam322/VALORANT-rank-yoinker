@@ -36,11 +36,11 @@ impl PresenceService {
             .find(|p| p.puuid.as_deref() == Some(puuid) && p.product.as_deref() == Some("valorant"))
     }
 
-    pub fn decode_private_presence(private_val: &Option<String>) -> Option<serde_json::Value> {
-        let b64 = private_val.as_deref().unwrap_or("");
-        if b64.is_empty() {
-            return None;
-        }
+    /// Decode a base64-encoded Riot presence `private` field (using the
+    /// Indifferent padding mode Riot emits) into JSON. Shared by both the
+    /// REST presence path and the WebSocket presence path so the decode
+    /// behaviour can never drift between them (Analysis.md 6.4).
+    pub(crate) fn decode_private_presence_json(b64: &str) -> Option<serde_json::Value> {
         let bytes = base64::Engine::decode(
             &base64::engine::general_purpose::GeneralPurpose::new(
                 &base64::alphabet::STANDARD,
@@ -48,8 +48,17 @@ impl PresenceService {
                     .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
             ),
             b64,
-        ).ok()?;
+        )
+        .ok()?;
         serde_json::from_slice(&bytes).ok()
+    }
+
+    pub fn decode_private_presence(private_val: &Option<String>) -> Option<serde_json::Value> {
+        let b64 = private_val.as_deref().unwrap_or("");
+        if b64.is_empty() {
+            return None;
+        }
+        Self::decode_private_presence_json(b64)
     }
 
     pub fn extract_game_state(private: &serde_json::Value) -> Option<String> {

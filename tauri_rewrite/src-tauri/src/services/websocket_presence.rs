@@ -2,12 +2,72 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::version::{TLS12, TLS13};
+use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async_tls_with_config, Connector, tungstenite::Message};
 
 use crate::models::presences::{GameState, Presence};
 use crate::services::logging::Logger;
+
+/// Custom certificate verifier that accepts any server certificate.
+///
+/// Used only for the local Riot WebSocket on 127.0.0.1, where Riot presents a
+/// self-signed certificate. There is no MITM risk on localhost, but switching to
+/// rustls here shrinks the TLS attack surface (no OpenSSL/SChannel via
+/// native-tls). We keep `danger_accept_invalid_certs` semantics intentionally.
+#[derive(Debug)]
+struct AcceptInvalidServerCert;
+
+impl ServerCertVerifier for AcceptInvalidServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ED25519,
+            SignatureScheme::ED448,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA256,
+        ]
+    }
+}
 
 /// Full presence snapshot pushed by the Riot local WebSocket.
 /// Carries both the game state and the entire presences array so
@@ -44,12 +104,25 @@ impl ValorantWs {
         let url = format!("wss://127.0.0.1:{port}");
         let password = password.to_string();
 
-        // Build a TLS connector that accepts the self-signed Riot certificate.
-        let tls = native_tls::TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .ok()?;
-        let connector = Connector::NativeTls(tls);
+        // Build a rustls TLS connector that accepts Riot's self-signed local cert.
+        // Use builder_with_provider so we don't depend on a process-wide default
+        // CryptoProvider being installed (rustls 0.23 requires exactly one provider
+        // feature; here we pin the `ring` provider explicitly).
+        let config = match ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_protocol_versions(&[&TLS13, &TLS12])
+        {
+            Ok(builder) => builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(AcceptInvalidServerCert))
+                .with_no_client_auth(),
+            Err(e) => {
+                logger.log(&format!("WS TLS config error: {e}"));
+                return None;
+            }
+        };
+        let connector = Connector::Rustls(Arc::new(config));
 
         // Spawn the WS background task.
         tokio::spawn(async move {
@@ -199,18 +272,11 @@ fn parse_presence_event(
             && p.get("product").and_then(|v| v.as_str()) == Some("valorant")
     })?;
 
-    // Decode base64 private field.
+    // Decode base64 private field (shared helper so the decode behaviour
+    // matches the REST presence path exactly).
     let private_b64 = own.get("private")?.as_str()?;
-    let private_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::GeneralPurpose::new(
-            &base64::alphabet::STANDARD,
-            base64::engine::general_purpose::GeneralPurposeConfig::new()
-                .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
-        ),
-        private_b64,
-    )
-    .ok()?;
-    let private: serde_json::Value = serde_json::from_slice(&private_bytes).ok()?;
+    let private: serde_json::Value =
+        crate::services::presences::PresenceService::decode_private_presence_json(private_b64)?;
 
     // Extract sessionLoopState (nested or flat).
     let state_str = private

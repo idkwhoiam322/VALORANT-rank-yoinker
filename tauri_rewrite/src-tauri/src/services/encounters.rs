@@ -47,6 +47,17 @@ impl EncounterData {
     }
 }
 
+/// Sort a set of encounter records by epoch (most recent first) and de-duplicate
+/// by `match_id`, keeping the most recent record for each match. Shared by both
+/// `build_encounter_summary` and `get_all_summaries` so the sort+dedup logic
+/// lives in exactly one place (previously duplicated in both functions).
+fn dedup_sorted(mut records: Vec<&EncounterRecord>) -> Vec<&EncounterRecord> {
+    records.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
+    let mut seen = std::collections::HashSet::new();
+    records.retain(|e| seen.insert(e.match_id.as_deref().unwrap_or("").to_string()));
+    records
+}
+
 pub struct EncounterService {
     stats_path: PathBuf,
     data: Mutex<EncounterData>,
@@ -177,11 +188,15 @@ impl EncounterService {
         current_agent: Option<&str>,
         current_map: Option<&str>,
     ) -> Option<EncounterEntry> {
-        let data = self.data.lock().unwrap();
-        let history = data.records.get(puuid)?;
+        // Clone the relevant history out of the lock first; the sort + dedup
+        // below is O(n log n) and must not run while the mutex is held.
+        let history = {
+            let data = self.data.lock().unwrap();
+            data.records.get(puuid).cloned()
+        }?;
 
-        let mut previous: Vec<&EncounterRecord> = history
-            .iter()
+        let previous: Vec<EncounterRecord> = history
+            .into_iter()
             .filter(|e| e.match_id.as_deref() != Some(current_match_id))
             .collect();
 
@@ -189,22 +204,11 @@ impl EncounterService {
             return None;
         }
 
-        // Sort by epoch descending so the most recent record is first
-        previous.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by epoch descending and de-duplicate by match_id (keep most recent).
+        let previous_refs: Vec<&EncounterRecord> = previous.iter().collect();
+        let deduped = dedup_sorted(previous_refs);
 
-        // Deduplicate by match_id (keep first = most recent after sort)
-        let mut seen = std::collections::HashSet::new();
-        previous.retain(|e| {
-            let key = e.match_id.as_deref().unwrap_or("");
-            if seen.contains(key) {
-                false
-            } else {
-                seen.insert(key.to_string());
-                true
-            }
-        });
-
-        let latest = previous[0];
+        let latest = deduped[0];
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -217,7 +221,7 @@ impl EncounterService {
         let mut enemy_losses = 0usize;
         let mut enemy_unknown = 0usize;
 
-        for entry in &previous {
+        for entry in &deduped {
             let rel = entry.relation.as_deref().unwrap_or("");
             match (rel, entry.result.as_deref()) {
                 ("ally", Some("win")) => ally_wins += 1,
@@ -239,7 +243,7 @@ impl EncounterService {
             .unwrap_or(fallback_name);
 
         Some(EncounterEntry {
-            times: previous.len(),
+            times: deduped.len(),
             name: latest_name.to_string(),
             agent: current_agent
                 .map(String::from)
@@ -271,14 +275,17 @@ impl EncounterService {
     }
 
     pub fn get_all_summaries(&self, exclude_puuid: &str) -> Vec<crate::models::heartbeat::EncounterEntry> {
-        let data = self.data.lock().unwrap();
+        // Snapshot the whole record map out of the lock; all per-player
+        // sort/dedup work below runs on the owned copy so the mutex is only
+        // held for the (cheap) clone, not the O(n log n) processing.
+        let records = self.data.lock().unwrap().records.clone();
         let mut results = Vec::new();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs_f64();
 
-        for (puuid, history) in data.records.iter() {
+        for (puuid, history) in records.iter() {
             if puuid == exclude_puuid {
                 continue;
             }
@@ -288,17 +295,10 @@ impl EncounterService {
             }
 
             // Collect all records not matching current match (none excluded here)
-            let mut records: Vec<&EncounterRecord> = history.iter().collect();
+            let records: Vec<&EncounterRecord> = history.iter().collect();
 
-            // Sort by epoch descending so the most recent is first
-            records.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
-
-            // Deduplicate by match_id (keep first = most recent after sort)
-            let mut seen = std::collections::HashSet::new();
-            let deduped: Vec<&EncounterRecord> = records.into_iter().filter(|e| {
-                let key = e.match_id.as_deref().unwrap_or("");
-                if seen.contains(key) { false } else { seen.insert(key.to_string()); true }
-            }).collect();
+            // Sort by epoch descending and de-duplicate by match_id (keep most recent).
+            let deduped = dedup_sorted(records);
 
             if deduped.is_empty() {
                 continue;
