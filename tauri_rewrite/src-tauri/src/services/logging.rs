@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -10,6 +10,7 @@ use tauri::Emitter;
 
 pub struct Logger {
     log_path: PathBuf,
+    file: Mutex<Option<BufWriter<File>>>,
     buffer: Mutex<VecDeque<String>>,
     max_buffer: usize,
     app_handle: Mutex<Option<AppHandle>>,
@@ -23,8 +24,18 @@ impl Logger {
         let run_num = Self::next_run_num(&logs_dir);
         let log_path = logs_dir.join(format!("log-{}.txt", run_num));
 
+        // Open the log file once and keep a persistent buffered writer instead
+        // of reopening it on every log line.
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok()
+            .map(BufWriter::new);
+
         let logger = Self {
             log_path,
+            file: Mutex::new(file),
             buffer: Mutex::new(VecDeque::with_capacity(100)),
             max_buffer: 500,
             app_handle: Mutex::new(None),
@@ -64,12 +75,13 @@ impl Logger {
             buffer.pop_front();
         }
 
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)
-        {
-            let _ = writeln!(file, "{}", line);
+        if let Ok(mut file) = self.file.lock() {
+            if let Some(writer) = file.as_mut() {
+                let _ = writeln!(writer, "{}", line);
+                // Flush so log lines survive a crash/kill — the file's main job
+                // is diagnosing exactly those situations. Cheap inside the lock.
+                let _ = writer.flush();
+            }
         }
 
         #[cfg(debug_assertions)]
