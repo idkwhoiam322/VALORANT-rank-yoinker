@@ -319,6 +319,54 @@ async fn fetch_match_context(
     Some((match_data, match_id))
 }
 
+/// Build the `PlayerHeartbeat` for a single participant from already-resolved
+/// rank/stats/agent/loadout data. Shared by the INGAME and PREGAME builders,
+/// which both iterate `CoregamePlayer` and feed the same fields.
+///
+/// MENUS intentionally does NOT use this helper: its literal differs (no
+/// loadout, self-only `level`, name resolved later) and must not gain
+/// match-scoped caching. Per-player `match_player_cache` write-back stays in
+/// the INGAME caller.
+fn build_player_heartbeat(
+    subject: &str,
+    name: Option<String>,
+    agent_name: Option<String>,
+    player_rank: &crate::models::mmr::PlayerRank,
+    player_stats: &crate::models::mmr::PlayerStats,
+    player_loadout: Option<&crate::models::loadout::PlayerLoadoutData>,
+    player: &CoregamePlayer,
+) -> PlayerHeartbeat {
+    PlayerHeartbeat {
+        puuid: subject.to_string(),
+        name,
+        agent: agent_name,
+        agent_selection_state: player.character_selection_state.clone(),
+        rank: player_rank.rank,
+        peak_rank: player_rank.peak_rank,
+        peak_rank_act: player_rank.peak_rank_act.clone(),
+        previous_rank: player_rank.previous_rank,
+        rr: player_rank.rr,
+        win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+        last_active: format_last_active(player_stats.last_active_epoch),
+        level: player
+            .player_identity
+            .as_ref()
+            .and_then(|pi| pi.account_level),
+        leaderboard: player_rank.leaderboard,
+        agent_img_link: player
+            .character_id
+            .as_ref()
+            .map(|cid| endpoints::media_agent_icon(&cid.to_lowercase())),
+        team: player.team_id.clone(),
+        sprays: player_loadout.and_then(|p| p.sprays.clone()),
+        title: player_loadout.and_then(|p| p.title.clone()),
+        player_card: player_loadout.and_then(|p| p.player_card.clone()),
+        player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
+        party_number: 0,
+        weapons: player_loadout.and_then(|p| p.weapons.clone()),
+    }
+}
+
 async fn build_ingame_payload(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -414,7 +462,6 @@ async fn build_ingame_payload(
             fetch_rank_and_stats(svc, entitlements, client_version, &subject).await
         };
 
-        let previous_rank = player_rank.previous_rank;
 
         let agent_name = player
             .character_id
@@ -424,34 +471,15 @@ async fn build_ingame_payload(
 
         let player_loadout = loadout_json.players.get(&subject_lower);
 
-        let heartbeat_player = PlayerHeartbeat {
-            puuid: subject.clone(),
-            name: names.get(&subject).cloned(),
-            agent: agent_name.clone(),
-            agent_selection_state: player.character_selection_state.clone(),
-            rank: player_rank.rank,
-            peak_rank: player_rank.peak_rank,
-            peak_rank_act: player_rank.peak_rank_act,
-            previous_rank,
-            rr: player_rank.rr,
-            win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
-            last_active: format_last_active(player_stats.last_active_epoch),
-            level: player
-                .player_identity
-                .as_ref()
-                .and_then(|pi| pi.account_level),
-            leaderboard: player_rank.leaderboard,
-            agent_img_link: player.character_id.as_ref().map(|cid| {
-                endpoints::media_agent_icon(&cid.to_lowercase())
-            }),
-            team: player.team_id.clone(),
-            sprays: player_loadout.and_then(|p| p.sprays.clone()),
-            title: player_loadout.and_then(|p| p.title.clone()),
-            player_card: player_loadout.and_then(|p| p.player_card.clone()),
-            player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
-            party_number: 0,
-            weapons: player_loadout.and_then(|p| p.weapons.clone()),
-        };
+        let heartbeat_player = build_player_heartbeat(
+            &subject,
+            names.get(&subject).cloned(),
+            agent_name.clone(),
+            &player_rank,
+            &player_stats,
+            player_loadout,
+            player,
+        );
 
         // Save encounters before moving subject into the map (skip self)
         if subject_lower != puuid.to_lowercase() {
@@ -679,7 +707,6 @@ async fn build_pregame_payload(
             (rank, stats)
         };
 
-        let previous_rank = player_rank.previous_rank;
 
         let agent_name = player
                     .character_id
@@ -689,35 +716,15 @@ async fn build_pregame_payload(
 
                 let player_loadout = loadout_json.players.get(&subject.to_lowercase());
 
-                let heartbeat_player = PlayerHeartbeat {
-                    puuid: subject.clone(),
-                    name: names.get(&subject).cloned(),
-                    agent: agent_name,
-                    agent_selection_state: player.character_selection_state.clone(),
-                    rank: player_rank.rank,
-                    peak_rank: player_rank.peak_rank,
-                    peak_rank_act: player_rank.peak_rank_act,
-                    previous_rank,
-                    rr: player_rank.rr,
-                    win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
-                    last_active: format_last_active(player_stats.last_active_epoch),
-            level: player
-                .player_identity
-                .as_ref()
-                .and_then(|pi| pi.account_level),
-            leaderboard: player_rank.leaderboard,
-            agent_img_link: player
-                .character_id
-                .as_ref()
-                .map(|cid| endpoints::media_agent_icon(&cid.to_lowercase())),
-            team: player.team_id.clone(),
-            sprays: player_loadout.and_then(|p| p.sprays.clone()),
-            title: player_loadout.and_then(|p| p.title.clone()),
-            player_card: player_loadout.and_then(|p| p.player_card.clone()),
-            player_card_name: player_loadout.and_then(|p| p.player_card_name.clone()),
-            party_number: 0,
-            weapons: player_loadout.and_then(|p| p.weapons.clone()),
-        };
+                let heartbeat_player = build_player_heartbeat(
+                    &subject,
+                    names.get(&subject).cloned(),
+                    agent_name,
+                    &player_rank,
+                    &player_stats,
+                    player_loadout,
+                    player,
+                );
 
         payload.players.insert(subject, heartbeat_player);
     }
