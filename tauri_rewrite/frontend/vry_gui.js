@@ -1222,6 +1222,9 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     window.addEventListener("keydown", function (e) {
         if (e.key === "Escape") { if (!els.confirmModal.hidden) { closeModal(); return; } if (state.selectedPuuid) { deselectPlayer(); } }
     });
+    window.addEventListener("auxclick", function (e) {
+        if (e.button === 3 && state.selectedPuuid) { e.preventDefault(); deselectPlayer(); }
+    });
     els.refreshButton.addEventListener("click", openModal);
     els.loadingRefreshButton.addEventListener("click", openModal);
     els.modalCancel.addEventListener("click", closeModal);
