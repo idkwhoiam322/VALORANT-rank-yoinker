@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use std::sync::Arc;
+use lru::LruCache;
 use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
@@ -9,9 +11,12 @@ use crate::api::endpoints;
 use crate::api::response_helpers::first_str;
 use crate::models::auth::Entitlements;
 
+/// Bounds the names cache so it cannot grow unbounded; TTL still applies on top.
+const NAMES_CACHE_CAP: usize = 1000;
+
 pub struct NamesService {
     client: Arc<ApiClient>,
-    cache: Mutex<HashMap<String, (String, Instant)>>,
+    cache: Mutex<LruCache<String, (String, Instant)>>,
     cache_ttl: Duration,
 }
 
@@ -19,7 +24,7 @@ impl NamesService {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
-            cache: Mutex::new(HashMap::new()),
+            cache: Mutex::new(LruCache::new(NonZeroUsize::new(NAMES_CACHE_CAP).unwrap())),
             cache_ttl: Duration::from_secs(300),
         }
     }
@@ -43,7 +48,7 @@ impl NamesService {
         let mut missing = Vec::new();
 
         {
-            let cache = self.cache.lock().await;
+            let mut cache = self.cache.lock().await;
             for p in puuids {
                 if let Some((name, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
@@ -58,6 +63,7 @@ impl NamesService {
 
         if !missing.is_empty() {
             // Resolve via local API then PD fallback
+            let mut newly_resolved: Vec<String> = Vec::new();
             let headers = entitlements.build_headers(client_version);
             let body = serde_json::json!({ "puuids": missing });
             match self
@@ -79,7 +85,9 @@ impl NamesService {
                                 let game_name = first_str(alias, &["gameName", "game_name", "GameName"]);
                                 let tag_line = first_str(alias, &["tagLine", "tag_line", "TagLine"]);
                                 if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
-                                    cached_names.insert(puuid.to_string(), format!("{}#{}", game_name, tag_line));
+                                    let name = format!("{}#{}", game_name, tag_line);
+                                    cached_names.insert(puuid.to_string(), name);
+                                    newly_resolved.push(puuid.to_string());
                                 }
                             }
                         }
@@ -120,7 +128,9 @@ impl NamesService {
                                 let game_name = first_str(player, &["GameName", "game_name"]);
                                 let tag_line = first_str(player, &["TagLine", "tag_line"]);
                                 if let (Some(subject), Some(game_name), Some(tag_line)) = (subject, game_name, tag_line) {
-                                    cached_names.insert(subject.to_string(), format!("{}#{}", game_name, tag_line));
+                                    let name = format!("{}#{}", game_name, tag_line);
+                                    cached_names.insert(subject.to_string(), name);
+                                    newly_resolved.push(subject.to_string());
                                 }
                             }
                         }
@@ -131,16 +141,19 @@ impl NamesService {
                 }
             }
 
-            // Store newly resolved names in cache (double-check: another task
-            // may have inserted a fresh entry while we were fetching).
+            // Store only the newly resolved names in cache (double-check: another
+            // task may have inserted a fresh entry while we were fetching). The
+            // flush is scoped to `newly_resolved` instead of re-iterating the full
+            // `cached_names` set, so pre-existing entries are left untouched.
             let mut cache = self.cache.lock().await;
-            for (p, name) in &cached_names {
+            for p in &newly_resolved {
+                let Some(name) = cached_names.get(p) else { continue };
                 if let Some((_, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
                         continue; // a concurrent fetch already cached this
                     }
                 }
-                cache.insert(p.clone(), (name.clone(), Instant::now()));
+                cache.put(p.clone(), (name.clone(), Instant::now()));
             }
         }
 

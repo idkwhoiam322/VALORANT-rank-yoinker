@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use lru::LruCache;
 use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
@@ -10,9 +12,12 @@ use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::mmr::{MmrResponse, PlayerRank};
 
+/// Bounds the rank cache so it cannot grow unbounded; TTL still applies on top.
+const RANK_CACHE_CAP: usize = 500;
+
 pub struct RankService {
     client: Arc<ApiClient>,
-    cache: Mutex<HashMap<String, (PlayerRank, Instant)>>,
+    cache: Mutex<LruCache<String, (PlayerRank, Instant)>>,
     cache_ttl: Duration,
 }
 
@@ -20,7 +25,7 @@ impl RankService {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
-            cache: Mutex::new(HashMap::new()),
+            cache: Mutex::new(LruCache::new(NonZeroUsize::new(RANK_CACHE_CAP).unwrap())),
             cache_ttl: Duration::from_secs(300),
         }
     }
@@ -36,11 +41,11 @@ impl RankService {
         puuid: &str,
         season_id: &str,
         previous_season_id: Option<&str>,
-        _content: &ContentCache,
+        content: &ContentCache,
     ) -> PlayerRank {
         // Fast path: read lock
         {
-            let cache = self.cache.lock().await;
+            let mut cache = self.cache.lock().await;
             if let Some((rank, time)) = cache.get(puuid) {
                 if time.elapsed() < self.cache_ttl {
                     let ttl_left = self.cache_ttl.as_secs().saturating_sub(time.elapsed().as_secs());
@@ -51,7 +56,7 @@ impl RankService {
         }
 
         // Slow path: release lock before HTTP, re-acquire for double-check + insert
-        let result = self.fetch_rank(entitlements, client_version, puuid, season_id, previous_season_id, _content).await;
+        let result = self.fetch_rank(entitlements, client_version, puuid, season_id, previous_season_id, content).await;
         match result {
             Ok(rank) => {
                 let mut cache = self.cache.lock().await;
@@ -60,7 +65,7 @@ impl RankService {
                         return existing.clone();
                     }
                 }
-                cache.insert(puuid.to_string(), (rank.clone(), Instant::now()));
+                cache.put(puuid.to_string(), (rank.clone(), Instant::now()));
                 rank
             }
             Err(_) => PlayerRank::empty(),

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -7,6 +6,8 @@ use lru::LruCache;
 use tokio::sync::Mutex;
 
 const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
+/// Bounds the updates cache so it cannot grow unbounded; TTL still applies on top.
+const UPDATES_CACHE_CAP: usize = 200;
 
 use crate::api::client::{ApiClient, UrlType};
 use crate::api::endpoints;
@@ -18,7 +19,7 @@ use crate::models::mmr::{
 pub struct StatsService {
     client: Arc<ApiClient>,
     match_details_cache: Mutex<LruCache<String, MatchDetailsResponse>>,
-    updates_cache: Mutex<HashMap<String, (PlayerStats, Instant)>>,
+    updates_cache: Mutex<LruCache<String, (PlayerStats, Instant)>>,
 }
 
 impl StatsService {
@@ -26,7 +27,7 @@ impl StatsService {
         Self {
             client,
             match_details_cache: Mutex::new(LruCache::new(NonZeroUsize::new(200).unwrap())),
-            updates_cache: Mutex::new(HashMap::new()),
+            updates_cache: Mutex::new(LruCache::new(NonZeroUsize::new(UPDATES_CACHE_CAP).unwrap())),
         }
     }
 
@@ -43,7 +44,7 @@ impl StatsService {
     ) -> PlayerStats {
         // Check TTL cache first (double-checked locking)
         {
-            let cache = self.updates_cache.lock().await;
+            let mut cache = self.updates_cache.lock().await;
             if let Some((stats, ts)) = cache.get(puuid) {
                 if ts.elapsed() < UPDATES_CACHE_TTL {
                     let ttl_left = UPDATES_CACHE_TTL.as_secs().saturating_sub(ts.elapsed().as_secs());
@@ -147,7 +148,7 @@ impl StatsService {
                 return existing.clone();
             }
         }
-        cache.insert(puuid.to_string(), (stats.clone(), Instant::now()));
+        cache.put(puuid.to_string(), (stats.clone(), Instant::now()));
         stats
     }
 
