@@ -1,6 +1,6 @@
     * { user-select: none; }
 
-    /* ---- vry_gui.html-only additions (layered on top of matchLoadouts.css) ---- */
+    /* ---- vry_gui.html-only additions (layered on top of style.css) ---- */
 
     .topbar {
         display: flex;

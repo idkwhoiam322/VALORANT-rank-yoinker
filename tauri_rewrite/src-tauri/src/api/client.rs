@@ -360,7 +360,7 @@ impl ApiClient {
         // Clone the Arc (a cheap atomic refcount bump) while the lock is held
         // for that instant only, then build the final URL string after the
         // guard has already been dropped, so the mutex is never held across
-        // the string formatting work, so the mutex is never held across it.
+        // the string formatting work.
         match url_type {
             UrlType::Pd => {
                 let base = self.pd_base.lock().unwrap().clone();
