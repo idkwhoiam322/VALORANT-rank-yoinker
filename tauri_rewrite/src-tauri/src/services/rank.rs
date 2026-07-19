@@ -153,10 +153,6 @@ impl RankService {
 
 }
 
-fn is_before_ascendant(season_id: &str) -> bool {
-    crate::api::content::is_before_ascendant(season_id)
-}
-
 /// Compute the peak competitive tier across all seasons from each season's
 /// `wins_by_tier` map. Returns `(max_rank, max_season_id)` where `max_season_id`
 /// is the season that produced the peak (used to derive the act/episode label).
@@ -175,7 +171,7 @@ fn compute_peak_rank(
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                let before = is_before_ascendant(sid);
+                let before = crate::api::content::is_before_ascendant(sid);
                 if before && tier_val > 20 {
                     tier_val += 3;
                 }
