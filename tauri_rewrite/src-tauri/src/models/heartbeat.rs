@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HeartbeatPayload {
     pub time: i64,
     pub state: String,
@@ -24,7 +24,7 @@ pub struct HeartbeatPayload {
     pub already_played_with: Vec<EncounterEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlayerHeartbeat {
     pub puuid: String,
     #[serde(default)]
@@ -73,7 +73,7 @@ pub struct PlayerHeartbeat {
     pub weapons: Option<HashMap<String, super::loadout::WeaponEntry>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EncounterEntry {
     pub times: usize,
     pub name: String,

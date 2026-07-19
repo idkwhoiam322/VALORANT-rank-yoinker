@@ -386,7 +386,7 @@ impl MainLoop {
     async fn run_main_loop(&self, app: &AppHandle) -> Result<(), String> {
         let services = self.services.clone();
         let mut last_state: Option<GameState> = None;
-        let mut last_heartbeat_key: Option<String> = None;
+        let mut last_emitted: Option<HeartbeatPayload> = None;
         let mut last_presences: Option<Vec<Presence>> = None;
         let mut match_context: Option<(String, String)> = None;
         // Pregame loadouts are immutable during agent select, so cache the raw
@@ -461,7 +461,7 @@ impl MainLoop {
                     last_presences = None;
                     match_context = None;
                     last_state = None;
-                    last_heartbeat_key = None;
+                    last_emitted = None;
                 }
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
@@ -671,8 +671,20 @@ impl MainLoop {
                         Some((id.to_string(), heartbeat.clone()));
                 }
 
-                let key = format!("{}:{}", heartbeat.time, heartbeat.state);
-                if last_heartbeat_key.as_deref() != Some(&key) {
+                let should_emit = match last_emitted.as_ref() {
+                    Some(prev) => {
+                        let eq = heartbeats_equal_ignoring_time(prev, &heartbeat);
+                        if eq {
+                            snap.logger.log(&format!(
+                                "Heartbeat dedup: suppressing identical rebuild (same content, time advanced {}s)",
+                                heartbeat.time - prev.time
+                            ));
+                        }
+                        !eq
+                    }
+                    None => true,
+                };
+                if should_emit {
                     heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
                     snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
                         heartbeat.version,
@@ -681,7 +693,7 @@ impl MainLoop {
                         heartbeat.map.as_deref().unwrap_or("unknown")));
                     snap.log_heartbeat(&heartbeat);
                     let _ = app.emit("heartbeat", &heartbeat);
-                    last_heartbeat_key = Some(key);
+                    last_emitted = Some(heartbeat.clone());
                 }
             }
 
@@ -875,4 +887,23 @@ impl MainLoop {
         }
     }
 
+}
+
+/// Two heartbeats are "the same" for emission purposes if nothing the user
+/// would see has changed. `time` always differs between builds by
+/// construction (it's `SystemTime::now()`), `version` is assigned at
+/// emission time (not yet meaningful at comparison time), and
+/// `time_diff` (in `already_played_with`) is `now - epoch` recomputed fresh
+/// every tick — all three are normalized to zero for comparison only.
+fn heartbeats_equal_ignoring_time(a: &HeartbeatPayload, b: &HeartbeatPayload) -> bool {
+    let normalize = |h: &HeartbeatPayload| {
+        let mut h = h.clone();
+        h.time = 0;
+        h.version = 0;
+        for entry in h.already_played_with.iter_mut() {
+            entry.time_diff = 0.0;
+        }
+        h
+    };
+    normalize(a) == normalize(b)
 }

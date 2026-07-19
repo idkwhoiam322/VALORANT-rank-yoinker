@@ -107,7 +107,7 @@ pub struct PlayerLoadoutData {
     pub weapons: Option<HashMap<String, WeaponEntry>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SprayEntry {
     #[serde(rename = "type")]
     pub spray_type: Option<String>,
@@ -122,7 +122,7 @@ pub struct SprayEntry {
     pub full_transparent_icon: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WeaponEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skin: Option<String>,
