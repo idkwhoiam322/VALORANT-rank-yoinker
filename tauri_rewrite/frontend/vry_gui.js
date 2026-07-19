@@ -431,7 +431,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         // Rank icons are emitted once at startup and cached
         // here; they are no longer carried on every heartbeat payload.
         tauriListen("rank_icons", function (event) {
-            state.rankIcons = event.payload || null;
+            setState({ rankIcons: event.payload || null });
+            state.dirty.players = true;
+            state.dirty.details = true;
+            render();
         });
 
         tauriListen("state_change", function (event) {
