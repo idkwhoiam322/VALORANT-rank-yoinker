@@ -236,6 +236,26 @@ h3 {
     transform: translateY(-4px);
 }
 
+.player-button.is-blue:hover,
+.player-button.is-blue:focus-visible,
+.player-button.is-blue.is-selected {
+    border-color: rgba(124, 181, 255, 0.85);
+    box-shadow:
+        0 0 0 1px rgba(124, 181, 255, 0.22),
+        0 0 32px rgba(124, 181, 255, 0.14),
+        0 28px 64px rgba(0, 0, 0, 0.55) !important;
+}
+
+.player-button.is-red:hover,
+.player-button.is-red:focus-visible,
+.player-button.is-red.is-selected {
+    border-color: rgba(255, 70, 85, 0.85);
+    box-shadow:
+        0 0 0 1px rgba(255, 70, 85, 0.22),
+        0 0 32px rgba(255, 70, 85, 0.14),
+        0 28px 64px rgba(0, 0, 0, 0.55) !important;
+}
+
 .player-button.is-blue {
     background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%),
