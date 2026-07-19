@@ -81,7 +81,7 @@ impl NamesService {
                         for entry in entries {
                             let puuid = entry.get("puuid").and_then(|v| v.as_str());
                             let alias = entry.get("alias");
-                                if let (Some(puuid), Some(alias)) = (puuid, alias) {
+                            if let (Some(puuid), Some(alias)) = (puuid, alias) {
                                 let game_name = first_str(alias, &["gameName", "game_name", "GameName"]);
                                 let tag_line = first_str(alias, &["tagLine", "tag_line", "TagLine"]);
                                 if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {

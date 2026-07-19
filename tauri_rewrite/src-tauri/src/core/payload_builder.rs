@@ -720,22 +720,22 @@ async fn build_pregame_payload(
 
 
         let agent_name = player
-                    .character_id
-                    .as_ref()
-                    .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
-                    .cloned();
+            .character_id
+            .as_ref()
+            .and_then(|cid| svc.content.agents.get(&cid.to_lowercase()))
+            .cloned();
 
-                let player_loadout = loadout_json.players.get(&subject.to_lowercase());
+        let player_loadout = loadout_json.players.get(&subject.to_lowercase());
 
-                let heartbeat_player = build_player_heartbeat(
-                    &subject,
-                    names.get(&subject).cloned(),
-                    agent_name,
-                    &player_rank,
-                    &player_stats,
-                    player_loadout,
-                    player,
-                );
+        let heartbeat_player = build_player_heartbeat(
+            &subject,
+            names.get(&subject).cloned(),
+            agent_name,
+            &player_rank,
+            &player_stats,
+            player_loadout,
+            player,
+        );
 
         payload.players.insert(subject, heartbeat_player);
     }
