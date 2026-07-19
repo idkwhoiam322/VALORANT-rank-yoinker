@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -115,33 +114,8 @@ impl RankService {
                     }
 
                     // Calculate peak rank from WinsByTier keys
-                    let mut max_rank = rank.rank;
-                    let mut max_season_id = season_id.to_string();
-                    for (sid, sinfo) in seasons {
-                        if let Some(ref wbt) = sinfo.wins_by_tier {
-                            for tier_str in wbt.keys() {
-                                let mut tier_val: u32 = match tier_str.parse() {
-                                    Ok(v) => v,
-                                    Err(_) => continue,
-                                };
-                                let before = is_before_ascendant(sid);
-                                if before && tier_val > 20 {
-                                    tier_val += 3;
-                                }
-                                if tier_val > max_rank {
-                                    log::debug!(
-                                        "rank: peak update sid={:.12} tier={} before={} max_season={:.12}",
-                                        &sid[..12.min(sid.len())],
-                                        tier_val,
-                                        before,
-                                        &max_season_id[..12.min(max_season_id.len())]
-                                    );
-                                    max_rank = tier_val;
-                                    max_season_id = sid.clone();
-                                }
-                            }
-                        }
-                    }
+                    let (max_rank, max_season_id) =
+                        compute_peak_rank(seasons, rank.rank, season_id);
                     rank.peak_rank = max_rank;
 
                     // Get act/episode for peak rank
@@ -181,6 +155,45 @@ impl RankService {
 
 fn is_before_ascendant(season_id: &str) -> bool {
     crate::api::content::is_before_ascendant(season_id)
+}
+
+/// Compute the peak competitive tier across all seasons from each season's
+/// `wins_by_tier` map. Returns `(max_rank, max_season_id)` where `max_season_id`
+/// is the season that produced the peak (used to derive the act/episode label).
+/// Seasons before Ascendant need a +3 adjustment for tiers above 20 (old numbering).
+fn compute_peak_rank(
+    seasons: &std::collections::HashMap<String, crate::models::mmr::SeasonalInfo>,
+    current_rank: u32,
+    season_id: &str,
+) -> (u32, String) {
+    let mut max_rank = current_rank;
+    let mut max_season_id = season_id.to_string();
+    for (sid, sinfo) in seasons {
+        if let Some(ref wbt) = sinfo.wins_by_tier {
+            for tier_str in wbt.keys() {
+                let mut tier_val: u32 = match tier_str.parse() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let before = is_before_ascendant(sid);
+                if before && tier_val > 20 {
+                    tier_val += 3;
+                }
+                if tier_val > max_rank {
+                    log::debug!(
+                        "rank: peak update sid={:.12} tier={} before={} max_season={:.12}",
+                        &sid[..12.min(sid.len())],
+                        tier_val,
+                        before,
+                        &max_season_id[..12.min(max_season_id.len())]
+                    );
+                    max_rank = tier_val;
+                    max_season_id = sid.clone();
+                }
+            }
+        }
+    }
+    (max_rank, max_season_id)
 }
 
 
