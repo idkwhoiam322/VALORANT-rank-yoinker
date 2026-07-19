@@ -63,6 +63,11 @@ fn redact_secrets(input: &str) -> String {
 // Snapshot of all services & session data extracted from the RwLock so the
 // main loop can drop the guard before making HTTP calls.
 // ---------------------------------------------------------------------------
+//
+// NOTE: `ServiceSnapshot` and `AppServices` must be kept in sync -- every field
+// added to one must be mirrored in the other (see `AppServices::snapshot()`).
+// Forgetting to copy a field into the snapshot is a silent bug.
+// ---------------------------------------------------------------------------
 pub struct ServiceSnapshot {
     pub logger: Arc<Logger>,
     pub client: Arc<ApiClient>,
@@ -144,6 +149,11 @@ impl ServiceSnapshot {
 
 // ---------------------------------------------------------------------------
 // AppServices – session state behind a RwLock so initialisation can mutate.
+// ---------------------------------------------------------------------------
+//
+// NOTE: `AppServices` and `ServiceSnapshot` must be kept in sync -- see the
+// cross-reference comment on `ServiceSnapshot`. Any new session field here must
+// also be copied into the snapshot in `AppServices::snapshot()`.
 // ---------------------------------------------------------------------------
 pub struct AppServices {
     pub logger: Arc<Logger>,
@@ -437,111 +447,22 @@ impl MainLoop {
             // Detect 503 from local API — Riot client session expired (e.g. user
             // signed out). Trigger silent re-auth that preserves content cache.
             if snap.client.is_local_api_dead() {
-                snap.client.clear_local_api_dead();
-                snap.logger.log("Local API 503 — session expired, re-authenticating...");
-
-                // Drop WS connection; re-established on next tick
-                ws = None;
-
-                // Re-authenticate using existing lockfile auth (no lockfile re-read
-                // needed — Riot Client process is still running).
-                // Refreshes entitlements + client_version from local Riot client
-                // endpoints, then updates ApiClient's internal state.
-                //
-                // If the refresh succeeds (simple token expiry, user still signed
-                // in), keep caches intact — same as BAD_CLAIMS re-auth. Only clear
-                // caches when the refresh confirms the user signed out (400
-                // "not ready"), and then retry silently every 5s until they sign
-                // back in.
-                match snap.client.refresh_entitlements_with_retry().await {
-                    Ok(()) => {
-                        let fresh_entitlements = snap.client.get_entitlements();
-                        let fresh_cv = snap.client.get_client_version();
-                        {
-                            let mut svc = services.write().await;
-                            svc.client_version = fresh_cv;
-                            if let Some(ref e) = fresh_entitlements {
-                                svc.puuid = e.subject.clone();
-                            }
-                        }
-                        snap.logger.log("Re-authentication successful, resuming...");
-                    }
-                    Err(e) => {
-                        snap.logger.log(&format!("Re-auth deferred ({e}) — Riot client session inactive, retrying until sign-in"));
-                        snap.clear_volatile_caches().await;
-                        pregame_loadout_cache = None;
-                        last_known_snapshot = None;
-                        last_presences = None;
-                        match_context = None;
-                        last_state = None;
-                        last_heartbeat_key = None;
-
-                        // If RC is fully closed the lockfile is gone; wait for the
-                        // user to (re)launch it and re-read the *fresh* port /
-                        // password. A backgrounded RC keeps its lockfile, so this
-                        // only triggers on a genuine close — never relaunches.
-                        if !auth::get_lockfile_path().exists() {
-                            snap.logger.log("Riot Client closed — waiting for it to come back…");
-                            let _ = app.emit("riot_client_waiting", serde_json::json!({}));
-                            if let Some(lf) = auth::ensure_lockfile_ready(
-                                std::time::Duration::from_secs(60),
-                            )
-                            .await
-                            {
-                                let fresh_port = lf.port;
-                                snap.client.set_local_auth(lf.password.clone(), fresh_port);
-                                *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
-                                    Some(fresh_port);
-                            }
-                        }
-
-                        loop {
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                            match snap.client.refresh_entitlements_with_retry().await {
-                                Ok(()) => {
-                                    let fresh_entitlements = snap.client.get_entitlements();
-                                    let fresh_cv = snap.client.get_client_version();
-                                    {
-                                        let mut svc = services.write().await;
-                                        svc.client_version = fresh_cv;
-                                        if let Some(ref e) = fresh_entitlements {
-                                            svc.puuid = e.subject.clone();
-                                        }
-                                    }
-                                    snap.logger.log("Re-authentication successful after deferred retry, resuming...");
-                                    break;
-                                }
-                                Err(_) => continue,
-                            }
-                        }
-                    }
+                // Extracted 503/re-auth handling — see `handle_local_api_dead`.
+                // The method returns `true` only when the confirmed-sign-out
+                // path ran (caches cleared); in that case we must also reset the
+                // caller's per-tick local state, mirroring the original in-loop
+                // Err branch. On the plain-expiry path these are preserved.
+                let cleared = self
+                    .handle_local_api_dead(&app, &services, &snap, &mut ws)
+                    .await;
+                if cleared {
+                    pregame_loadout_cache = None;
+                    last_known_snapshot = None;
+                    last_presences = None;
+                    match_context = None;
+                    last_state = None;
+                    last_heartbeat_key = None;
                 }
-
-                // Reconnect WS with fresh puuid to restore 10s cooldown cadence
-                // instead of falling back to 1s polling permanently.
-                if ws.is_none() {
-                    let (port, password, puuid) = {
-                        let port = *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner());
-                        let password = snap.client.get_local_password();
-                        let puuid = {
-                            let svc = services.read().await;
-                            svc.puuid.clone()
-                        };
-                        (port, password, puuid)
-                    };
-                    if let Some(port) = port {
-                        match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
-                            Some(w) => {
-                                ws = Some(w);
-                                snap.logger.log("WS reconnected after re-auth");
-                            }
-                            None => {
-                                snap.logger.log("WS reconnect unavailable — using polling");
-                            }
-                        }
-                    }
-                }
-
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
@@ -765,6 +686,133 @@ impl MainLoop {
             }
 
         }
+    }
+
+    /// Handle a 503 from the local API — the Riot client session expired (e.g.
+    /// the user signed out). Pulled out of the main tick loop so that loop stays
+    /// scannable.
+    ///
+    /// Returns `true` iff the sign-out path ran (refresh failed, caches cleared
+    /// and the deferred-retry loop was entered). The caller uses this to reset
+    /// its own per-tick local state (`pregame_loadout_cache`, `last_*`,
+    /// `match_context`, …) — those live in `run_main_loop` and cannot be touched
+    /// here. On the `false` (plain-expiry) path the caller must NOT reset them.
+    ///
+    /// The two paths are deliberately asymmetric and must be preserved exactly:
+    ///   * refresh **succeeds** (plain token expiry, user still signed in) →
+    ///     caches are *preserved* (same as BAD_CLAIMS re-auth) — returns `false`.
+    ///   * refresh **fails** (confirmed sign-out) → `clear_volatile_caches()` is
+    ///     called and we retry silently every 5s until the user signs back in —
+    ///     returns `true`.
+    async fn handle_local_api_dead(
+        &self,
+        app: &AppHandle,
+        services: &Arc<RwLock<AppServices>>,
+        snap: &ServiceSnapshot,
+        ws: &mut Option<ValorantWs>,
+    ) -> bool {
+        snap.client.clear_local_api_dead();
+        snap.logger.log("Local API 503 — session expired, re-authenticating...");
+
+        // Drop WS connection; re-established on next tick
+        *ws = None;
+
+        // Re-authenticate using existing lockfile auth (no lockfile re-read
+        // needed — Riot Client process is still running).
+        // Refreshes entitlements + client_version from local Riot client
+        // endpoints, then updates ApiClient's internal state.
+        //
+        // If the refresh succeeds (simple token expiry, user still signed
+        // in), keep caches intact — same as BAD_CLAIMS re-auth. Only clear
+        // caches when the refresh confirms the user signed out (400
+        // "not ready"), and then retry silently every 5s until they sign
+        // back in.
+        let cleared = match snap.client.refresh_entitlements_with_retry().await {
+            Ok(()) => {
+                let fresh_entitlements = snap.client.get_entitlements();
+                let fresh_cv = snap.client.get_client_version();
+                {
+                    let mut svc = services.write().await;
+                    svc.client_version = fresh_cv;
+                    if let Some(ref e) = fresh_entitlements {
+                        svc.puuid = e.subject.clone();
+                    }
+                }
+                snap.logger.log("Re-authentication successful, resuming...");
+                false
+            }
+            Err(e) => {
+                snap.logger.log(&format!("Re-auth deferred ({e}) — Riot client session inactive, retrying until sign-in"));
+                snap.clear_volatile_caches().await;
+
+                // If RC is fully closed the lockfile is gone; wait for the
+                // user to (re)launch it and re-read the *fresh* port /
+                // password. A backgrounded RC keeps its lockfile, so this
+                // only triggers on a genuine close — never relaunches.
+                if !auth::get_lockfile_path().exists() {
+                    snap.logger.log("Riot Client closed — waiting for it to come back…");
+                    let _ = app.emit("riot_client_waiting", serde_json::json!({}));
+                    if let Some(lf) = auth::ensure_lockfile_ready(
+                        std::time::Duration::from_secs(60),
+                    )
+                    .await
+                    {
+                        let fresh_port = lf.port;
+                        snap.client.set_local_auth(lf.password.clone(), fresh_port);
+                        *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(fresh_port);
+                    }
+                }
+
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    match snap.client.refresh_entitlements_with_retry().await {
+                        Ok(()) => {
+                            let fresh_entitlements = snap.client.get_entitlements();
+                            let fresh_cv = snap.client.get_client_version();
+                            {
+                                let mut svc = services.write().await;
+                                svc.client_version = fresh_cv;
+                                if let Some(ref e) = fresh_entitlements {
+                                    svc.puuid = e.subject.clone();
+                                }
+                            }
+                            snap.logger.log("Re-authentication successful after deferred retry, resuming...");
+                            break;
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                true
+            }
+        };
+
+        // Reconnect WS with fresh puuid to restore 10s cooldown cadence
+        // instead of falling back to 1s polling permanently.
+        if ws.is_none() {
+            let (port, password, puuid) = {
+                let port = *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner());
+                let password = snap.client.get_local_password();
+                let puuid = {
+                    let svc = services.read().await;
+                    svc.puuid.clone()
+                };
+                (port, password, puuid)
+            };
+            if let Some(port) = port {
+                match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
+                    Some(w) => {
+                        *ws = Some(w);
+                        snap.logger.log("WS reconnected after re-auth");
+                    }
+                    None => {
+                        snap.logger.log("WS reconnect unavailable — using polling");
+                    }
+                }
+            }
+        }
+
+        cleared
     }
 
     /// Detect game state using WebSocket (preferred) or HTTP polling (fallback).
