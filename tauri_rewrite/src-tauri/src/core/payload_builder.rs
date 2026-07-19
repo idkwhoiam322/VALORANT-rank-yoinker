@@ -127,6 +127,7 @@ pub async fn build_heartbeat(
         players: HashMap::new(),
         rank_icons: Arc::new(Vec::new()),
         version: 0,
+        session_id: 0,
         already_played_with: vec![],
     };
 

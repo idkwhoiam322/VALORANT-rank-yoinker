@@ -39,7 +39,16 @@ fn redact_secrets(input: &str) -> String {
         // looks like one, plus any long alphanumeric blob (>= 32 chars).
         if tok.matches('.').count() == 2 && tok.len() >= 20 {
             out.push_str("[REDACTED]");
-        } else if tok.len() >= 32 && tok.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/' || c == '=') {
+        } else if tok.len() >= 32
+            && tok.chars().all(|c| {
+                c.is_ascii_alphanumeric()
+                    || c == '-'
+                    || c == '_'
+                    || c == '+'
+                    || c == '/'
+                    || c == '='
+            })
+        {
             out.push_str("[REDACTED]");
         } else {
             out.push_str(tok);
@@ -47,7 +56,14 @@ fn redact_secrets(input: &str) -> String {
         tok.clear();
     };
     for c in input.chars() {
-        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+' || c == '/' || c == '=' {
+        if c.is_ascii_alphanumeric()
+            || c == '-'
+            || c == '_'
+            || c == '.'
+            || c == '+'
+            || c == '/'
+            || c == '='
+        {
             token.push(c);
         } else {
             flush(&mut token, &mut out);
@@ -57,7 +73,6 @@ fn redact_secrets(input: &str) -> String {
     flush(&mut token, &mut out);
     out
 }
-
 
 // ---------------------------------------------------------------------------
 // Snapshot of all services & session data extracted from the RwLock so the
@@ -94,7 +109,9 @@ impl ServiceSnapshot {
         use std::io::Write;
         if let Ok(line) = serde_json::to_string(heartbeat) {
             if let Ok(mut f) = fs::OpenOptions::new()
-                .append(true).create(true).open(&self.heartbeat_log_path)
+                .append(true)
+                .create(true)
+                .open(&self.heartbeat_log_path)
             {
                 let _ = writeln!(f, "{line}");
             }
@@ -120,10 +137,7 @@ impl ServiceSnapshot {
 
     /// Get a single entry from the match-scoped cache for the given puuid.
     /// Pure getter - no side effects.
-    pub fn get_match_cache_entry(
-        &self,
-        puuid: &str,
-    ) -> Option<(PlayerRank, PlayerStats)> {
+    pub fn get_match_cache_entry(&self, puuid: &str) -> Option<(PlayerRank, PlayerStats)> {
         self.match_player_cache.lock().unwrap().get(puuid).cloned()
     }
 
@@ -138,11 +152,7 @@ impl ServiceSnapshot {
     }
 
     /// Insert or update an entry in the match-scoped cache.
-    pub fn put_match_cache_entry(
-        &self,
-        puuid: String,
-        entry: (PlayerRank, PlayerStats),
-    ) {
+    pub fn put_match_cache_entry(&self, puuid: String, entry: (PlayerRank, PlayerStats)) {
         self.match_player_cache.lock().unwrap().insert(puuid, entry);
     }
 }
@@ -254,6 +264,7 @@ impl AppServices {
 pub struct MainLoop {
     pub services: Arc<RwLock<AppServices>>,
     heartbeat_version: AtomicU64,
+    session_id: AtomicU64,
     lockfile_port: std::sync::Mutex<Option<u16>>,
 }
 
@@ -264,6 +275,7 @@ impl MainLoop {
         Self {
             services,
             heartbeat_version: AtomicU64::new(1),
+            session_id: AtomicU64::new(0),
             lockfile_port: std::sync::Mutex::new(None),
         }
     }
@@ -299,13 +311,18 @@ impl MainLoop {
                     if is_auth_error {
                         let restart_request = {
                             let svc = services.read().await;
-                            svc.log(&format!("Auth error: {e}. Waiting for user to click Refresh..."));
+                            svc.log(&format!(
+                                "Auth error: {e}. Waiting for user to click Refresh..."
+                            ));
                             svc.restart_request.clone()
                         };
-                        let _ = app.emit("auth_error", serde_json::json!({
-                            "message": redact_secrets(&e),
-                            "action": "Please sign in to Riot Client and click Refresh below."
-                        }));
+                        let _ = app.emit(
+                            "auth_error",
+                            serde_json::json!({
+                                "message": redact_secrets(&e),
+                                "action": "Please sign in to Riot Client and click Refresh below."
+                            }),
+                        );
                         restart_request.notified().await;
                     } else {
                         let svc = services.read().await;
@@ -326,26 +343,28 @@ impl MainLoop {
         // 1. Read lockfile (launch Riot Client if fully closed, then wait)
         svc.log("Launching Riot Client if needed, waiting for lockfile…");
         let _ = app.emit("riot_client_launching", serde_json::json!({}));
-        let lockfile = match auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await {
-            Some(lf) => lf,
-            None => return Err(
-                "Riot Client did not start / lockfile not found within 60s. Is it installed?"
-                    .into(),
-            ),
-        };
+        let lockfile =
+            match auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await {
+                Some(lf) => lf,
+                None => return Err(
+                    "Riot Client did not start / lockfile not found within 60s. Is it installed?"
+                        .into(),
+                ),
+            };
         let _ = app.emit("riot_client_waiting", serde_json::json!({}));
         *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) = Some(lockfile.port);
 
         // 2. Read region from logs
         let log_path = auth::get_log_path();
-        let region = auth::parse_region_from_logs(&log_path)
-            .map_err(|e| format!("Region parse: {e}"))?;
+        let region =
+            auth::parse_region_from_logs(&log_path).map_err(|e| format!("Region parse: {e}"))?;
 
         // 3. Update API URLs
         svc.client.update_urls(region.pd_url(), region.glz_url());
 
         // 4. Authenticate
-        let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile).await
+        let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile)
+            .await
             .map_err(|e| format!("Auth: {e}"))?;
         svc.log(&format!("Authenticated as {}", entitlements.subject));
         *svc.entitlements.lock().unwrap() = Some(entitlements.clone());
@@ -354,7 +373,8 @@ impl MainLoop {
         svc.puuid = entitlements.subject.clone();
 
         // 5. Update local auth on client
-        svc.client.set_local_auth(lockfile.password.clone(), lockfile.port);
+        svc.client
+            .set_local_auth(lockfile.password.clone(), lockfile.port);
 
         // 6. Fetch all game content (cached for session)
         let (content, season_id, previous_season_id) =
@@ -370,10 +390,32 @@ impl MainLoop {
         let _ = app.emit("rank_icons", svc.content.rank_icons.as_ref().clone());
 
         // 7. Notify frontend
-        let _ = app.emit("cache_cleared", ());
-        let _ = app.emit("backend_ready", serde_json::json!({
-            "puuid": entitlements.subject,
-        }));
+        // Bump the session id on every (re)initialization. A new id is minted after
+        // a restart or a re-auth cycle, so the frontend can reject stale events
+        // (late heartbeats / state_change) from the previous session that arrive
+        // out of order after the restart.
+        let session_id = self.session_id.fetch_add(1, Ordering::SeqCst) + 1;
+        // Reset the heartbeat version counter per session. The frontend dedups
+        // payloads by (version === lastRenderKey); without this reset the globally
+        // monotonic counter can collide with a value the frontend still remembers
+        // from the previous session, causing the new payload to be dropped and the
+        // previous match's players to render.
+        self.heartbeat_version.store(1, Ordering::SeqCst);
+        // Emit backend_ready (with the new sessionId) BEFORE cache_cleared so the
+        // frontend re-arms its epoch guard before any late event from the previous
+        // session can apply. cache_cleared now also carries the sessionId so the
+        // frontend can re-arm atomically inside resetState.
+        let _ = app.emit(
+            "backend_ready",
+            serde_json::json!({
+                "puuid": entitlements.subject,
+                "sessionId": session_id,
+            }),
+        );
+        let _ = app.emit(
+            "cache_cleared",
+            serde_json::json!({ "sessionId": session_id }),
+        );
 
         // Clear any stale 503 flag that may remain from a failed re-auth in a
         // previous run_main_loop cycle. Without this, the first iteration of
@@ -410,7 +452,14 @@ impl MainLoop {
             let port = { *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) };
             let password = snap.client.get_local_password();
             if let Some(port) = port {
-                match ValorantWs::connect(port, password.expose_secret(), &puuid, snap.logger.clone()).await {
+                match ValorantWs::connect(
+                    port,
+                    password.expose_secret(),
+                    &puuid,
+                    snap.logger.clone(),
+                )
+                .await
+                {
                     Some(ws) => Some(ws),
                     None => {
                         snap.logger.log("WS presence unavailable - using polling");
@@ -491,7 +540,8 @@ impl MainLoop {
                     tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
                     continue;
                 }
-                snap.logger.log("INGAME map still unknown - retrying match context");
+                snap.logger
+                    .log("INGAME map still unknown - retrying match context");
             }
 
             // State transition: INGAME -> not INGAME => update encounter results
@@ -500,36 +550,118 @@ impl MainLoop {
                     // Drop the last-known snapshot so the carry-over safety net
                     // cannot leak this match's data into the next one.
                     last_known_snapshot = None;
-                    snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
-                    match snap.stats.get_match_details(match_id, &entitlements, &cv).await {
+                    snap.logger
+                        .log(&format!("Match ended: {match_id} team {my_team}"));
+                    match snap
+                        .stats
+                        .get_match_details(match_id, &entitlements, &cv)
+                        .await
+                    {
                         Ok(match_data) => {
                             if let Ok(json) = serde_json::to_value(&match_data) {
                                 let winning_team = get_winning_team(&json);
                                 let score = get_match_score(&json);
                                 if let Some(winning_team) = winning_team {
-                                    snap.encounters.update_match_result(match_id, my_team, &winning_team, score.clone());
+                                    snap.encounters.update_match_result(
+                                        match_id,
+                                        my_team,
+                                        &winning_team,
+                                        score.clone(),
+                                    );
                                     snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
                                 } else {
                                     snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
                                 }
                             } else {
-                                snap.logger.log("Match ended but failed to serialize match details");
+                                snap.logger
+                                    .log("Match ended but failed to serialize match details");
                             }
                         }
-                        Err(e) => snap.logger.log(&format!("Match details fetch failed for {match_id}: {e}")),
+                        Err(e) => snap
+                            .logger
+                            .log(&format!("Match details fetch failed for {match_id}: {e}")),
                     }
                 }
             }
 
-            // State changed or first run - log, emit event, invalidate caches
+            // Resolve the build state and fetch match context up front so the
+            // state_change event and the heartbeat built later in this same tick
+            // always describe the same state. When the PREGAME context 404s (Riot
+            // already moved the player into the live match but the local WS/poll
+            // state is still PREGAME), we fall back to the INGAME context and build
+            // as INGAME. The state_change emitted below must reflect that build
+            // state, not the stale detected PREGAME state — otherwise the frontend
+            // receives a PREGAME transition immediately followed by an INGAME-shaped
+            // heartbeat and desyncs its transition handling.
+            let (match_ctx, _, build_state) = match current_state {
+                GameState::INGAME => {
+                    let ctx = crate::core::payload_builder::get_match_context(
+                        &snap,
+                        &entitlements,
+                        &cv,
+                        &puuid,
+                        current_state,
+                    )
+                    .await;
+                    (ctx, false, GameState::INGAME)
+                }
+                GameState::PREGAME => {
+                    let pregame_ctx = crate::core::payload_builder::get_match_context(
+                        &snap,
+                        &entitlements,
+                        &cv,
+                        &puuid,
+                        current_state,
+                    )
+                    .await;
+                    match pregame_ctx {
+                        Some(ctx) => (Some(ctx), false, GameState::PREGAME),
+                        None => {
+                            // PREGAME 404'd: player likely already in the live match.
+                            snap.logger
+                                .log("PREGAME context 404 - falling back to INGAME context");
+                            let ingame_ctx = crate::core::payload_builder::get_match_context(
+                                &snap,
+                                &entitlements,
+                                &cv,
+                                &puuid,
+                                GameState::INGAME,
+                            )
+                            .await;
+                            let used_fallback = ingame_ctx.is_some();
+                            (
+                                ingame_ctx,
+                                used_fallback,
+                                if used_fallback {
+                                    GameState::INGAME
+                                } else {
+                                    GameState::PREGAME
+                                },
+                            )
+                        }
+                    }
+                }
+                _ => (None, false, current_state),
+            };
+
+            // State changed or first run - log, emit event, invalidate caches.
+            // The emitted state is `build_state` (not the detected `current_state`)
+            // so it always matches the heartbeat that follows in this same tick.
             let is_transition = last_state != Some(current_state);
             if is_transition {
-                snap.logger.log(&format!("State change: {:?} -> {:?}", last_state, current_state));
-                let _ = app.emit("state_change", serde_json::json!({
-                    "state": current_state.as_str(),
-                }));
+                snap.logger.log(&format!(
+                    "State change: {:?} -> {:?} (build {:?})",
+                    last_state, current_state, build_state
+                ));
+                let _ = app.emit(
+                    "state_change",
+                    serde_json::json!({
+                        "state": build_state.as_str(),
+                        "sessionId": self.session_id.load(Ordering::SeqCst),
+                    }),
+                );
 
-                if current_state == GameState::MENUS {
+                if build_state == GameState::MENUS {
                     snap.rank.invalidate_cache().await;
                     snap.stats.clear_cache().await;
                     snap.clear_match_player_cache();
@@ -540,53 +672,12 @@ impl MainLoop {
 
             // Build heartbeat on state changes or periodic MENUS refresh
             // (MENUS rebuilds every loop so the frontend gets latest party members)
-            if current_state != GameState::DISCONNECTED && (is_transition || current_state == GameState::MENUS || current_state == GameState::PREGAME || current_state == GameState::INGAME) {
-                // Fetch match context first (for INGAME/PREGAME) to avoid redundant
-                // player-endpoint calls in build_heartbeat. Returns match_id, my_team,
-                // and the raw match data which is reused by the heartbeat builder.
-                //
-                // When PREGAME context 404s (Riot already moved the player into the
-                // live match but the local WS state is still PREGAME), fall back to an
-                // INGAME context lookup for the same player. This keeps map/server/
-                // players populated across the handoff instead of emitting an empty
-                // "unknown" tick. In that case we build the heartbeat using the INGAME
-                // builder (the fetched data is live-match shaped), so the frontend
-                // sees a seamless transition with correct players/loadouts.
-                let (match_ctx, used_ingame_fallback) = match current_state {
-                    GameState::INGAME => {
-                        let ctx = crate::core::payload_builder::get_match_context(
-                            &snap, &entitlements, &cv, &puuid, current_state,
-                        ).await;
-                        (ctx, false)
-                    }
-                    GameState::PREGAME => {
-                        let pregame_ctx = crate::core::payload_builder::get_match_context(
-                            &snap, &entitlements, &cv, &puuid, current_state,
-                        ).await;
-                        match pregame_ctx {
-                            Some(ctx) => (Some(ctx), false),
-                            None => {
-                                // PREGAME 404'd: player likely already in the live match.
-                                snap.logger.log("PREGAME context 404 - falling back to INGAME context");
-                                let ingame_ctx = crate::core::payload_builder::get_match_context(
-                                    &snap, &entitlements, &cv, &puuid, GameState::INGAME,
-                                ).await;
-                                let used_fallback = ingame_ctx.is_some();
-                                (ingame_ctx, used_fallback)
-                            }
-                        }
-                    }
-                    _ => (None, false),
-                };
-
-                // The state used to *build* the heartbeat. If we had to fall back to
-                // the INGAME context, build as INGAME (the data is live-match shaped).
-                let build_state = if used_ingame_fallback {
-                    GameState::INGAME
-                } else {
-                    current_state
-                };
-
+            if current_state != GameState::DISCONNECTED
+                && (is_transition
+                    || current_state == GameState::MENUS
+                    || current_state == GameState::PREGAME
+                    || current_state == GameState::INGAME)
+            {
                 let (known_match_id, pre_fetched_data) = match match_ctx {
                     Some((id, team, data)) => {
                         // The INGAME fallback above means a PREGAME tick may carry a
@@ -596,7 +687,9 @@ impl MainLoop {
                         let had_context = match_context.is_some();
                         match_context = Some((id.clone(), team.clone()));
                         if !had_context {
-                            snap.logger.log(&format!("INGAME match context obtained: match={id} team={team}"));
+                            snap.logger.log(&format!(
+                                "INGAME match context obtained: match={id} team={team}"
+                            ));
                         }
                         (Some(id), Some(data))
                     }
@@ -607,15 +700,25 @@ impl MainLoop {
                 let cached_pregame_loadouts = if current_state == GameState::PREGAME {
                     let mid = known_match_id.clone().map(|id| id.to_string());
                     mid.as_deref()
-                        .filter(|id| pregame_loadout_cache.as_ref().map_or(false, |(cid, _)| cid == id))
-                        .and_then(|_id| pregame_loadout_cache.as_ref().map(|(_, text)| text.clone()))
+                        .filter(|id| {
+                            pregame_loadout_cache
+                                .as_ref()
+                                .map_or(false, |(cid, _)| cid == id)
+                        })
+                        .and_then(|_id| {
+                            pregame_loadout_cache.as_ref().map(|(_, text)| text.clone())
+                        })
                 } else {
                     pregame_loadout_cache = None;
                     None
                 };
 
                 let (mut heartbeat, used_pregame_loadouts) = build_heartbeat(
-                    &snap, &entitlements, &cv, &puuid, build_state,
+                    &snap,
+                    &entitlements,
+                    &cv,
+                    &puuid,
+                    build_state,
                     known_match_id.as_deref(),
                     pre_fetched_data,
                     last_presences.as_deref(),
@@ -637,8 +740,7 @@ impl MainLoop {
                 // same match, backfill known fields so we never downgrade known
                 // data (map/server/players/mode) to "unknown". Guarded by match_id
                 // equality so it cannot leak stale data across matches.
-                let heartbeat_is_empty =
-                    heartbeat.map.is_none() && heartbeat.players.is_empty();
+                let heartbeat_is_empty = heartbeat.map.is_none() && heartbeat.players.is_empty();
                 if heartbeat_is_empty {
                     if let Some((snap_id, snap_payload)) = last_known_snapshot.as_ref() {
                         if known_match_id.as_deref() == Some(snap_id.as_str()) {
@@ -666,8 +768,7 @@ impl MainLoop {
                 } else if let Some(id) = known_match_id.as_deref() {
                     // Retain this populated heartbeat for potential carry-over on a
                     // later empty tick within the same match.
-                    last_known_snapshot =
-                        Some((id.to_string(), heartbeat.clone()));
+                    last_known_snapshot = Some((id.to_string(), heartbeat.clone()));
                 }
 
                 let should_emit = match last_emitted.as_ref() {
@@ -685,17 +786,19 @@ impl MainLoop {
                 };
                 if should_emit {
                     heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
-                    snap.logger.log(&format!("Emitting heartbeat v{} state={} mode={} map={}",
+                    heartbeat.session_id = self.session_id.load(Ordering::SeqCst);
+                    snap.logger.log(&format!(
+                        "Emitting heartbeat v{} state={} mode={} map={}",
                         heartbeat.version,
                         heartbeat.state,
                         heartbeat.mode.as_deref().unwrap_or("unknown"),
-                        heartbeat.map.as_deref().unwrap_or("unknown")));
+                        heartbeat.map.as_deref().unwrap_or("unknown")
+                    ));
                     snap.log_heartbeat(&heartbeat);
                     let _ = app.emit("heartbeat", &heartbeat);
                     last_emitted = Some(heartbeat.clone());
                 }
             }
-
         }
     }
 
@@ -723,7 +826,8 @@ impl MainLoop {
         ws: &mut Option<ValorantWs>,
     ) -> bool {
         snap.client.clear_local_api_dead();
-        snap.logger.log("Local API 503 — session expired, re-authenticating...");
+        snap.logger
+            .log("Local API 503 — session expired, re-authenticating...");
 
         // Drop WS connection; re-established on next tick
         *ws = None;
@@ -753,7 +857,9 @@ impl MainLoop {
                 false
             }
             Err(e) => {
-                snap.logger.log(&format!("Re-auth deferred ({e}) — Riot client session inactive, retrying until sign-in"));
+                snap.logger.log(&format!(
+                    "Re-auth deferred ({e}) — Riot client session inactive, retrying until sign-in"
+                ));
                 snap.clear_volatile_caches().await;
 
                 // If RC is fully closed the lockfile is gone; wait for the
@@ -761,12 +867,11 @@ impl MainLoop {
                 // password. A backgrounded RC keeps its lockfile, so this
                 // only triggers on a genuine close — never relaunches.
                 if !auth::get_lockfile_path().exists() {
-                    snap.logger.log("Riot Client closed — waiting for it to come back…");
+                    snap.logger
+                        .log("Riot Client closed — waiting for it to come back…");
                     let _ = app.emit("riot_client_waiting", serde_json::json!({}));
-                    if let Some(lf) = auth::ensure_lockfile_ready(
-                        std::time::Duration::from_secs(60),
-                    )
-                    .await
+                    if let Some(lf) =
+                        auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await
                     {
                         let fresh_port = lf.port;
                         snap.client.set_local_auth(lf.password.clone(), fresh_port);
@@ -788,7 +893,9 @@ impl MainLoop {
                                     svc.puuid = e.subject.clone();
                                 }
                             }
-                            snap.logger.log("Re-authentication successful after deferred retry, resuming...");
+                            snap.logger.log(
+                                "Re-authentication successful after deferred retry, resuming...",
+                            );
                             break;
                         }
                         Err(_) => continue,
@@ -811,7 +918,14 @@ impl MainLoop {
                 (port, password, puuid)
             };
             if let Some(port) = port {
-                match ValorantWs::connect(port, password.expose_secret(), &puuid, snap.logger.clone()).await {
+                match ValorantWs::connect(
+                    port,
+                    password.expose_secret(),
+                    &puuid,
+                    snap.logger.clone(),
+                )
+                .await
+                {
                     Some(w) => {
                         *ws = Some(w);
                         snap.logger.log("WS reconnected after re-auth");
@@ -848,9 +962,13 @@ impl MainLoop {
     ) -> (Option<GameState>, Option<Vec<Presence>>) {
         // Cold start: poll immediately instead of waiting for the cooldown timer.
         if last_state.is_none() {
-            let (state, log_msg) =
-                snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
-            if let Some(msg) = log_msg { snap.logger.log(&msg); }
+            let (state, log_msg) = snap
+                .presences
+                .detect_game_state_from_poll(entitlements, cv, puuid)
+                .await;
+            if let Some(msg) = log_msg {
+                snap.logger.log(&msg);
+            }
             return (state, None);
         }
 
@@ -890,15 +1008,16 @@ impl MainLoop {
             }
         } else {
             // WS unavailable: poll at 1s interval
-            let (state, log_msg) =
-                snap.presences.detect_game_state_from_poll(entitlements, cv, puuid).await;
+            let (state, log_msg) = snap
+                .presences
+                .detect_game_state_from_poll(entitlements, cv, puuid)
+                .await;
             if let Some(msg) = log_msg {
                 snap.logger.log(&msg);
             }
             (state, None)
         }
     }
-
 }
 
 /// Two heartbeats are "the same" for emission purposes if nothing the user

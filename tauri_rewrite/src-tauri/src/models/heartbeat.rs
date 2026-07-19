@@ -20,6 +20,8 @@ pub struct HeartbeatPayload {
     pub rank_icons: Arc<Vec<Option<String>>>,
     #[serde(default)]
     pub version: u64,
+    #[serde(default, rename = "sessionId")]
+    pub session_id: u64,
     #[serde(default, rename = "alreadyPlayedWith")]
     pub already_played_with: Vec<EncounterEntry>,
 }

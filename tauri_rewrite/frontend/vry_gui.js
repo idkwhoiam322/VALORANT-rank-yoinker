@@ -97,6 +97,9 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         players: [],
         selectedPuuid: null,
         lastRenderKey: null,
+        // Backend session id (bumped on every restart/re-auth). Heartbeats and
+        // state_change carrying a different sessionId are stale and dropped.
+        epoch: null,
         rankIcons: null,
         lastGameState: null,
         // State of the last heartbeat we rendered. Used by renderStateTransition
@@ -400,7 +403,11 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
 
     function resetState() {
         try { localStorage.removeItem("vry-rust.cache"); } catch (e) { console.warn("resetState: failed to clear localStorage cache:", e); }
-        setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null });
+        // Preserve the current session epoch across resetState so the stale-event
+        // guard remains active; epoch is only set by the backend_ready/cache_cleared
+        // handler. Clear lastGameState/prevGameState: a late heartbeat from the old
+        // session can no longer seed these because the epoch guard is still active.
+        setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null, lastGameState: null, prevGameState: null });
         markAllDirty();
         render();
     }
@@ -409,6 +416,17 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function setupTauriListeners() {
         tauriListen("heartbeat", function (event) {
             setStatus("Connected", "live");
+            // Drop heartbeats from a previous backend session. After a restart the
+            // new session mints a fresh sessionId; a late heartbeat from the old
+            // session (still in flight) must not re-render stale data over the
+            // freshly-initialized UI.
+            let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+            // When an epoch is active we drop any event that lacks a sessionId or
+            // carries a mismatched one — including events from a previous backend
+            // session still in flight. The old guard also required evSession !== null
+            // up front, which let any event without a numeric sessionId bypass the
+            // drop entirely and repaint stale data.
+            if (state.epoch !== null && evSession !== state.epoch) return;
             if (event.payload && event.payload.players) {
                 // Snapshot the previous *genuinely different* game state so a later
                 // `state_change` event can compute the from->to transition
@@ -439,13 +457,21 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         });
 
         tauriListen("state_change", function (event) {
+            // Drop transitions from a previous backend session (see heartbeat guard).
+            let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+            if (state.epoch !== null && evSession !== state.epoch) return;
             if (event.payload && event.payload.state) {
                 renderStateTransition(event.payload.state);
             }
         });
 
-        tauriListen("backend_ready", function () {
+        tauriListen("backend_ready", function (event) {
             setStatus("Connected", "live");
+            // Mint a new epoch for this backend session. Any heartbeats/state_change
+            // carrying an older sessionId are dropped by their guards above, which
+            // prevents stale post-restart events from desyncing the freshly cleared UI.
+            let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+            setState({ epoch: newEpoch });
         });
 
         tauriListen("riot_client_launching", function () {
@@ -456,7 +482,14 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             setStatus("Waiting for Riot Client…", "loading");
         });
 
-        tauriListen("cache_cleared", function () {
+        tauriListen("cache_cleared", function (event) {
+            // Re-arm the epoch from the payload BEFORE clearing UI state so the
+            // stale-event guard is active. resetState() preserves the existing epoch
+            // (it only clears via the backend_ready/cache_cleared handler), so a late
+            // heartbeat from the previous session is dropped instead of repainting
+            // stale data over the cleared UI.
+            let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+            if (newEpoch !== null) setState({ epoch: newEpoch });
             resetState();
         });
 
