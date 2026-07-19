@@ -8,9 +8,8 @@ use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
 use crate::api::auth;
-use crate::api::client::{ApiClient, UrlType};
+use crate::api::client::ApiClient;
 use crate::api::content::fetch_all_content;
-use crate::api::endpoints;
 use crate::api::response_helpers::{get_match_score, get_winning_team};
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
@@ -508,21 +507,19 @@ impl MainLoop {
                     // cannot leak this match's data into the next one.
                     last_known_snapshot = None;
                     snap.logger.log(&format!("Match ended: {match_id} team {my_team}"));
-                    match snap.client.fetch_json_retry(
-                        UrlType::Pd,
-                        &endpoints::pd_match_details(match_id),
-                        &entitlements, &cv,
-                        3, Duration::from_secs(2),
-                        |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
-                    ).await {
+                    match snap.stats.get_match_details(match_id, &entitlements, &cv).await {
                         Ok(match_data) => {
-                            let winning_team = get_winning_team(&match_data);
-                            let score = get_match_score(&match_data);
-                            if let Some(winning_team) = winning_team {
-                                snap.encounters.update_match_result(match_id, my_team, &winning_team, score.clone());
-                                snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
+                            if let Ok(json) = serde_json::to_value(&match_data) {
+                                let winning_team = get_winning_team(&json);
+                                let score = get_match_score(&json);
+                                if let Some(winning_team) = winning_team {
+                                    snap.encounters.update_match_result(match_id, my_team, &winning_team, score.clone());
+                                    snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
+                                } else {
+                                    snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                                }
                             } else {
-                                snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
+                                snap.logger.log("Match ended but failed to serialize match details");
                             }
                         }
                         Err(e) => snap.logger.log(&format!("Match details fetch failed for {match_id}: {e}")),

@@ -9,7 +9,7 @@ const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
 /// Bounds the updates cache so it cannot grow unbounded; TTL still applies on top.
 const UPDATES_CACHE_CAP: usize = 200;
 
-use crate::api::client::{ApiClient, UrlType};
+use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::mmr::{
@@ -150,6 +150,60 @@ impl StatsService {
         }
         cache.put(puuid.to_string(), (stats.clone(), Instant::now()));
         stats
+    }
+
+    /// Fetch match details for `match_id`, reusing `match_details_cache` so the
+    /// match-end win/score lookup (state machine INGAME->ended transition) does
+    /// not issue a duplicate `pd_match_details` call when the same match was
+    /// already fetched during the per-player stats path. On a cache miss this
+    /// performs the same retry+`matchInfo`-validation fetch the stats path uses,
+    /// so behavior on a miss is identical to a direct `client.fetch_json_retry`.
+    pub async fn get_match_details(
+        &self,
+        match_id: &str,
+        entitlements: &Entitlements,
+        client_version: &str,
+    ) -> Result<MatchDetailsResponse, ApiError> {
+        // Fast path: check cache
+        {
+            let mut cache = self.match_details_cache.lock().await;
+            if let Some(data) = cache.get(match_id) {
+                self.client.cache_hit("match details", &crate::api::client::anon_id(match_id), None);
+                return Ok(data.clone());
+            }
+        }
+
+        // Slow path: fetch outside the lock, re-acquire for insert
+        let result = self
+            .client
+            .fetch_json_retry_typed::<MatchDetailsResponse>(
+                UrlType::Pd,
+                &endpoints::pd_match_details(match_id),
+                entitlements,
+                client_version,
+                3,
+                Duration::from_secs(2),
+                |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
+            )
+            .await;
+
+        match result {
+            Ok(data) => {
+                let mut cache = self.match_details_cache.lock().await;
+                // Double-check: another task may have inserted while we fetched
+                if let Some(existing) = cache.get(match_id).cloned() {
+                    self.client.cache_hit("match details", &crate::api::client::anon_id(match_id), None);
+                    Ok(existing)
+                } else {
+                    cache.put(match_id.to_string(), data.clone());
+                    Ok(data)
+                }
+            }
+            Err(e) => {
+                log::warn!("stats: match details fetch failed for {}: {e:?}", &crate::api::client::anon_id(match_id));
+                Err(e)
+            }
+        }
     }
 
     fn process_match_data(

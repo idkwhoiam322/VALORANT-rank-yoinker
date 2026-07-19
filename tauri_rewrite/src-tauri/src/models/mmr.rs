@@ -106,9 +106,22 @@ pub struct CompetitiveUpdate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamResult {
+    #[serde(default, rename = "teamId", alias = "teamID", alias = "TeamID")]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub won: Option<bool>,
+    #[serde(default, rename = "roundsWon", alias = "RoundsWon")]
+    pub rounds_won: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchDetailsResponse {
     #[serde(default, rename = "matchInfo")]
     pub match_info: Option<MatchInfo>,
+
+    #[serde(default)]
+    pub teams: Option<Vec<TeamResult>>,
 
     #[serde(default)]
     pub players: Vec<MatchPlayer>,
@@ -124,6 +137,9 @@ pub struct MatchInfo {
 
     #[serde(default, rename = "gameLengthMillis")]
     pub game_length_millis: Option<i64>,
+
+    #[serde(default, rename = "winningTeam", alias = "WinningTeam")]
+    pub winning_team: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
