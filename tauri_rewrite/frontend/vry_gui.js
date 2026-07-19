@@ -96,6 +96,11 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         payload: null,
         players: [],
         selectedPuuid: null,
+        // Identity (puuid) of the current match/account. Used to decide whether a
+        // selected player's disappearance is a real match change (drop selection)
+        // or a transient per-tick absence (keep selection). Undefined until the
+        // first payload arrives.
+        matchPuuid: undefined,
         lastRenderKey: null,
         // Backend session id (bumped on every restart/re-auth). Heartbeats and
         // state_change carrying a different sessionId are stale and dropped.
@@ -350,7 +355,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             let blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
             if (!blob) {
                 if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
-                showToast("Screenshot failed."); buttonEl.disabled = false; return;
+                showToast("Screenshot failed."); return;
             }
             if (navigator.clipboard && navigator.clipboard.write) {
                 try {
@@ -365,12 +370,14 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
                 if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
                 showToast("Clipboard API unavailable.");
             }
-            buttonEl.disabled = false;
         } catch (e) {
-            doCleanup();
-            if (opts.showBadge) document.body.classList.remove("show-you-badge");
             if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
             showToast("Screenshot failed.");
+        } finally {
+            // Always restore UI state, even if html2canvas throws synchronously
+            // or an early-return path above is taken.
+            doCleanup();
+            if (opts.showBadge) document.body.classList.remove("show-you-badge");
             buttonEl.disabled = false;
         }
     }
@@ -519,18 +526,29 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     // ---- state / rendering ----
     function bumpTimestampOnly(payload) {
         if (!payload || !payload.time) return;
-        let chip = els.metaUpdatedChip;
+        // Re-query the chip live: renderMeta() rebuilds matchMeta via
+        // replaceChildren() on every meta render, so the cached els.metaUpdatedChip
+        // reference goes stale (detached) and a no-op version tick would silently
+        // fail to refresh the "Updated HH:MM:SS" label.
+        let chip = document.getElementById("metaUpdatedChip");
         if (chip) chip.textContent = "Updated " + new Date(payload.time * 1000).toLocaleTimeString();
     }
 
     function setPayload(payload) {
         let version = payload && payload.version;
         let unchanged = version !== undefined && version === state.lastRenderKey;
+        let newMatchPuuid = payload && payload.puuid;
         setState({ payload: payload });
         if (unchanged) { bumpTimestampOnly(payload); return; }
         setState({ lastRenderKey: version });
         setState({ players: normalizePlayers(payload) });
-        if (state.selectedPuuid && !state.players.some(function (p) { return p.puuid === state.selectedPuuid; })) { setState({ selectedPuuid: null }); }
+        // Only drop the current selection when the match/account identity actually
+        // changes. A player can be absent from a single heartbeat (e.g. during the
+        // PREGAME->INGAME handoff before loadouts are fetched) without it being a
+        // new match, so clearing on transient absence would flicker the details
+        // panel closed and never auto-restore it.
+        if (state.selectedPuuid && state.matchPuuid !== undefined && newMatchPuuid !== state.matchPuuid) { setState({ selectedPuuid: null }); }
+        setState({ matchPuuid: newMatchPuuid });
         markAllDirty();
         render();
     }
@@ -1273,7 +1291,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
-        let p = state.selectedPuuid ? state.payload.players[state.selectedPuuid] : null;
+        let p = (state.payload && state.selectedPuuid) ? state.payload.players[state.selectedPuuid] : null;
         if (!p) { showToast("Nothing to copy yet."); return; }
         let peakStr = rankName(p.peakRank, false);
         let parts = [
