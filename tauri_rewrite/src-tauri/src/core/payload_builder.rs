@@ -708,26 +708,14 @@ async fn build_pregame_payload(
             );
             entry
         } else {
-            let rank = svc
-                .rank
-                .get_rank(
-                    entitlements,
-                    client_version,
-                    &subject,
-                    &svc.season_id,
-                    svc.previous_season_id.as_deref(),
-                    &svc.content,
-                )
-                .await;
-            let stats = svc
-                .stats
-                .get_stats(entitlements, client_version, &subject)
-                .await;
+            let result = fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
 
             if let Some(_) = &cache_match_id {
-                svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+                if result.0.status_good {
+                    svc.put_match_cache_entry(subject.clone(), result.clone());
+                }
             }
-            (rank, stats)
+            result
         };
 
 
