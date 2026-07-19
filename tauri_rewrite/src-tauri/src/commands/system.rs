@@ -28,7 +28,7 @@ pub async fn restart_application(
     svc.season_id = Arc::from("");
     svc.previous_season_id = None;
     svc.log("Backend state reset - reconnecting...");
-    svc.auth_retry.notify_one();
+    svc.restart_request.notify_one();
     drop(svc);
     Ok(())
 }

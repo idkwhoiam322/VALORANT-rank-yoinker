@@ -175,6 +175,7 @@ pub struct AppServices {
     pub match_player_cache: Arc<Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     pub current_match_id: Arc<Mutex<Option<String>>>,
     pub auth_retry: Arc<Notify>,
+    pub restart_request: Arc<Notify>,
 }
 
 impl AppServices {
@@ -215,6 +216,7 @@ impl AppServices {
             match_player_cache: Arc::new(Mutex::new(HashMap::new())),
             current_match_id: Arc::new(Mutex::new(None)),
             auth_retry: Arc::new(Notify::new()),
+            restart_request: Arc::new(Notify::new()),
         }
     }
 
