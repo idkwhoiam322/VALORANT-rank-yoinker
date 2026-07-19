@@ -130,18 +130,6 @@ pub struct MatchInfo {
 pub struct MatchPlayer {
     #[serde(default)]
     pub subject: Option<String>,
-
-    #[serde(default)]
-    pub stats: Option<PlayerMatchStats>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerMatchStats {
-    #[serde(default)]
-    pub kills: Option<u32>,
-
-    #[serde(default)]
-    pub deaths: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,21 +142,6 @@ pub struct RoundResult {
 pub struct RoundPlayerStats {
     #[serde(default)]
     pub subject: Option<String>,
-
-    #[serde(default)]
-    pub damage: Vec<DamageEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DamageEntry {
-    #[serde(default)]
-    pub legshots: Option<u32>,
-
-    #[serde(default)]
-    pub bodyshots: Option<u32>,
-
-    #[serde(default)]
-    pub headshots: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
