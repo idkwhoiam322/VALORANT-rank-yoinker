@@ -1,9 +1,22 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::presences::{GameState, Presence, PresencesResponse};
+
+/// Base64 engine using the Indifferent padding mode Riot emits in presence
+/// `private` fields. Built once and reused across every decode call.
+fn presence_b64_engine() -> &'static base64::engine::general_purpose::GeneralPurpose {
+    static ENGINE: OnceLock<base64::engine::general_purpose::GeneralPurpose> = OnceLock::new();
+    ENGINE.get_or_init(|| {
+        base64::engine::general_purpose::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            base64::engine::general_purpose::GeneralPurposeConfig::new()
+                .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+        )
+    })
+}
 
 pub struct PresenceService {
     client: Arc<ApiClient>,
@@ -41,15 +54,7 @@ impl PresenceService {
     /// REST presence path and the WebSocket presence path so the decode
     /// behaviour can never drift between the two code paths.
     pub(crate) fn decode_private_presence_json(b64: &str) -> Option<serde_json::Value> {
-        let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::GeneralPurpose::new(
-                &base64::alphabet::STANDARD,
-                base64::engine::general_purpose::GeneralPurposeConfig::new()
-                    .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
-            ),
-            b64,
-        )
-        .ok()?;
+        let bytes = base64::Engine::decode(presence_b64_engine(), b64).ok()?;
         serde_json::from_slice(&bytes).ok()
     }
 
