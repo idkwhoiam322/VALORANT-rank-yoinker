@@ -167,7 +167,7 @@ async fn ws_task(
         let mut request = url.into_client_request().unwrap();
         request
             .headers_mut()
-            .insert(http::header::AUTHORIZATION, auth.parse().unwrap());
+            .insert(reqwest::header::AUTHORIZATION, auth.parse().unwrap());
         let mut stream = match connect_async_tls_with_config(request, None, false, Some(connector.clone())).await
         {
             Ok((ws, _)) => {

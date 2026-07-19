@@ -4652,7 +4652,6 @@ dependencies = [
  "chrono",
  "env_logger",
  "futures-util",
- "http",
  "log",
  "lru",
  "reqwest 0.12.28",
