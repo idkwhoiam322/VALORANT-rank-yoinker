@@ -861,8 +861,20 @@ impl MainLoop {
                 result = ws_inner.recv() => {
                     match result {
                         Some(event) => {
-                            snap.logger.log(&format!("WS state push: {:?}", event.state));
-                            (Some(event.state), Some(event.presences))
+                            // Collapse any immediately-available backlog to the latest
+                            // event, so a burst of queued presences converges to "now"
+                            // instead of being replayed one stale tick at a time.
+                            let mut coalesced = 0u32;
+                            let mut latest = event;
+                            while let Ok(ev) = ws_inner.try_recv() {
+                                latest = ev;
+                                coalesced += 1;
+                            }
+                            if coalesced > 0 {
+                                snap.logger.log(&format!("WS backlog coalesced {coalesced} presences"));
+                            }
+                            snap.logger.log(&format!("WS state push: {:?}", latest.state));
+                            (Some(latest.state), Some(latest.presences))
                         }
                         None => {
                             snap.logger.log(&format!("WS disconnected (was {:?}) - falling back to polling", last_state));

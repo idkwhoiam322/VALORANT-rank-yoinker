@@ -137,6 +137,13 @@ impl ValorantWs {
     pub async fn recv(&mut self) -> Option<WsPresenceEvent> {
         self.state_rx.recv().await
     }
+
+    /// Attempt to receive the next presence event without blocking.
+    /// Returns the event if one is immediately available in the buffer,
+    /// or an error if the channel is empty or closed.
+    pub fn try_recv(&mut self) -> Result<WsPresenceEvent, mpsc::error::TryRecvError> {
+        self.state_rx.try_recv()
+    }
 }
 
 // ---------------------------------------------------------------------------
