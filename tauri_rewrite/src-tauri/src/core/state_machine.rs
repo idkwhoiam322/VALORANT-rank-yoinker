@@ -173,7 +173,6 @@ pub struct AppServices {
     pub previous_season_id: Option<String>,
     pub match_player_cache: Arc<Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     pub current_match_id: Arc<Mutex<Option<String>>>,
-    pub auth_retry: Arc<Notify>,
     pub restart_request: Arc<Notify>,
     pub restart_requested: Arc<AtomicBool>,
 }
@@ -215,7 +214,6 @@ impl AppServices {
             previous_season_id: None,
             match_player_cache: Arc::new(Mutex::new(HashMap::new())),
             current_match_id: Arc::new(Mutex::new(None)),
-            auth_retry: Arc::new(Notify::new()),
             restart_request: Arc::new(Notify::new()),
             restart_requested: Arc::new(AtomicBool::new(false)),
         }
@@ -298,16 +296,16 @@ impl MainLoop {
                     let is_auth_error = e.starts_with("Auth:");
 
                     if is_auth_error {
-                        let auth_retry = {
+                        let restart_request = {
                             let svc = services.read().await;
                             svc.log(&format!("Auth error: {e}. Waiting for user to click Refresh..."));
-                            svc.auth_retry.clone()
+                            svc.restart_request.clone()
                         };
                         let _ = app.emit("auth_error", serde_json::json!({
                             "message": redact_secrets(&e),
                             "action": "Please sign in to Riot Client and click Refresh below."
                         }));
-                        auth_retry.notified().await;
+                        restart_request.notified().await;
                     } else {
                         let svc = services.read().await;
                         svc.log(&format!("Init error: {e}, retrying in 5s..."));
