@@ -818,6 +818,7 @@ impl MainLoop {
                     Some(w) => {
                         *ws = Some(w);
                         snap.logger.log("WS reconnected after re-auth");
+                        let _ = app.emit("rank_icons", snap.content.rank_icons.as_ref().clone());
                     }
                     None => {
                         snap.logger.log("WS reconnect unavailable — using polling");
