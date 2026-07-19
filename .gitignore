@@ -42,3 +42,6 @@ stats/
 **/.cargo/config.toml
 # ...except the committed throttle config, so everyone who clones gets it.
 !tauri_rewrite/src-tauri/.cargo/config.toml
+
+# opencode
+.opencode/
