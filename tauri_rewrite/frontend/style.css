@@ -553,6 +553,17 @@ h3 {
     overflow: hidden;
 }
 
+.weapon-tier-badge {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    z-index: 2;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+}
+
 .weapon-tile:hover {
     border-color: rgba(241, 199, 102, 0.65);
     box-shadow: 0 0 16px rgba(241, 199, 102, 0.10), inset 0 0 12px rgba(241, 199, 102, 0.04);

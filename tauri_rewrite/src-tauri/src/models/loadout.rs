@@ -150,6 +150,18 @@ pub struct WeaponEntry {
 
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "buddy_displayName")]
     pub buddy_display_name: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "weaponDisplayIcon")]
+    pub weapon_display_icon: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierName")]
+    pub skin_content_tier_name: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierColor")]
+    pub skin_content_tier_color: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierIcon")]
+    pub skin_content_tier_icon: Option<String>,
 }
 
 

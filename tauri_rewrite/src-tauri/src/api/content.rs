@@ -220,6 +220,19 @@ fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiRespons
     }
 }
 
+async fn fetch_content_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<ContentTier>>, ApiError> {
+    fetch_valorant_api_with_retry(client, endpoints::VAL_CONTENT_TIERS).await
+}
+
+fn populate_content_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<ContentTier>>) {
+    for tier in &resp.data {
+        cache.content_tiers.insert(tier.uuid.to_lowercase(), tier.clone());
+    }
+    if cache.content_tiers.is_empty() {
+        log::warn!("[CONTENT] populate_content_tiers: 0 content tiers inserted (empty response data)");
+    }
+}
+
 async fn fetch_seasons_raw(
     client: &ApiClient,
     region_shard: &str,
@@ -279,7 +292,7 @@ pub async fn fetch_all_content(
     client_version: &str,
 ) -> (ContentCache, String, Option<String>) {
     // Run all valorant-api.com fetches concurrently (non-Riot, no rate-limit concern)
-    let (agents, maps, weapons, sprays, flex, buddies, titles, cards, tiers, seasons) = tokio::join!(
+    let (agents, maps, weapons, sprays, flex, buddies, titles, cards, tiers, content_tiers, seasons) = tokio::join!(
         fetch_agents_raw(client),
         fetch_maps_raw(client),
         fetch_weapons_raw(client),
@@ -289,21 +302,21 @@ pub async fn fetch_all_content(
         fetch_player_titles_raw(client),
         fetch_player_cards_raw(client),
         fetch_competitive_tiers_raw(client),
+        fetch_content_tiers_raw(client),
         fetch_seasons_raw(client, region_shard, entitlements, client_version),
     );
 
     let mut cache = ContentCache::empty();
     let mut had_error = false;
 
-    /// Generic handler for the 8 structurally-identical
+    /// Generic handler for the structurally-identical
     /// `fetch_x_raw` / `populate_x` content pairs. Replaces the previous
     /// `handle!` macro so the error-bookkeeping + populate path lives in one
     /// place.
     ///
-    /// Note: `populate_competitive_tiers` was originally intended to stay
-    /// bespoke, but its outer signature (`fn(&mut ContentCache,
-    /// ValorantApiResponse<Vec<CompetitiveTiers>>)`) matches the generic shape,
-    /// so it is routed through `apply_content` below like the rest. The
+    /// Note: `populate_competitive_tiers` and `populate_content_tiers` were originally intended to stay
+    /// bespoke, but their outer signature matches the generic shape,
+    /// so they are routed through `apply_content` below like the rest. The
     /// `seasons` fetch remains bespoke (different response/deserialize shape).
     fn apply_content<T: DeserializeOwned>(
         result: Result<ValorantApiResponse<Vec<T>>, ApiError>,
@@ -330,6 +343,7 @@ pub async fn fetch_all_content(
     apply_content(titles, populate_player_titles, "player_titles", &mut cache, &mut had_error);
     apply_content(cards, populate_player_cards, "player_cards", &mut cache, &mut had_error);
     apply_content(tiers, populate_competitive_tiers, "competitive_tiers", &mut cache, &mut had_error);
+    apply_content(content_tiers, populate_content_tiers, "content_tiers", &mut cache, &mut had_error);
 
     let (season_id, previous_season_id) = match seasons {
         Ok(content) => process_seasons(content, &mut cache),
@@ -379,9 +393,10 @@ pub async fn fetch_all_content(
         cache.player_titles.len(), cache.player_cards.len(),
     ));
 
+    let tier_names: Vec<&str> = cache.content_tiers.values().map(|t| t.display_name.as_str()).collect();
     client.app_log(&format!(
-        "[CONTENT] Competitive tiers ({}), Seasons ({}), Season ID: {}",
-        cache.rank_icons.len(), cache.seasons.len(), season_id,
+        "[CONTENT] Competitive tiers ({}), Content tiers ({}): {}, Seasons ({}), Season ID: {}",
+        cache.rank_icons.len(), cache.content_tiers.len(), tier_names.join(", "), cache.seasons.len(), season_id,
     ));
 
     (cache, season_id, previous_season_id)

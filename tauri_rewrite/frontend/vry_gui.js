@@ -1001,6 +1001,18 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         let vc = chromaColor(weapon && weapon.chromaDisplayName);
         vc = vc ? " (" + vc + ")" : "";
         tile.title = (weapon ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin") + vc) : (weaponName + ": " + NA)) + COPY_HINT;
+        if (weapon && weapon.contentTierColor) {
+            tile.style.borderColor = weapon.contentTierColor;
+        }
+        if (weapon && weapon.contentTierName && weapon.contentTierIcon) {
+            let badge = document.createElement("img");
+            badge.className = "weapon-tier-badge";
+            badge.src = safeHttps(weapon.contentTierIcon);
+            badge.alt = weapon.contentTierName;
+            badge.title = weapon.contentTierName;
+            badge.loading = "lazy";
+            tile.append(badge);
+        }
         let art = document.createElement("div");
         art.className = "weapon-art";
         let iconSrc = weapon && (weapon.skinDisplayIcon || weapon.weaponDisplayIcon);

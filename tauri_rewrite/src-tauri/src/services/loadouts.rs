@@ -154,11 +154,16 @@ impl LoadoutService {
                             chroma_display_name: None,
                             buddy_display_icon: None,
                             buddy_display_name: None,
+                            weapon_display_icon: None,
+                            skin_content_tier_name: None,
+                            skin_content_tier_color: None,
+                            skin_content_tier_icon: None,
                         };
 
                         // Resolve weapon name and skin
                         if let Some(weapon_data) = content.weapons.get(&weapon_uuid_lower) {
                             entry.weapon = Some(weapon_data.display_name.clone());
+                            entry.weapon_display_icon = weapon_data.display_icon.clone();
 
                             // Resolve skin
                             if let Some(ref sid) = skin_id {
@@ -193,6 +198,15 @@ impl LoadoutService {
                                         if let Some(buddy) = content.buddies.get(&bid.to_lowercase()) {
                                             entry.buddy_display_icon = buddy.display_icon.clone();
                                             entry.buddy_display_name = Some(buddy.display_name.clone());
+                                        }
+                                    }
+
+                                    // Resolve content tier
+                                    if let Some(ref tier_uuid) = skin.content_tier_uuid {
+                                        if let Some(tier) = content.content_tiers.get(&tier_uuid.to_lowercase()) {
+                                            entry.skin_content_tier_name = Some(tier.display_name.clone());
+                                            entry.skin_content_tier_color = tier.highlight_color.clone();
+                                            entry.skin_content_tier_icon = tier.display_icon.clone();
                                         }
                                     }
                                 }

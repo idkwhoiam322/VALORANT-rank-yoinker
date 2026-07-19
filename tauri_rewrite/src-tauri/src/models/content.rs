@@ -156,6 +156,20 @@ pub struct Flex {
     pub full_transparent_icon: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentTier {
+    pub uuid: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub display_icon: Option<String>,
+    #[serde(default)]
+    pub highlight_color: Option<String>,
+    #[serde(default)]
+    pub rank: Option<u32>,
+}
+
 /// A single entry from the Riot content-service `Seasons` array. Used to resolve a
 /// season/act UUID to its human act/episode numbers (mirrors the fields the Python
 /// original reads off of `content["Seasons"]`).
@@ -187,6 +201,7 @@ pub struct ContentCache {
     pub player_titles: HashMap<String, PlayerTitle>,
     pub player_cards: HashMap<String, PlayerCard>,
     pub rank_icons: Arc<Vec<Option<String>>>,
+    pub content_tiers: HashMap<String, ContentTier>,
     pub seasons: Vec<Season>,
 }
 
@@ -203,6 +218,7 @@ impl ContentCache {
             player_titles: HashMap::new(),
             player_cards: HashMap::new(),
             rank_icons: Arc::new(Vec::new()),
+            content_tiers: HashMap::new(),
             seasons: Vec::new(),
         }
     }

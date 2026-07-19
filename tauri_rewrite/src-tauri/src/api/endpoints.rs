@@ -50,6 +50,7 @@ pub const VAL_BUDDIES: &str = "buddies";
 pub const VAL_PLAYER_TITLES: &str = "playertitles";
 pub const VAL_PLAYER_CARDS: &str = "playercards";
 pub const VAL_COMPETITIVE_TIERS: &str = "competitivetiers";
+pub const VAL_CONTENT_TIERS: &str = "contenttiers";
 
 // -- Image URL templates --
 pub fn media_agent_icon(agent_uuid: &str) -> String {
