@@ -8,7 +8,7 @@ use rustls::version::{TLS12, TLS13};
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{connect_async_tls_with_config, Connector, tungstenite::Message};
+use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message, Connector};
 
 use crate::models::presences::{GameState, Presence};
 use crate::services::logging::Logger;
@@ -175,12 +175,21 @@ async fn ws_task(
         request
             .headers_mut()
             .insert(reqwest::header::AUTHORIZATION, auth.parse().unwrap());
-        let mut stream = match connect_async_tls_with_config(request, None, false, Some(connector.clone())).await
+        let mut stream = match connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            Some(connector.clone()),
+        )
+        .await
         {
             Ok((ws, _)) => {
                 let was_reconnect = backoff > 1;
                 backoff = 1;
-                logger.log(&format!("WS presences connected{}", if was_reconnect { " (reconnected)" } else { "" }));
+                logger.log(&format!(
+                    "WS presences connected{}",
+                    if was_reconnect { " (reconnected)" } else { "" }
+                ));
                 ws
             }
             Err(e) => {
@@ -197,7 +206,9 @@ async fn ws_task(
         // Subscribe to presence events (Riot local WebSocket protocol).
         // The integer prefix `5` is required by the Riot WS protocol.
         if let Err(e) = stream
-            .send(Message::Text(r#"[5, "OnJsonApiEvent_chat_v4_presences"]"#.into()))
+            .send(Message::Text(
+                r#"[5, "OnJsonApiEvent_chat_v4_presences"]"#.into(),
+            ))
             .await
         {
             logger.log(&format!("WS subscribe failed: {e} - reconnecting"));
@@ -216,9 +227,7 @@ async fn ws_task(
 
             match msg {
                 Some(Ok(Message::Text(text))) => {
-                    if let Some(event) =
-                        parse_presence_event(&text, puuid)
-                    {
+                    if let Some(event) = parse_presence_event(&text, puuid) {
                         if event.state.as_str() != last_state {
                             last_state = event.state.as_str().to_string();
                             logger.log(&format!("WS state: {:?}", event.state));
@@ -250,10 +259,7 @@ async fn ws_task(
 // Event parsing
 // ---------------------------------------------------------------------------
 
-fn parse_presence_event(
-    text: &str,
-    puuid: &str,
-) -> Option<WsPresenceEvent> {
+fn parse_presence_event(text: &str, puuid: &str) -> Option<WsPresenceEvent> {
     let event: serde_json::Value = serde_json::from_str(text).ok()?;
 
     // Try multiple envelope formats to reach the presence array.

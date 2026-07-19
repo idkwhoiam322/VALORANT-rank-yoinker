@@ -78,7 +78,9 @@ async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<
 
 fn populate_agents(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Agent>>) {
     for agent in &resp.data {
-        cache.agents.insert(agent.uuid.to_lowercase(), agent.display_name.clone());
+        cache
+            .agents
+            .insert(agent.uuid.to_lowercase(), agent.display_name.clone());
     }
     if cache.agents.is_empty() {
         log::warn!("[CONTENT] populate_agents: 0 agents inserted (empty response data)");
@@ -93,14 +95,19 @@ fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) 
     for map in &resp.data {
         if let Some(ref url) = map.map_url {
             // Key by the full valorant-api map_url (existing behavior).
-            cache.maps.insert(url.to_lowercase(), map.display_name.clone());
+            cache
+                .maps
+                .insert(url.to_lowercase(), map.display_name.clone());
             // Also key by the bare codename (last path segment, lower-cased) so
             // Riot's live MapID values resolve directly via ContentCache::get_map_name
             // without needing the full asset path. e.g. valorant-api url
             // "/Game/Maps/Summit/Summit" also becomes key "summit".
             if let Some(codename) = url.rsplit('/').find(|s| !s.is_empty()) {
                 let key = codename.to_lowercase();
-                cache.maps.entry(key).or_insert_with(|| map.display_name.clone());
+                cache
+                    .maps
+                    .entry(key)
+                    .or_insert_with(|| map.display_name.clone());
             }
         }
     }
@@ -109,7 +116,9 @@ fn populate_maps(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Map>>) 
     }
 }
 
-async fn fetch_weapons_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
+async fn fetch_weapons_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<WeaponData>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_WEAPONS).await
 }
 
@@ -157,20 +166,26 @@ fn populate_flex(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Flex>>)
     }
 }
 
-async fn fetch_buddies_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Buddy>>, ApiError> {
+async fn fetch_buddies_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<Buddy>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_BUDDIES).await
 }
 
 fn populate_buddies(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<Buddy>>) {
     for buddy in &resp.data {
-        cache.buddies.insert(buddy.uuid.to_lowercase(), buddy.clone());
+        cache
+            .buddies
+            .insert(buddy.uuid.to_lowercase(), buddy.clone());
     }
     if cache.buddies.is_empty() {
         log::warn!("[CONTENT] populate_buddies: 0 buddies inserted (empty response data)");
     }
 }
 
-async fn fetch_player_titles_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerTitle>>, ApiError> {
+async fn fetch_player_titles_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<PlayerTitle>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_PLAYER_TITLES).await
 }
 
@@ -185,7 +200,9 @@ fn populate_player_titles(cache: &mut ContentCache, resp: ValorantApiResponse<Ve
     }
 }
 
-async fn fetch_player_cards_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<PlayerCard>>, ApiError> {
+async fn fetch_player_cards_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<PlayerCard>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_PLAYER_CARDS).await
 }
 
@@ -200,11 +217,16 @@ fn populate_player_cards(cache: &mut ContentCache, resp: ValorantApiResponse<Vec
     }
 }
 
-async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<CompetitiveTiers>>, ApiError> {
+async fn fetch_competitive_tiers_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<CompetitiveTiers>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_COMPETITIVE_TIERS).await
 }
 
-fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
+fn populate_competitive_tiers(
+    cache: &mut ContentCache,
+    resp: ValorantApiResponse<Vec<CompetitiveTiers>>,
+) {
     if let Some(latest) = resp.data.last() {
         let mut icons = Vec::new();
         for tier in &latest.tiers {
@@ -216,20 +238,28 @@ fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiRespons
         cache.rank_icons = Arc::new(icons);
     }
     if resp.data.is_empty() {
-        log::warn!("[CONTENT] populate_competitive_tiers: 0 tier sets inserted (empty response data)");
+        log::warn!(
+            "[CONTENT] populate_competitive_tiers: 0 tier sets inserted (empty response data)"
+        );
     }
 }
 
-async fn fetch_content_tiers_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<ContentTier>>, ApiError> {
+async fn fetch_content_tiers_raw(
+    client: &ApiClient,
+) -> Result<ValorantApiResponse<Vec<ContentTier>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_CONTENT_TIERS).await
 }
 
 fn populate_content_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<ContentTier>>) {
     for tier in &resp.data {
-        cache.content_tiers.insert(tier.uuid.to_lowercase(), tier.clone());
+        cache
+            .content_tiers
+            .insert(tier.uuid.to_lowercase(), tier.clone());
     }
     if cache.content_tiers.is_empty() {
-        log::warn!("[CONTENT] populate_content_tiers: 0 content tiers inserted (empty response data)");
+        log::warn!(
+            "[CONTENT] populate_content_tiers: 0 content tiers inserted (empty response data)"
+        );
     }
 }
 
@@ -243,20 +273,22 @@ async fn fetch_seasons_raw(
     client
         .fetch_json(
             UrlType::Custom,
-            &format!(
-                "https://shared.{region_shard}.a.pvp.net/content-service/v3/content",
-            ),
+            &format!("https://shared.{region_shard}.a.pvp.net/content-service/v3/content",),
             &headers,
         )
         .await
 }
 
-fn process_seasons(content: serde_json::Value, cache: &mut ContentCache) -> (String, Option<String>) {
+fn process_seasons(
+    content: serde_json::Value,
+    cache: &mut ContentCache,
+) -> (String, Option<String>) {
     let mut current_season_id = String::new();
     let mut previous_season_id: Option<String> = None;
 
     if let Some(seasons) = content["Seasons"].as_array() {
-        cache.seasons = seasons.iter()
+        cache.seasons = seasons
+            .iter()
             .filter_map(|s| {
                 serde_json::from_value::<crate::models::content::Season>(s.clone()).ok()
             })
@@ -264,7 +296,9 @@ fn process_seasons(content: serde_json::Value, cache: &mut ContentCache) -> (Str
 
         let mut current_start_time = String::new();
         for season in seasons {
-            if season["Type"] != "act" { continue; }
+            if season["Type"] != "act" {
+                continue;
+            }
             if season["IsActive"] == true {
                 current_season_id = season["ID"].as_str().unwrap_or("").to_string();
                 current_start_time = season["StartTime"].as_str().unwrap_or("").to_string();
@@ -292,7 +326,19 @@ pub async fn fetch_all_content(
     client_version: &str,
 ) -> (ContentCache, String, Option<String>) {
     // Run all valorant-api.com fetches concurrently (non-Riot, no rate-limit concern)
-    let (agents, maps, weapons, sprays, flex, buddies, titles, cards, tiers, content_tiers, seasons) = tokio::join!(
+    let (
+        agents,
+        maps,
+        weapons,
+        sprays,
+        flex,
+        buddies,
+        titles,
+        cards,
+        tiers,
+        content_tiers,
+        seasons,
+    ) = tokio::join!(
         fetch_agents_raw(client),
         fetch_maps_raw(client),
         fetch_weapons_raw(client),
@@ -334,16 +380,64 @@ pub async fn fetch_all_content(
         }
     }
 
-    apply_content(agents, populate_agents, "agents", &mut cache, &mut had_error);
+    apply_content(
+        agents,
+        populate_agents,
+        "agents",
+        &mut cache,
+        &mut had_error,
+    );
     apply_content(maps, populate_maps, "maps", &mut cache, &mut had_error);
-    apply_content(weapons, populate_weapons, "weapons", &mut cache, &mut had_error);
-    apply_content(sprays, populate_sprays, "sprays", &mut cache, &mut had_error);
+    apply_content(
+        weapons,
+        populate_weapons,
+        "weapons",
+        &mut cache,
+        &mut had_error,
+    );
+    apply_content(
+        sprays,
+        populate_sprays,
+        "sprays",
+        &mut cache,
+        &mut had_error,
+    );
     apply_content(flex, populate_flex, "flex", &mut cache, &mut had_error);
-    apply_content(buddies, populate_buddies, "buddies", &mut cache, &mut had_error);
-    apply_content(titles, populate_player_titles, "player_titles", &mut cache, &mut had_error);
-    apply_content(cards, populate_player_cards, "player_cards", &mut cache, &mut had_error);
-    apply_content(tiers, populate_competitive_tiers, "competitive_tiers", &mut cache, &mut had_error);
-    apply_content(content_tiers, populate_content_tiers, "content_tiers", &mut cache, &mut had_error);
+    apply_content(
+        buddies,
+        populate_buddies,
+        "buddies",
+        &mut cache,
+        &mut had_error,
+    );
+    apply_content(
+        titles,
+        populate_player_titles,
+        "player_titles",
+        &mut cache,
+        &mut had_error,
+    );
+    apply_content(
+        cards,
+        populate_player_cards,
+        "player_cards",
+        &mut cache,
+        &mut had_error,
+    );
+    apply_content(
+        tiers,
+        populate_competitive_tiers,
+        "competitive_tiers",
+        &mut cache,
+        &mut had_error,
+    );
+    apply_content(
+        content_tiers,
+        populate_content_tiers,
+        "content_tiers",
+        &mut cache,
+        &mut had_error,
+    );
 
     let (season_id, previous_season_id) = match seasons {
         Ok(content) => process_seasons(content, &mut cache),
@@ -376,7 +470,9 @@ pub async fn fetch_all_content(
     ));
 
     for weapon in cache.weapons.values() {
-        let skin_names: Vec<&str> = weapon.skins.iter()
+        let skin_names: Vec<&str> = weapon
+            .skins
+            .iter()
             .map(|s| s.display_name.as_str())
             .collect();
         client.app_log(&format!(
@@ -389,14 +485,25 @@ pub async fn fetch_all_content(
 
     client.app_log(&format!(
         "[CONTENT] Sprays ({}), Flex ({}), Buddies ({}), Player titles ({}), Player cards ({})",
-        cache.sprays.len(), cache.flex.len(), cache.buddies.len(),
-        cache.player_titles.len(), cache.player_cards.len(),
+        cache.sprays.len(),
+        cache.flex.len(),
+        cache.buddies.len(),
+        cache.player_titles.len(),
+        cache.player_cards.len(),
     ));
 
-    let tier_names: Vec<&str> = cache.content_tiers.values().map(|t| t.display_name.as_str()).collect();
+    let tier_names: Vec<&str> = cache
+        .content_tiers
+        .values()
+        .map(|t| t.display_name.as_str())
+        .collect();
     client.app_log(&format!(
         "[CONTENT] Competitive tiers ({}), Content tiers ({}): {}, Seasons ({}), Season ID: {}",
-        cache.rank_icons.len(), cache.content_tiers.len(), tier_names.join(", "), cache.seasons.len(), season_id,
+        cache.rank_icons.len(),
+        cache.content_tiers.len(),
+        tier_names.join(", "),
+        cache.seasons.len(),
+        season_id,
     ));
 
     (cache, season_id, previous_season_id)

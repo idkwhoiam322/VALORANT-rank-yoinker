@@ -15,9 +15,7 @@ fn default_cooldown() -> u64 {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self {
-            cooldown: 10,
-        }
+        Self { cooldown: 10 }
     }
 }
 

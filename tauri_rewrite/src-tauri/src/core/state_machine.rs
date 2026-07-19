@@ -96,7 +96,6 @@ pub struct ServiceSnapshot {
     pub content: Arc<ContentCache>,
     pub season_id: Arc<str>,
     pub previous_season_id: Option<String>,
-    pub cooldown: u64,
     /// Match-scoped cache: match_id -> (puuid -> (PlayerRank, PlayerStats)).
     /// Cleared on MENUS transition OR when match_id changes.
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
@@ -186,6 +185,11 @@ pub struct AppServices {
     pub current_match_id: Arc<Mutex<Option<String>>>,
     pub restart_request: Arc<Notify>,
     pub restart_requested: Arc<AtomicBool>,
+    /// Set by clear_all_cache so the running main loop drops its per-match
+    /// carry-over locals (match_context / last_known_snapshot /
+    /// pregame_loadout_cache) on the next tick, preventing stale match data
+    /// from leaking into the next match after an explicit cache clear.
+    pub loop_reset_requested: Arc<AtomicBool>,
 }
 
 impl AppServices {
@@ -227,6 +231,7 @@ impl AppServices {
             current_match_id: Arc::new(Mutex::new(None)),
             restart_request: Arc::new(Notify::new()),
             restart_requested: Arc::new(AtomicBool::new(false)),
+            loop_reset_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -246,7 +251,6 @@ impl AppServices {
             content: self.content.clone(),
             season_id: self.season_id.clone(),
             previous_season_id: self.previous_season_id.clone(),
-            cooldown: self.config.get().cooldown,
             match_player_cache: self.match_player_cache.clone(),
             current_match_id: self.current_match_id.clone(),
         }
@@ -489,6 +493,17 @@ impl MainLoop {
             // RwLock guard is dropped here – all processing below happens
             // without holding it, allowing concurrent writes (e.g. re-init).
 
+            // Honor an explicit cache-clear request: drop per-match carry-over
+            // locals so stale match data can't leak into the next match.
+            if services.read().await.loop_reset_requested.swap(false, Ordering::Relaxed) {
+                pregame_loadout_cache = None;
+                last_known_snapshot = None;
+                match_context = None;
+                last_state = None;
+                last_emitted = None;
+                last_presences = None;
+            }
+
             // ----- State detection: WebSocket (preferred) or polling (fallback) -----
             let (current_state, new_presences) = self
                 .detect_state(&snap, &entitlements, &cv, &puuid, &mut ws, last_state)
@@ -537,7 +552,8 @@ impl MainLoop {
             // UNLESS we still don't have match_context (map unknown) - keep retrying
             if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
                 if match_context.is_some() {
-                    tokio::time::sleep(Duration::from_secs(snap.cooldown)).await;
+                    let cooldown = services.read().await.config.get().cooldown;
+                    tokio::time::sleep(Duration::from_secs(cooldown)).await;
                     continue;
                 }
                 snap.logger
@@ -665,6 +681,14 @@ impl MainLoop {
                     snap.rank.invalidate_cache().await;
                     snap.stats.clear_cache().await;
                     snap.clear_match_player_cache();
+                    // Drop per-match carry-over state. match_context is cleared on
+                    // the INGAME->not-INGAME branch below, but a PREGAME->MENUS
+                    // (or clear_all_cache mid-match) path can otherwise leave a
+                    // stale snapshot/loadout that leaks into the next match's
+                    // first empty tick via the last_known_snapshot safety net.
+                    match_context = None;
+                    last_known_snapshot = None;
+                    pregame_loadout_cache = None;
                 }
 
                 last_state = Some(current_state);
@@ -1002,7 +1026,7 @@ impl MainLoop {
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(snap.cooldown)) => {
+                _ = tokio::time::sleep(Duration::from_secs(self.services.read().await.config.get().cooldown)) => {
                     (last_state, None)
                 }
             }

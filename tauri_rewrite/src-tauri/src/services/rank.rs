@@ -47,15 +47,31 @@ impl RankService {
             let mut cache = self.cache.lock().await;
             if let Some((rank, time)) = cache.get(puuid) {
                 if time.elapsed() < self.cache_ttl {
-                    let ttl_left = self.cache_ttl.as_secs().saturating_sub(time.elapsed().as_secs());
-                    self.client.cache_hit("rank", &crate::api::client::anon_id(puuid), Some(ttl_left));
+                    let ttl_left = self
+                        .cache_ttl
+                        .as_secs()
+                        .saturating_sub(time.elapsed().as_secs());
+                    self.client.cache_hit(
+                        "rank",
+                        &crate::api::client::anon_id(puuid),
+                        Some(ttl_left),
+                    );
                     return rank.clone();
                 }
             }
         }
 
         // Slow path: release lock before HTTP, re-acquire for double-check + insert
-        let result = self.fetch_rank(entitlements, client_version, puuid, season_id, previous_season_id, content).await;
+        let result = self
+            .fetch_rank(
+                entitlements,
+                client_version,
+                puuid,
+                season_id,
+                previous_season_id,
+                content,
+            )
+            .await;
         match result {
             Ok(rank) => {
                 let mut cache = self.cache.lock().await;
@@ -91,7 +107,11 @@ impl RankService {
                 client_version,
                 3,
                 Duration::from_secs(1),
-                |j| j.get("QueueSkills").or_else(|| j.get("queue_skills")).is_some(),
+                |j| {
+                    j.get("QueueSkills")
+                        .or_else(|| j.get("queue_skills"))
+                        .is_some()
+                },
             )
             .await?;
 
@@ -150,7 +170,6 @@ impl RankService {
         rank.status_good = true;
         Ok(rank)
     }
-
 }
 
 /// Compute the peak competitive tier across all seasons from each season's
@@ -191,5 +210,3 @@ fn compute_peak_rank(
     }
     (max_rank, max_season_id)
 }
-
-

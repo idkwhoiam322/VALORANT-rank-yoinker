@@ -510,20 +510,29 @@ async fn build_ingame_payload(
             let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
             let team_str = player.team_id.clone().unwrap_or_else(|| "Unknown".into());
 
-            svc.encounters.save_encounter(&subject, EncounterRecord {
-                name: Some(name.clone()),
-                agent: agent_name.clone(),
-                map: payload.map.clone(),
-                rank: None,
-                rr: None,
-                match_id: Some(match_id.clone()),
-                epoch: Some(payload.time as f64),
-                relation: Some(if team_str == ally_team.unwrap_or("") { "ally".into() } else { "enemy".into() }),
-                team: Some(team_str),
-                my_team: ally_team.map(|t| t.to_string()),
-                result: None,
-                score: None,
-            });
+            if ally_team.is_some() {
+                svc.encounters.save_encounter(
+                    &subject,
+                    EncounterRecord {
+                        name: Some(name.clone()),
+                        agent: agent_name.clone(),
+                        map: payload.map.clone(),
+                        rank: None,
+                        rr: None,
+                        match_id: Some(match_id.clone()),
+                        epoch: Some(payload.time as f64),
+                        relation: Some(if team_str == ally_team.unwrap_or("") {
+                            "ally".into()
+                        } else {
+                            "enemy".into()
+                        }),
+                        team: Some(team_str),
+                        my_team: ally_team.map(|t| t.to_string()),
+                        result: None,
+                        score: None,
+                    },
+                );
+            }
 
             if let Some(entry) = svc.encounters.build_encounter_summary(
                 &subject,

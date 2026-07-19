@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 use secrecy::{ExposeSecret, SecretString};
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lockfile {
@@ -24,14 +23,19 @@ pub struct Entitlements {
 impl Entitlements {
     pub fn build_headers(&self, client_version: &str) -> Vec<(String, String)> {
         vec![
-            ("Authorization".into(), format!("Bearer {}", self.access_token.expose_secret())),
-            ("X-Riot-Entitlements-JWT".into(), self.token.expose_secret().to_string()),
+            (
+                "Authorization".into(),
+                format!("Bearer {}", self.access_token.expose_secret()),
+            ),
+            (
+                "X-Riot-Entitlements-JWT".into(),
+                self.token.expose_secret().to_string(),
+            ),
             ("X-Riot-ClientPlatform".into(), CLIENT_PLATFORM.into()),
             ("X-Riot-ClientVersion".into(), client_version.into()),
             ("User-Agent".into(), USER_AGENT.into()),
         ]
     }
-
 }
 
 const CLIENT_PLATFORM: &str = "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9";

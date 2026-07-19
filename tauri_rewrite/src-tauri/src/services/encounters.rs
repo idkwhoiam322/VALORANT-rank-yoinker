@@ -43,7 +43,10 @@ impl EncounterData {
                 }
             }
         }
-        Self { records, match_index: index }
+        Self {
+            records,
+            match_index: index,
+        }
     }
 }
 
@@ -79,7 +82,11 @@ impl Tally {
 /// `build_encounter_summary` and `get_all_summaries` so the sort+dedup logic
 /// lives in exactly one place (previously duplicated in both functions).
 fn dedup_sorted(mut records: Vec<&EncounterRecord>) -> Vec<&EncounterRecord> {
-    records.sort_by(|a, b| b.epoch.partial_cmp(&a.epoch).unwrap_or(std::cmp::Ordering::Equal));
+    records.sort_by(|a, b| {
+        b.epoch
+            .partial_cmp(&a.epoch)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut seen = std::collections::HashSet::new();
     records.retain(|e| seen.insert(e.match_id.as_deref().unwrap_or("").to_string()));
     records
@@ -120,19 +127,48 @@ impl EncounterService {
             let history = data.records.entry(puuid.to_string()).or_default();
 
             if let Some(ref mid) = match_id {
-                if let Some(existing) = history.iter_mut().find(|e| e.match_id.as_deref() == Some(mid)) {
-                    // Merge: update fields if new values are non-null
-                    if record.name.is_some() { existing.name = record.name.clone(); }
-                    if record.agent.is_some() { existing.agent = record.agent.clone(); }
-                    if record.map.is_some() { existing.map = record.map.clone(); }
-                    if record.rank.is_some() { existing.rank = record.rank; }
-                    if record.rr.is_some() { existing.rr = record.rr; }
-                    if record.relation.is_some() { existing.relation = record.relation.clone(); }
-                    if record.team.is_some() { existing.team = record.team.clone(); }
-                    if record.my_team.is_some() { existing.my_team = record.my_team.clone(); }
-                    if record.result.is_some() { existing.result = record.result.clone(); }
-                    if record.score.is_some() { existing.score = record.score.clone(); }
-                    if record.epoch.is_some() { existing.epoch = record.epoch; }
+                if let Some(existing) = history
+                    .iter_mut()
+                    .find(|e| e.match_id.as_deref() == Some(mid))
+                {
+                    // Merge: update fields if new values are non-null.
+                    // relation/team/my_team are immutable for a given match_id,
+                    // so they are only seeded on first insert; a later partial
+                    // save (e.g. pregame before the self player's team is known)
+                    // must not flip an already-correct relation for this match.
+                    if record.name.is_some() {
+                        existing.name = record.name.clone();
+                    }
+                    if record.agent.is_some() {
+                        existing.agent = record.agent.clone();
+                    }
+                    if record.map.is_some() {
+                        existing.map = record.map.clone();
+                    }
+                    if record.rank.is_some() {
+                        existing.rank = record.rank;
+                    }
+                    if record.rr.is_some() {
+                        existing.rr = record.rr;
+                    }
+                    if existing.relation.is_none() && record.relation.is_some() {
+                        existing.relation = record.relation.clone();
+                    }
+                    if existing.team.is_none() && record.team.is_some() {
+                        existing.team = record.team.clone();
+                    }
+                    if existing.my_team.is_none() && record.my_team.is_some() {
+                        existing.my_team = record.my_team.clone();
+                    }
+                    if record.result.is_some() {
+                        existing.result = record.result.clone();
+                    }
+                    if record.score.is_some() {
+                        existing.score = record.score.clone();
+                    }
+                    if record.epoch.is_some() {
+                        existing.epoch = record.epoch;
+                    }
                     false // merged, not a new entry
                 } else {
                     history.push(record);
@@ -147,7 +183,10 @@ impl EncounterService {
         // Update the match index outside the `history` borrow
         if is_new_match {
             if let Some(ref mid) = match_id {
-                data.match_index.entry(mid.clone()).or_default().push(puuid.to_string());
+                data.match_index
+                    .entry(mid.clone())
+                    .or_default()
+                    .push(puuid.to_string());
             }
         }
 
@@ -256,7 +295,10 @@ impl EncounterService {
         let enemy_unknown = tally.enemy_unknown;
 
         let time_diff = latest.epoch.map(|e| now - e).unwrap_or(0.0);
-        let latest_relation = latest.relation.as_deref().unwrap_or(fallback_relation.unwrap_or(""));
+        let latest_relation = latest
+            .relation
+            .as_deref()
+            .unwrap_or(fallback_relation.unwrap_or(""));
         let latest_name = latest
             .name
             .as_deref()
@@ -295,7 +337,10 @@ impl EncounterService {
         })
     }
 
-    pub fn get_all_summaries(&self, exclude_puuid: &str) -> Vec<crate::models::heartbeat::EncounterEntry> {
+    pub fn get_all_summaries(
+        &self,
+        exclude_puuid: &str,
+    ) -> Vec<crate::models::heartbeat::EncounterEntry> {
         // Snapshot the whole record map out of the lock; all per-player
         // sort/dedup work below runs on the owned copy so the mutex is only
         // held for the (cheap) clone, not the O(n log n) processing.
@@ -358,7 +403,8 @@ impl EncounterService {
                     "teammate"
                 } else {
                     "enemy"
-                }.into(),
+                }
+                .into(),
                 time_diff: time_diff.max(0.0),
                 ally_wins,
                 ally_losses,
@@ -372,7 +418,11 @@ impl EncounterService {
         }
 
         // Sort by most recent first (smaller time_diff = more recent)
-        results.sort_by(|a, b| a.time_diff.partial_cmp(&b.time_diff).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            a.time_diff
+                .partial_cmp(&b.time_diff)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 

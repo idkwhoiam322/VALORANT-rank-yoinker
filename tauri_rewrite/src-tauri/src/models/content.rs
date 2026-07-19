@@ -285,9 +285,12 @@ impl ContentCache {
         let aliases: &[(&str, &str)] = &[("plummet", "summit")];
 
         // Try the codename directly, then each alias target.
-        for candidate in std::iter::once(codename.as_str())
-            .chain(aliases.iter().filter(|(from, _)| *from == codename).map(|(_, to)| *to))
-        {
+        for candidate in std::iter::once(codename.as_str()).chain(
+            aliases
+                .iter()
+                .filter(|(from, _)| *from == codename)
+                .map(|(_, to)| *to),
+        ) {
             if let Some(name) = self.maps.get(candidate) {
                 return Some(name.clone());
             }

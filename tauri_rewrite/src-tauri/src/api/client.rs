@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use reqwest::{Client, ClientBuilder, Method, Response};
 use reqwest::header::HeaderMap;
+use reqwest::{Client, ClientBuilder, Method, Response};
 use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
@@ -128,7 +128,6 @@ impl ApiClient {
             client_version: Mutex::new(String::new()),
             local_api_dead: AtomicBool::new(false),
         }
-
     }
 
     pub fn set_logger(&self, logger: Arc<Logger>) {
@@ -188,7 +187,11 @@ impl ApiClient {
         const RETRY_DELAY: Duration = Duration::from_secs(1);
 
         for attempt in 0..MAX_RETRIES {
-            self.app_log(&format!("[AUTH] refreshing entitlements + version from local Riot client (attempt {}/{})", attempt + 1, MAX_RETRIES));
+            self.app_log(&format!(
+                "[AUTH] refreshing entitlements + version from local Riot client (attempt {}/{})",
+                attempt + 1,
+                MAX_RETRIES
+            ));
 
             // Refresh client_version from logs first
             if let Err(e) = self.refresh_client_version().await {
@@ -210,7 +213,9 @@ impl ApiClient {
                 }
             }
         }
-        Err(ApiError::Auth("Entitlements refresh failed after retries".into()))
+        Err(ApiError::Auth(
+            "Entitlements refresh failed after retries".into(),
+        ))
     }
 
     /// Refresh client_version by parsing ShooterGame.log
@@ -236,17 +241,24 @@ impl ApiClient {
                 }
             }
         }
-        Err(ApiError::Auth("Could not determine client version from logs".into()))
+        Err(ApiError::Auth(
+            "Could not determine client version from logs".into(),
+        ))
     }
 
     /// Fetch fresh entitlements from local Riot client endpoint
     async fn fetch_local_entitlements(&self) -> Result<Entitlements, ApiError> {
-        let response = self.fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None).await?;
+        let response = self
+            .fetch(UrlType::Local, endpoints::LOCAL_ENTITLEMENTS, &[], None)
+            .await?;
         let status = response.status();
         let text = response.text().await.map_err(ApiError::Http)?;
 
         if status.is_client_error() {
-            return Err(ApiError::Auth(format!("Riot client returned error: {}", text)));
+            return Err(ApiError::Auth(format!(
+                "Riot client returned error: {}",
+                text
+            )));
         }
 
         let json: serde_json::Value = serde_json::from_str(&text)
@@ -285,12 +297,7 @@ impl ApiClient {
     /// `kind` identifies the cache (e.g. "rank", "stats", "match details",
     /// "match player", "names"). `key` is a short PUUID/match_id fragment.
     /// `ttl_remaining` optionally reports time left in the cache entry.
-    pub(crate) fn cache_hit(
-        &self,
-        kind: &str,
-        key: &str,
-        ttl_remaining: Option<u64>,
-    ) {
+    pub(crate) fn cache_hit(&self, kind: &str, key: &str, ttl_remaining: Option<u64>) {
         let line = match ttl_remaining {
             Some(t) => format!("[CACHE] {kind} hit for {key} ({t}s remaining)"),
             None => format!("[CACHE] {kind} hit for {key}"),
@@ -375,7 +382,9 @@ impl ApiClient {
         if url_type == UrlType::Local {
             return None;
         }
-        let guard = self.rate_cooldown[Self::limiter_index(url_type)].lock().unwrap();
+        let guard = self.rate_cooldown[Self::limiter_index(url_type)]
+            .lock()
+            .unwrap();
         match *guard {
             Some(expiry) => {
                 let rem = expiry.saturating_duration_since(Instant::now());
@@ -398,7 +407,9 @@ impl ApiClient {
             return;
         }
         let new_expiry = Instant::now() + dur;
-        let mut guard = self.rate_cooldown[Self::limiter_index(url_type)].lock().unwrap();
+        let mut guard = self.rate_cooldown[Self::limiter_index(url_type)]
+            .lock()
+            .unwrap();
         *guard = Some(guard.map_or(new_expiry, |e| e.max(new_expiry)));
     }
 
@@ -431,7 +442,8 @@ impl ApiClient {
         headers: &[(String, String)],
         body: Option<serde_json::Value>,
     ) -> Result<Response, ApiError> {
-        self.fetch_with_method(url_type, endpoint, headers, body, None).await
+        self.fetch_with_method(url_type, endpoint, headers, body, None)
+            .await
     }
 
     pub async fn fetch_with_method(
@@ -446,11 +458,9 @@ impl ApiClient {
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
-        let http_method = method.unwrap_or_else(|| {
-            match body {
-                Some(_) => Method::POST,
-                None => Method::GET,
-            }
+        let http_method = method.unwrap_or_else(|| match body {
+            Some(_) => Method::POST,
+            None => Method::GET,
         });
 
         let mut header_map = HeaderMap::new();
@@ -461,7 +471,13 @@ impl ApiClient {
                     h.expose_secret().to_string()
                 } else {
                     drop(guard);
-                    let pw = self.local_password.lock().unwrap().clone().expose_secret().to_string();
+                    let pw = self
+                        .local_password
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .expose_secret()
+                        .to_string();
                     format!(
                         "Basic {}",
                         base64::Engine::encode(
@@ -471,14 +487,21 @@ impl ApiClient {
                     )
                 }
             };
-            header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
-                Ok(v) => v,
-                Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
-            });
+            header_map.insert(
+                "Authorization",
+                match auth.parse::<reqwest::header::HeaderValue>() {
+                    Ok(v) => v,
+                    Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
+                },
+            );
         } else {
             for (key, value) in headers {
-                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else { continue; };
-                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else { continue; };
+                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else {
+                    continue;
+                };
+                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else {
+                    continue;
+                };
                 header_map.insert(name, val);
             }
         }
@@ -489,7 +512,9 @@ impl ApiClient {
             // off (429 + Retry-After), every subsequent call to the same host waits
             // out the remainder together instead of each rediscovering the limit.
             if let Some(rem) = self.cooldown_remaining(url_type) {
-                self.app_log(&format!("[API] rate limited ({url_type:?}) - cooling down {rem:?}"));
+                self.app_log(&format!(
+                    "[API] rate limited ({url_type:?}) - cooling down {rem:?}"
+                ));
                 tokio::time::sleep(rem).await;
             }
             let wait = {
@@ -497,11 +522,21 @@ impl ApiClient {
                 limiter.check_rate()
             };
             if let Some(delay) = wait {
-                self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
+                self.app_log(&format!(
+                    "[API] rate limited ({url_type:?}) - sleeping {delay:?}"
+                ));
                 tokio::time::sleep(delay).await;
             }
 
-            let response = self.execute_request(http_method.clone(), &url, &header_map, body.as_ref(), url_type).await?;
+            let response = self
+                .execute_request(
+                    http_method.clone(),
+                    &url,
+                    &header_map,
+                    body.as_ref(),
+                    url_type,
+                )
+                .await?;
 
             if response.status().as_u16() == 404 {
                 return Err(ApiError::NotFound);
@@ -515,10 +550,14 @@ impl ApiClient {
             }
             if url_type == UrlType::Local && response.status().as_u16() == 503 {
                 self.local_api_dead.store(true, Ordering::Relaxed);
-                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+                return Err(ApiError::ServerError(
+                    response.text().await.unwrap_or_default(),
+                ));
             }
             if response.status().is_server_error() {
-                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+                return Err(ApiError::ServerError(
+                    response.text().await.unwrap_or_default(),
+                ));
             }
 
             // Only count successful requests against the per-second limiter; 429s
@@ -537,7 +576,8 @@ impl ApiClient {
         endpoint: &str,
         headers: &[(String, String)],
     ) -> Result<T, ApiError> {
-        self.fetch_json_with_reauth(url_type, endpoint, headers, None, None).await
+        self.fetch_json_with_reauth(url_type, endpoint, headers, None, None)
+            .await
     }
 
     pub async fn fetch_json_with_body<T: serde::de::DeserializeOwned>(
@@ -547,7 +587,8 @@ impl ApiClient {
         headers: &[(String, String)],
         body: serde_json::Value,
     ) -> Result<T, ApiError> {
-        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(&body), None).await
+        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(&body), None)
+            .await
     }
 
     /// Internal fetch with centralized automatic re-auth on BAD_CLAIMS.
@@ -577,7 +618,9 @@ impl ApiClient {
                     return Err(ApiError::BadClaims);
                 }
                 did_refresh = true;
-                self.app_log(&format!("[API] {endpoint}: BAD_CLAIMS received - refreshing entitlements + version"));
+                self.app_log(&format!(
+                    "[API] {endpoint}: BAD_CLAIMS received - refreshing entitlements + version"
+                ));
 
                 // Refresh both entitlements and client_version
                 if let Err(e) = self.refresh_entitlements_with_retry().await {
@@ -589,15 +632,23 @@ impl ApiClient {
                 if let Some(fresh_entitlements) = self.get_entitlements() {
                     let cv = self.get_client_version();
                     headers = fresh_entitlements.build_headers(&cv);
-                    self.app_log("[API] entitlements + version refreshed - retrying with fresh headers");
+                    self.app_log(
+                        "[API] entitlements + version refreshed - retrying with fresh headers",
+                    );
                     continue;
                 } else {
-                    return Err(ApiError::Auth("No entitlements available after refresh".into()));
+                    return Err(ApiError::Auth(
+                        "No entitlements available after refresh".into(),
+                    ));
                 }
             }
 
             return serde_json::from_str(&text).map_err(|e| {
-                ApiError::ServerError(format!("JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
+                ApiError::ServerError(format!(
+                    "JSON parse error: {} - body: {}",
+                    e,
+                    text.chars().take(200).collect::<String>()
+                ))
             });
         }
     }
@@ -615,11 +666,9 @@ impl ApiClient {
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
-        let http_method = method.unwrap_or_else(|| {
-            match body {
-                Some(_) => Method::POST,
-                None => Method::GET,
-            }
+        let http_method = method.unwrap_or_else(|| match body {
+            Some(_) => Method::POST,
+            None => Method::GET,
         });
 
         let mut header_map = HeaderMap::new();
@@ -630,7 +679,13 @@ impl ApiClient {
                     h.expose_secret().to_string()
                 } else {
                     drop(guard);
-                    let pw = self.local_password.lock().unwrap().clone().expose_secret().to_string();
+                    let pw = self
+                        .local_password
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .expose_secret()
+                        .to_string();
                     format!(
                         "Basic {}",
                         base64::Engine::encode(
@@ -640,14 +695,21 @@ impl ApiClient {
                     )
                 }
             };
-            header_map.insert("Authorization", match auth.parse::<reqwest::header::HeaderValue>() {
-                Ok(v) => v,
-                Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
-            });
+            header_map.insert(
+                "Authorization",
+                match auth.parse::<reqwest::header::HeaderValue>() {
+                    Ok(v) => v,
+                    Err(_) => return Err(ApiError::Auth("Invalid local auth header".into())),
+                },
+            );
         } else {
             for (key, value) in headers {
-                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else { continue; };
-                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else { continue; };
+                let Ok(name) = key.as_str().parse::<reqwest::header::HeaderName>() else {
+                    continue;
+                };
+                let Ok(val) = value.parse::<reqwest::header::HeaderValue>() else {
+                    continue;
+                };
                 header_map.insert(name, val);
             }
         }
@@ -658,7 +720,9 @@ impl ApiClient {
             // off (429 + Retry-After), every subsequent call to the same host waits
             // out the remainder together instead of each rediscovering the limit.
             if let Some(rem) = self.cooldown_remaining(url_type) {
-                self.app_log(&format!("[API] rate limited ({url_type:?}) - cooling down {rem:?}"));
+                self.app_log(&format!(
+                    "[API] rate limited ({url_type:?}) - cooling down {rem:?}"
+                ));
                 tokio::time::sleep(rem).await;
             }
             let wait = {
@@ -666,7 +730,9 @@ impl ApiClient {
                 limiter.check_rate()
             };
             if let Some(delay) = wait {
-                self.app_log(&format!("[API] rate limited ({url_type:?}) - sleeping {delay:?}"));
+                self.app_log(&format!(
+                    "[API] rate limited ({url_type:?}) - sleeping {delay:?}"
+                ));
                 tokio::time::sleep(delay).await;
             }
 
@@ -686,10 +752,14 @@ impl ApiClient {
             }
             if url_type == UrlType::Local && response.status().as_u16() == 503 {
                 self.local_api_dead.store(true, Ordering::Relaxed);
-                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+                return Err(ApiError::ServerError(
+                    response.text().await.unwrap_or_default(),
+                ));
             }
             if response.status().is_server_error() {
-                return Err(ApiError::ServerError(response.text().await.unwrap_or_default()));
+                return Err(ApiError::ServerError(
+                    response.text().await.unwrap_or_default(),
+                ));
             }
 
             // Only count successful requests against the per-second limiter; 429s
@@ -726,12 +796,17 @@ impl ApiClient {
             let headers = current_entitlements.build_headers(&current_cv);
             let label = format!("{endpoint} (attempt {}/{})", attempt + 1, max_retries);
 
-            match self.fetch_json::<serde_json::Value>(url_type, endpoint, &headers).await {
+            match self
+                .fetch_json::<serde_json::Value>(url_type, endpoint, &headers)
+                .await
+            {
                 Ok(json) => {
                     if validate(&json) {
                         return Ok(json);
                     }
-                    self.app_log(&format!("[API] retry {label}: validation failed - retrying"));
+                    self.app_log(&format!(
+                        "[API] retry {label}: validation failed - retrying"
+                    ));
                 }
                 Err(e) => {
                     if matches!(&e, ApiError::NotFound) {
@@ -754,7 +829,9 @@ impl ApiClient {
             }
         }
 
-        self.app_log(&format!("[API] retry exhausted: {endpoint} after {max_retries} attempts"));
+        self.app_log(&format!(
+            "[API] retry exhausted: {endpoint} after {max_retries} attempts"
+        ));
         Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
     }
 
@@ -772,7 +849,15 @@ impl ApiClient {
         validate: impl Fn(&serde_json::Value) -> bool,
     ) -> Result<T, ApiError> {
         let json = self
-            .fetch_json_retry(url_type, endpoint, entitlements, client_version, max_retries, delay, validate)
+            .fetch_json_retry(
+                url_type,
+                endpoint,
+                entitlements,
+                client_version,
+                max_retries,
+                delay,
+                validate,
+            )
             .await?;
         serde_json::from_value(json).map_err(|e| {
             ApiError::ServerError(format!("JSON parse error: {} (endpoint: {})", e, endpoint))
@@ -820,9 +905,8 @@ impl ApiClient {
                                 self.app_log(&format!(
                                     "[API] retry {label}: JSON parse error: {e}"
                                 ));
-                                last_error = Some(ApiError::ServerError(format!(
-                                    "JSON parse error: {e}"
-                                )));
+                                last_error =
+                                    Some(ApiError::ServerError(format!("JSON parse error: {e}")));
                             }
                         }
                     } else {
@@ -853,9 +937,7 @@ impl ApiClient {
         self.app_log(&format!(
             "[API] retry exhausted: {endpoint} after {max_retries} attempts"
         ));
-        Err(last_error.unwrap_or(ApiError::ServerError(
-            "max retries exhausted".into(),
-        )))
+        Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
     }
 
     pub async fn fetch_valorant_api<T: serde::de::DeserializeOwned>(
@@ -874,7 +956,9 @@ impl ApiClient {
             // subsequent ValAPI calls together.
             let idx = Self::limiter_index(UrlType::Custom);
             if let Some(rem) = self.cooldown_remaining(UrlType::Custom) {
-                self.app_log(&format!("[API] rate limited (ValAPI) - cooling down {rem:?}"));
+                self.app_log(&format!(
+                    "[API] rate limited (ValAPI) - cooling down {rem:?}"
+                ));
                 tokio::time::sleep(rem).await;
             }
             {
@@ -888,13 +972,20 @@ impl ApiClient {
                 }
             }
 
-            let resp = self.execute_request(Method::GET, &url, &headers, None, UrlType::Custom).await?;
+            let resp = self
+                .execute_request(Method::GET, &url, &headers, None, UrlType::Custom)
+                .await?;
             let status = resp.status();
 
             if status.as_u16() == 429 {
                 let delay = Self::retry_after_delay(&resp, attempt);
                 self.set_cooldown(UrlType::Custom, delay);
-                self.app_log(&format!("[API] 429 Too Many Requests (ValAPI {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
+                self.app_log(&format!(
+                    "[API] 429 Too Many Requests (ValAPI {endpoint}) - retry {}/{} sleeping {:?}",
+                    attempt + 1,
+                    MAX_429_RETRIES,
+                    delay
+                ));
                 tokio::time::sleep(delay).await;
                 continue;
             }
@@ -914,7 +1005,11 @@ impl ApiClient {
             let mut limiter = self.rate_limiters[idx].lock().unwrap();
             limiter.record_request();
             return serde_json::from_str(&text).map_err(|e| {
-                ApiError::ServerError(format!("ValAPI JSON parse error: {} - body: {}", e, text.chars().take(200).collect::<String>()))
+                ApiError::ServerError(format!(
+                    "ValAPI JSON parse error: {} - body: {}",
+                    e,
+                    text.chars().take(200).collect::<String>()
+                ))
             });
         }
 

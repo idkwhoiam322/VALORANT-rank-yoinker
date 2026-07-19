@@ -112,13 +112,25 @@ pub struct SprayEntry {
     #[serde(rename = "type")]
     pub spray_type: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "displayName")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "displayName"
+    )]
     pub display_name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "displayIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "displayIcon"
+    )]
     pub display_icon: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "fullTransparentIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "fullTransparentIcon"
+    )]
     pub full_transparent_icon: Option<String>,
 }
 
@@ -136,32 +148,66 @@ pub struct WeaponEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weapon: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "skinDisplayName")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "skinDisplayName"
+    )]
     pub skin_display_name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "skinDisplayIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "skinDisplayIcon"
+    )]
     pub skin_display_icon: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "chromaDisplayName")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "chromaDisplayName"
+    )]
     pub chroma_display_name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "buddy_displayIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "buddy_displayIcon"
+    )]
     pub buddy_display_icon: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "buddy_displayName")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "buddy_displayName"
+    )]
     pub buddy_display_name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "weaponDisplayIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "weaponDisplayIcon"
+    )]
     pub weapon_display_icon: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierName")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "contentTierName"
+    )]
     pub skin_content_tier_name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierColor")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "contentTierColor"
+    )]
     pub skin_content_tier_color: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentTierIcon")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "contentTierIcon"
+    )]
     pub skin_content_tier_icon: Option<String>,
 }
-
-

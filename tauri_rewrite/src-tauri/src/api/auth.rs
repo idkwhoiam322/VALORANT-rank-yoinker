@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use secrecy::SecretString;
 
-use crate::models::auth::{Entitlements, Lockfile, Region};
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
+use crate::models::auth::{Entitlements, Lockfile, Region};
 
 const LOCKFILE_PATH: &str = r"Riot Games\Riot Client\Config\lockfile";
 const LOG_PATH: &str = r"VALORANT\Saved\Logs\ShooterGame.log";
@@ -28,8 +28,7 @@ pub fn get_log_path() -> PathBuf {
 /// executable location. Mirrors the Python launcher
 /// (`account_config.py:get_riot_client_path`).
 fn get_riot_client_installs_path() -> PathBuf {
-    let allusers = std::env::var("ALLUSERSPROFILE")
-        .unwrap_or_else(|_| r"C:\ProgramData".into());
+    let allusers = std::env::var("ALLUSERSPROFILE").unwrap_or_else(|_| r"C:\ProgramData".into());
     PathBuf::from(allusers).join(r"Riot Games\RiotClientInstalls.json")
 }
 
@@ -135,13 +134,20 @@ pub fn parse_lockfile(path: &PathBuf) -> Result<Lockfile, ApiError> {
 
     let parts: Vec<&str> = content.trim().split(':').collect();
     if parts.len() < 5 {
-        return Err(ApiError::Lockfile(format!("Invalid lockfile format: {}", content)));
+        return Err(ApiError::Lockfile(format!(
+            "Invalid lockfile format: {}",
+            content
+        )));
     }
 
     Ok(Lockfile {
         name: parts[0].to_string(),
-        pid: parts[1].parse().map_err(|_| ApiError::Lockfile("Invalid PID".into()))?,
-        port: parts[2].parse().map_err(|_| ApiError::Lockfile("Invalid port".into()))?,
+        pid: parts[1]
+            .parse()
+            .map_err(|_| ApiError::Lockfile("Invalid PID".into()))?,
+        port: parts[2]
+            .parse()
+            .map_err(|_| ApiError::Lockfile("Invalid port".into()))?,
         password: parts[3].to_string(),
         protocol: parts[4].to_string(),
     })
@@ -184,7 +190,9 @@ pub fn parse_region_from_logs(path: &PathBuf) -> Result<Region, ApiError> {
             }
             Ok(Region::from_logs(&pd, &gh, &gs))
         }
-        _ => Err(ApiError::Auth("Could not determine region from logs".into())),
+        _ => Err(ApiError::Auth(
+            "Could not determine region from logs".into(),
+        )),
     }
 }
 
@@ -203,7 +211,10 @@ pub fn parse_client_version(path: &PathBuf) -> Result<String, ApiError> {
     Ok("unknown".into())
 }
 
-pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(Entitlements, String), ApiError> {
+pub async fn authenticate(
+    client: &ApiClient,
+    lockfile: &Lockfile,
+) -> Result<(Entitlements, String), ApiError> {
     let port = lockfile.port;
     client.set_local_auth(lockfile.password.clone(), port);
 
@@ -229,15 +240,23 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
             let json: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| ApiError::Auth(format!("JSON parse error: {}", e)))?;
 
-            if json.get("message").and_then(|m| m.as_str()) == Some("Entitlements token is not ready yet") {
+            if json.get("message").and_then(|m| m.as_str())
+                == Some("Entitlements token is not ready yet")
+            {
                 if retries >= 5 {
-                    client.app_log(&format!("[AUTH] entitlements token not ready after {} retries - giving up", retries));
+                    client.app_log(&format!(
+                        "[AUTH] entitlements token not ready after {} retries - giving up",
+                        retries
+                    ));
                     return Err(ApiError::Auth(
                         "Entitlements token not ready after retries. Please sign in to Riot Client and restart vRY.".into()
                     ));
                 }
                 retries += 1;
-                client.app_log(&format!("[AUTH] entitlements token not ready (attempt {}/5) - retrying in 1s", retries));
+                client.app_log(&format!(
+                    "[AUTH] entitlements token not ready (attempt {}/5) - retrying in 1s",
+                    retries
+                ));
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
@@ -247,7 +266,10 @@ pub async fn authenticate(client: &ApiClient, lockfile: &Lockfile) -> Result<(En
 
     // If we get here and json doesn't have accessToken, it's likely an error response
     if json.get("accessToken").is_none() {
-        return Err(ApiError::Auth("Entitlements token not available. Please sign in to Riot Client and restart vRY.".into()));
+        return Err(ApiError::Auth(
+            "Entitlements token not available. Please sign in to Riot Client and restart vRY."
+                .into(),
+        ));
     }
 
     let entitlements = Entitlements {

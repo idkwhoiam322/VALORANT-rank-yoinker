@@ -6,10 +6,10 @@ use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
-use crate::models::match_data::CoregamePlayer;
 use crate::models::loadout::{
     CoregameLoadoutsResponse, LoadoutJson, PlayerLoadoutData, SprayEntry, WeaponEntry,
 };
+use crate::models::match_data::CoregamePlayer;
 
 const SOCKET_SKIN: &str = "bcef87d6-209b-46c6-8b19-fbe40bd95abc";
 const SOCKET_SKIN_LEVEL: &str = "e7c63390-eda7-46e0-bb7a-a6abdacd2433";
@@ -78,7 +78,10 @@ impl LoadoutService {
                 None => continue,
             };
 
-            let player = entry.subject.as_deref().and_then(|s| player_map.get(s).copied());
+            let player = entry
+                .subject
+                .as_deref()
+                .and_then(|s| player_map.get(s).copied());
 
             // Build player loadout data. Only the fields actually copied into
             // PlayerHeartbeat (title, player_card, player_card_name, sprays,
@@ -176,37 +179,56 @@ impl LoadoutService {
                                         entry.skin_display_icon = weapon_data.display_icon.clone();
                                     } else if let Some(ref chroma_id) = skin_chroma_id {
                                         for chroma in &skin.chromas {
-                                            if chroma.uuid.to_lowercase() == chroma_id.to_lowercase() {
-                                                entry.chroma_display_name = Some(chroma.display_name.clone());
-                                                entry.skin_display_icon = chroma.display_icon.clone()
+                                            if chroma.uuid.to_lowercase()
+                                                == chroma_id.to_lowercase()
+                                            {
+                                                entry.chroma_display_name =
+                                                    Some(chroma.display_name.clone());
+                                                entry.skin_display_icon = chroma
+                                                    .display_icon
+                                                    .clone()
                                                     .or_else(|| chroma.full_render.clone())
                                                     .or_else(|| skin.display_icon.clone())
                                                     .or_else(|| {
-                                                        skin.levels.first().and_then(|l| l.display_icon.clone())
+                                                        skin.levels
+                                                            .first()
+                                                            .and_then(|l| l.display_icon.clone())
                                                     })
                                                     .or_else(|| weapon_data.display_icon.clone());
                                                 break;
                                             }
                                         }
                                     } else {
-                                        entry.skin_display_icon = skin.display_icon.clone()
+                                        entry.skin_display_icon = skin
+                                            .display_icon
+                                            .clone()
                                             .or_else(|| weapon_data.display_icon.clone());
                                     }
 
                                     // Resolve buddy
                                     if let Some(ref bid) = buddy_id {
-                                        if let Some(buddy) = content.buddies.get(&bid.to_lowercase()) {
+                                        if let Some(buddy) =
+                                            content.buddies.get(&bid.to_lowercase())
+                                        {
                                             entry.buddy_display_icon = buddy.display_icon.clone();
-                                            entry.buddy_display_name = Some(buddy.display_name.clone());
+                                            entry.buddy_display_name =
+                                                Some(buddy.display_name.clone());
                                         }
                                     }
 
                                     // Resolve content tier
                                     if let Some(ref tier_uuid) = skin.content_tier_uuid {
-                                        if let Some(tier) = content.content_tiers.get(&tier_uuid.to_lowercase()) {
-                                            entry.skin_content_tier_name = Some(tier.display_name.clone());
-                                            entry.skin_content_tier_color = tier.highlight_color.as_ref().map(|c| "#".to_string() + c);
-                                            entry.skin_content_tier_icon = tier.display_icon.clone();
+                                        if let Some(tier) =
+                                            content.content_tiers.get(&tier_uuid.to_lowercase())
+                                        {
+                                            entry.skin_content_tier_name =
+                                                Some(tier.display_name.clone());
+                                            entry.skin_content_tier_color = tier
+                                                .highlight_color
+                                                .as_ref()
+                                                .map(|c| "#".to_string() + c);
+                                            entry.skin_content_tier_icon =
+                                                tier.display_icon.clone();
                                         }
                                     }
                                 }
@@ -215,7 +237,8 @@ impl LoadoutService {
                             log::warn!("Weapon UUID {} not found in content cache (content.weapons has {} entries)",
                                 weapon_uuid_lower, content.weapons.len());
                             entry.weapon = Some(weapon_uuid.clone());
-                            entry.skin_display_icon = Some(endpoints::media_weapon_icon(&weapon_uuid_lower));
+                            entry.skin_display_icon =
+                                Some(endpoints::media_weapon_icon(&weapon_uuid_lower));
                         }
 
                         weapons.insert(weapon_uuid_lower.clone(), entry);
@@ -236,14 +259,19 @@ impl LoadoutService {
                                     Some("spray".into()),
                                     Some(spray.display_name.clone()),
                                     spray.display_icon.clone(),
-                                    spray.full_transparent_icon.clone().or_else(|| spray.display_icon.clone()),
+                                    spray
+                                        .full_transparent_icon
+                                        .clone()
+                                        .or_else(|| spray.display_icon.clone()),
                                 )
                             } else if let Some(flex) = content.flex.get(&aid) {
                                 (
                                     Some("flex".into()),
                                     Some(flex.display_name.clone()),
                                     flex.display_icon.clone(),
-                                    flex.full_transparent_icon.clone().or_else(|| flex.display_icon.clone()),
+                                    flex.full_transparent_icon
+                                        .clone()
+                                        .or_else(|| flex.display_icon.clone()),
                                 )
                             } else {
                                 (Some("unknown".into()), None, None, None)
