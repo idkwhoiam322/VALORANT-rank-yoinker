@@ -688,11 +688,20 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         // `prevGameState` keeps the UI intact across pregame->ingame.
         let isPregameToIngame = (state.prevGameState === "PREGAME" && newState === "INGAME");
         let label = STATE_LABELS[newState] || newState || "Unknown";
-        if (isPregameToIngame) {
-            // Keep the existing player UI visible; the next INGAME heartbeat
-            // repopulates ranks/stats/loadouts in place.
-            setState({ lastRenderKey: null }); // Ensure next heartbeat triggers a re-render
-            showLoadingChip(label);
+        // Keep the existing player UI for any transition that lands on the same
+        // already-rendered state. This covers the PREGAME->INGAME handoff AND a
+        // reconnect/refresh while already INGAME. In both cases the backend's
+        // single INGAME heartbeat may already have rendered the top-left meta
+        // chips (In-Game • mode • map • server • time) before this state_change
+        // is delivered. Only show a loading chip if we have no data yet; if the
+        // chips are already on screen, leave them untouched — otherwise a late
+        // state_change would wipe the rendered chips and nothing would repaint
+        // them (INGAME steady-state suppresses further heartbeats).
+        let keepUi = isPregameToIngame || (newState === state.lastGameState && state.payload);
+        if (keepUi) {
+            // Ensure the next heartbeat triggers a re-render.
+            setState({ lastRenderKey: null });
+            if (!state.payload) showLoadingChip(label);
             return;
         }
         // Original clearing behavior for all other transitions
