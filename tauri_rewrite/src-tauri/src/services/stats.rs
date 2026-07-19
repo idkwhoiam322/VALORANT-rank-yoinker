@@ -127,8 +127,10 @@ impl StatsService {
                             self.client.cache_hit("match details", &crate::api::client::anon_id(&match_id), None);
                             Some(existing)
                         } else {
-                            log::debug!("stats: match details fetched ok, {} players, {} rounds",
-                                data.players.len(), data.round_results.len());
+                            log::debug!(
+                                "stats: match details fetched ok for {}",
+                                crate::api::client::anon_id(&match_id)
+                            );
                             cache.put(match_id.clone(), data.clone());
                             Some(data)
                         }

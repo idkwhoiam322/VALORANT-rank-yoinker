@@ -93,16 +93,7 @@ pub struct CompetitiveUpdate {
     pub match_id: Option<String>,
 
     #[serde(default)]
-    pub ranked_rating_earned: Option<i32>,
-
-    #[serde(default, alias = "AFKPenalty")]
-    pub afk_penalty: Option<i32>,
-
-    #[serde(default)]
     pub match_start_time: Option<i64>,
-
-    #[serde(default)]
-    pub tier_after_update: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,12 +113,6 @@ pub struct MatchDetailsResponse {
 
     #[serde(default)]
     pub teams: Option<Vec<TeamResult>>,
-
-    #[serde(default)]
-    pub players: Vec<MatchPlayer>,
-
-    #[serde(default, rename = "roundResults")]
-    pub round_results: Vec<RoundResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,24 +125,6 @@ pub struct MatchInfo {
 
     #[serde(default, rename = "winningTeam", alias = "WinningTeam")]
     pub winning_team: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MatchPlayer {
-    #[serde(default)]
-    pub subject: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundResult {
-    #[serde(default, rename = "playerStats")]
-    pub player_stats: Vec<RoundPlayerStats>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundPlayerStats {
-    #[serde(default)]
-    pub subject: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
