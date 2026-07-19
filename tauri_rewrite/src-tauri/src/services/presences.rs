@@ -40,10 +40,7 @@ impl PresenceService {
         Ok(resp.presences)
     }
 
-    pub fn find_own_presence<'a>(
-        presences: &'a [Presence],
-        puuid: &str,
-    ) -> Option<&'a Presence> {
+    pub fn find_own_presence<'a>(presences: &'a [Presence], puuid: &str) -> Option<&'a Presence> {
         presences
             .iter()
             .find(|p| p.puuid.as_deref() == Some(puuid) && p.product.as_deref() == Some("valorant"))
@@ -176,32 +173,29 @@ impl PresenceService {
     ) -> (Option<GameState>, Option<String>) {
         match self.get_presences(entitlements, client_version).await {
             Ok(presences) => {
-                let own = Self::find_own_presence(&presences, puuid);
-                if own.is_none() {
+                let Some(own) = Self::find_own_presence(&presences, puuid) else {
                     let msg = "detect_game_state: own presence not found (product != valorant or puuid mismatch)".into();
                     log::warn!("{msg}");
                     return (None, Some(msg));
-                }
-                let own = own.unwrap();
-                let private = Self::decode_private_presence(&own.private);
-                if private.is_none() {
+                };
+                let Some(private) = Self::decode_private_presence(&own.private) else {
                     let packed_raw = own.private.as_deref().unwrap_or("");
-                    let decoded_preview = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, packed_raw)
-                        .ok()
-                        .and_then(|b| Some(String::from_utf8_lossy(&b[..b.len().min(300)]).to_string()))
-                        .unwrap_or_default();
+                    let decoded_preview = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        packed_raw,
+                    )
+                    .ok()
+                    .and_then(|b| Some(String::from_utf8_lossy(&b[..b.len().min(300)]).to_string()))
+                    .unwrap_or_default();
                     let msg = format!("detect_game_state: failed to decode private presence (b64 len={}, decoded_preview={:?})", packed_raw.len(), decoded_preview);
                     log::warn!("{msg}");
                     return (None, Some(msg));
-                }
-                let private = private.unwrap();
-                let state_str = Self::extract_game_state(&private);
-                if state_str.is_none() {
+                };
+                let Some(state_str) = Self::extract_game_state(&private) else {
                     let msg = "detect_game_state: could not extract sessionLoopState from private presence (camelCase rename issue?)".into();
                     log::warn!("{msg}");
                     return (None, Some(msg));
-                }
-                let state_str = state_str.unwrap();
+                };
                 let state = GameState::from_str(&state_str);
                 log::info!("detect_game_state: detected state = {:?}", state);
                 (Some(state), None)
