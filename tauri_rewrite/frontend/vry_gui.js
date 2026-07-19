@@ -295,16 +295,17 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         container.append(chip);
     }
 
-    function buildStatChips(player, chipClass, shortName) {
+    function buildStatChips(player, chipClass, shortName, compSuffix) {
         let frag = document.createDocumentFragment();
-        setStatChip(frag, "Win Rate", winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), chipClass);
+        let comp = compSuffix ? " (Comp)" : "";
+        setStatChip(frag, "Win Rate" + comp, winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), chipClass);
         setStatChip(frag, "Rank", rankName(player.rank, shortName), isEmpty(player.rank), chipClass, rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
         setStatChip(frag, "RR", txt(player.rr), isEmpty(player.rr), chipClass);
         setStatChip(frag, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), chipClass);
         setStatChip(frag, "Peak Rank", (function(rn){return rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn})(rankName(player.peakRank, shortName)), isEmpty(player.peakRank), chipClass, rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
         setStatChip(frag, "Last Act", rankName(player.previousRank, shortName), isEmpty(player.previousRank), chipClass, rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
         setStatChip(frag, "Level", txt(player.level), isEmpty(player.level), chipClass);
-        setStatChip(frag, "Last Active", txt(player.lastActive), isEmpty(player.lastActive), chipClass);
+        setStatChip(frag, "Last Active" + comp, txt(player.lastActive), isEmpty(player.lastActive), chipClass);
         return frag;
     }
 
@@ -957,7 +958,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
 
     function renderStatBar(player) {
         els.statBar.replaceChildren();
-        els.statBar.append(buildStatChips(player, "stat-chip", false));
+        els.statBar.append(buildStatChips(player, "stat-chip", false, true));
     }
 
     function renderExpressions(player) {
