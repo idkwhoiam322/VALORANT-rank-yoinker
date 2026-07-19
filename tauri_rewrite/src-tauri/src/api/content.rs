@@ -286,27 +286,41 @@ pub async fn fetch_all_content(
     let mut cache = ContentCache::empty();
     let mut had_error = false;
 
-    macro_rules! handle {
-        ($result:expr, $populate:expr, $label:expr) => {
-            match $result {
-                Ok(resp) => $populate(&mut cache, resp),
-                Err(e) => {
-                    log::warn!("Content fetch error ({}): {}", $label, e);
-                    had_error = true;
-                }
+    /// Generic handler for the 8 structurally-identical
+    /// `fetch_x_raw` / `populate_x` content pairs. Replaces the previous
+    /// `handle!` macro so the error-bookkeeping + populate path lives in one
+    /// place.
+    ///
+    /// Note: `populate_competitive_tiers` was originally intended to stay
+    /// bespoke, but its outer signature (`fn(&mut ContentCache,
+    /// ValorantApiResponse<Vec<CompetitiveTiers>>)`) matches the generic shape,
+    /// so it is routed through `apply_content` below like the rest. The
+    /// `seasons` fetch remains bespoke (different response/deserialize shape).
+    fn apply_content<T: DeserializeOwned>(
+        result: Result<ValorantApiResponse<Vec<T>>, ApiError>,
+        populate: fn(&mut ContentCache, ValorantApiResponse<Vec<T>>),
+        label: &str,
+        cache: &mut ContentCache,
+        had_error: &mut bool,
+    ) {
+        match result {
+            Ok(resp) => populate(cache, resp),
+            Err(e) => {
+                log::warn!("Content fetch error ({}): {}", label, e);
+                *had_error = true;
             }
-        };
+        }
     }
 
-    handle!(agents, populate_agents, "agents");
-    handle!(maps, populate_maps, "maps");
-    handle!(weapons, populate_weapons, "weapons");
-    handle!(sprays, populate_sprays, "sprays");
-    handle!(flex, populate_flex, "flex");
-    handle!(buddies, populate_buddies, "buddies");
-    handle!(titles, populate_player_titles, "player_titles");
-    handle!(cards, populate_player_cards, "player_cards");
-    handle!(tiers, populate_competitive_tiers, "competitive_tiers");
+    apply_content(agents, populate_agents, "agents", &mut cache, &mut had_error);
+    apply_content(maps, populate_maps, "maps", &mut cache, &mut had_error);
+    apply_content(weapons, populate_weapons, "weapons", &mut cache, &mut had_error);
+    apply_content(sprays, populate_sprays, "sprays", &mut cache, &mut had_error);
+    apply_content(flex, populate_flex, "flex", &mut cache, &mut had_error);
+    apply_content(buddies, populate_buddies, "buddies", &mut cache, &mut had_error);
+    apply_content(titles, populate_player_titles, "player_titles", &mut cache, &mut had_error);
+    apply_content(cards, populate_player_cards, "player_cards", &mut cache, &mut had_error);
+    apply_content(tiers, populate_competitive_tiers, "competitive_tiers", &mut cache, &mut had_error);
 
     let (season_id, previous_season_id) = match seasons {
         Ok(content) => process_seasons(content, &mut cache),
