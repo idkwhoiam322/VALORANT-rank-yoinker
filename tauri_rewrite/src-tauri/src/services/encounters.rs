@@ -47,6 +47,33 @@ impl EncounterData {
     }
 }
 
+/// Rolling 6-way win/loss/unknown tally for ally + enemy encounters.
+/// Shared by `build_encounter_summary` and `get_all_summaries` so the
+/// identical tally block lives in exactly one place.
+#[derive(Default)]
+struct Tally {
+    ally_wins: usize,
+    ally_losses: usize,
+    ally_unknown: usize,
+    enemy_wins: usize,
+    enemy_losses: usize,
+    enemy_unknown: usize,
+}
+
+impl Tally {
+    fn add(&mut self, relation: &str, result: Option<&str>) {
+        match (relation, result) {
+            ("ally", Some("win")) => self.ally_wins += 1,
+            ("ally", Some("loss")) => self.ally_losses += 1,
+            ("ally", _) => self.ally_unknown += 1,
+            ("enemy", Some("win")) => self.enemy_wins += 1,
+            ("enemy", Some("loss")) => self.enemy_losses += 1,
+            ("enemy", _) => self.enemy_unknown += 1,
+            _ => {}
+        }
+    }
+}
+
 /// Sort a set of encounter records by epoch (most recent first) and de-duplicate
 /// by `match_id`, keeping the most recent record for each match. Shared by both
 /// `build_encounter_summary` and `get_all_summaries` so the sort+dedup logic
@@ -214,25 +241,19 @@ impl EncounterService {
             .unwrap_or_default()
             .as_secs_f64();
 
-        let mut ally_wins = 0usize;
-        let mut ally_losses = 0usize;
-        let mut ally_unknown = 0usize;
-        let mut enemy_wins = 0usize;
-        let mut enemy_losses = 0usize;
-        let mut enemy_unknown = 0usize;
-
+        let mut tally = Tally::default();
         for entry in &deduped {
-            let rel = entry.relation.as_deref().unwrap_or("");
-            match (rel, entry.result.as_deref()) {
-                ("ally", Some("win")) => ally_wins += 1,
-                ("ally", Some("loss")) => ally_losses += 1,
-                ("ally", _) => ally_unknown += 1,
-                ("enemy", Some("win")) => enemy_wins += 1,
-                ("enemy", Some("loss")) => enemy_losses += 1,
-                ("enemy", _) => enemy_unknown += 1,
-                _ => {}
-            }
+            tally.add(
+                entry.relation.as_deref().unwrap_or(""),
+                entry.result.as_deref(),
+            );
         }
+        let ally_wins = tally.ally_wins;
+        let ally_losses = tally.ally_losses;
+        let ally_unknown = tally.ally_unknown;
+        let enemy_wins = tally.enemy_wins;
+        let enemy_losses = tally.enemy_losses;
+        let enemy_unknown = tally.enemy_unknown;
 
         let time_diff = latest.epoch.map(|e| now - e).unwrap_or(0.0);
         let latest_relation = latest.relation.as_deref().unwrap_or(fallback_relation.unwrap_or(""));
@@ -306,25 +327,19 @@ impl EncounterService {
 
             let latest = deduped[0];
 
-            let mut ally_wins = 0usize;
-            let mut ally_losses = 0usize;
-            let mut ally_unknown = 0usize;
-            let mut enemy_wins = 0usize;
-            let mut enemy_losses = 0usize;
-            let mut enemy_unknown = 0usize;
-
+            let mut tally = Tally::default();
             for entry in &deduped {
-                let rel = entry.relation.as_deref().unwrap_or("");
-                match (rel, entry.result.as_deref()) {
-                    ("ally", Some("win")) => ally_wins += 1,
-                    ("ally", Some("loss")) => ally_losses += 1,
-                    ("ally", _) => ally_unknown += 1,
-                    ("enemy", Some("win")) => enemy_wins += 1,
-                    ("enemy", Some("loss")) => enemy_losses += 1,
-                    ("enemy", _) => enemy_unknown += 1,
-                    _ => {}
-                }
+                tally.add(
+                    entry.relation.as_deref().unwrap_or(""),
+                    entry.result.as_deref(),
+                );
             }
+            let ally_wins = tally.ally_wins;
+            let ally_losses = tally.ally_losses;
+            let ally_unknown = tally.ally_unknown;
+            let enemy_wins = tally.enemy_wins;
+            let enemy_losses = tally.enemy_losses;
+            let enemy_unknown = tally.enemy_unknown;
 
             let time_diff = latest.epoch.map(|e| now - e).unwrap_or(0.0);
             let latest_name = latest.name.as_deref().unwrap_or("Unknown");
