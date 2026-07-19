@@ -454,7 +454,6 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<reqwest::Method>,
     ) -> Result<Response, ApiError> {
-        let body = body;
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
@@ -662,7 +661,6 @@ impl ApiClient {
         body: Option<&serde_json::Value>,
         method: Option<Method>,
     ) -> Result<Response, ApiError> {
-        let body = body;
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
