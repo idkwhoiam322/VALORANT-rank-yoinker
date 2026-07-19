@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities granting full IPC access for VRY","local":true,"windows":["main"],"permissions":["core:default","opener:default"]}}
+{"default":{"identifier":"default","description":"Scoped capabilities for VRY: only the event IPC the frontend uses plus the opener plugin. Replaces the broad core:default grant.","local":true,"windows":["main"],"permissions":["core:event:default","opener:default"]}}
