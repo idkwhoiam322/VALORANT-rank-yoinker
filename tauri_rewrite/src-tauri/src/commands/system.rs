@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
@@ -28,6 +29,7 @@ pub async fn restart_application(
     svc.season_id = Arc::from("");
     svc.previous_season_id = None;
     svc.log("Backend state reset - reconnecting...");
+    svc.restart_requested.store(true, Ordering::Relaxed);
     svc.restart_request.notify_one();
     drop(svc);
     Ok(())

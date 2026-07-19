@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -176,6 +176,7 @@ pub struct AppServices {
     pub current_match_id: Arc<Mutex<Option<String>>>,
     pub auth_retry: Arc<Notify>,
     pub restart_request: Arc<Notify>,
+    pub restart_requested: Arc<AtomicBool>,
 }
 
 impl AppServices {
@@ -217,6 +218,7 @@ impl AppServices {
             current_match_id: Arc::new(Mutex::new(None)),
             auth_retry: Arc::new(Notify::new()),
             restart_request: Arc::new(Notify::new()),
+            restart_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -286,7 +288,11 @@ impl MainLoop {
                 Ok(()) => {
                     if let Err(e) = self.run_main_loop(&app).await {
                         let svc = services.read().await;
-                        svc.log(&format!("Main loop error: {e}, reconnecting..."));
+                        if svc.restart_requested.swap(false, Ordering::Relaxed) {
+                            svc.log("Restarted by user, reinitializing...");
+                        } else {
+                            svc.log(&format!("Main loop error: {e}, reconnecting..."));
+                        }
                     }
                 }
                 Err(e) => {
