@@ -634,6 +634,11 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     // are destroyed on each heartbeat, so the old listeners churned GC. See
     // so the old listeners churned GC.
     function handleDelegatedContextMenu(e) {
+        // Always suppress the native webview context menu (reload, save image as,
+        // print, back/forward, …) everywhere. Only the in-app copy action below
+        // remains; right-clicks on non-copyable elements now do nothing.
+        e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
         let node = e.target;
         if (node && node.nodeType === 3) node = node.parentNode; // text node
         let el = null;
@@ -642,8 +647,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             node = node.parentNode;
         }
         if (!el) return;
-        e.preventDefault();
-        if (e.stopPropagation) e.stopPropagation();
         let text = stripHint(el.title || el.textContent);
         copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function () { showToast("Failed to copy."); });
     }
