@@ -325,7 +325,7 @@ impl ApiClient {
         method: Method,
         url: &str,
         headers: &HeaderMap,
-        body: Option<serde_json::Value>,
+        body: Option<&serde_json::Value>,
         url_type: UrlType,
     ) -> Result<Response, ApiError> {
         let start = Instant::now();
@@ -442,6 +442,7 @@ impl ApiClient {
         body: Option<serde_json::Value>,
         method: Option<reqwest::Method>,
     ) -> Result<Response, ApiError> {
+        let body = body;
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
@@ -500,7 +501,7 @@ impl ApiClient {
                 tokio::time::sleep(delay).await;
             }
 
-            let response = self.execute_request(http_method.clone(), &url, &header_map, body.clone(), url_type).await?;
+            let response = self.execute_request(http_method.clone(), &url, &header_map, body.as_ref(), url_type).await?;
 
             if response.status().as_u16() == 404 {
                 return Err(ApiError::NotFound);
@@ -546,7 +547,7 @@ impl ApiClient {
         headers: &[(String, String)],
         body: serde_json::Value,
     ) -> Result<T, ApiError> {
-        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(body), None).await
+        self.fetch_json_with_reauth(url_type, endpoint, headers, Some(&body), None).await
     }
 
     /// Internal fetch with centralized automatic re-auth on BAD_CLAIMS.
@@ -557,14 +558,16 @@ impl ApiClient {
         url_type: UrlType,
         endpoint: &str,
         initial_headers: &[(String, String)],
-        body: Option<serde_json::Value>,
+        body: Option<&serde_json::Value>,
         method: Option<Method>,
     ) -> Result<T, ApiError> {
         let mut headers = initial_headers.to_vec();
         let mut did_refresh = false;
 
         loop {
-            let resp = self.fetch_with_headers(url_type, endpoint, &headers, body.clone(), method.clone()).await?;
+            let resp = self
+                .fetch_with_headers(url_type, endpoint, &headers, body, method.clone())
+                .await?;
             let text = resp.text().await.map_err(ApiError::Http)?;
 
             // Check for BAD_CLAIMS in response
@@ -605,9 +608,10 @@ impl ApiClient {
         url_type: UrlType,
         endpoint: &str,
         headers: &[(String, String)],
-        body: Option<serde_json::Value>,
+        body: Option<&serde_json::Value>,
         method: Option<Method>,
     ) -> Result<Response, ApiError> {
+        let body = body;
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
@@ -666,7 +670,9 @@ impl ApiClient {
                 tokio::time::sleep(delay).await;
             }
 
-            let response = self.execute_request(http_method.clone(), &url, &header_map, body.clone(), url_type).await?;
+            let response = self
+                .execute_request(http_method.clone(), &url, &header_map, body, url_type)
+                .await?;
 
             if response.status().as_u16() == 404 {
                 return Err(ApiError::NotFound);
@@ -801,7 +807,7 @@ impl ApiClient {
                     url_type,
                     endpoint,
                     &headers,
-                    Some(body.clone()),
+                    Some(&body),
                     method.clone(),
                 )
                 .await
