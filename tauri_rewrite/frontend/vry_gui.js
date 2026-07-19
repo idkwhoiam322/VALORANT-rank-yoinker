@@ -98,8 +98,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         selectedPuuid: null,
         lastRenderKey: null,
         rankIcons: null,
-        rankNames: null,
-        abbrevThreshold: 3,
         lastGameState: null,
         // State of the last heartbeat we rendered. Used by renderStateTransition
         // to decide the from->to transition without depending on state_change
@@ -205,20 +203,9 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function rankName(idx, short) {
         if (isEmpty(idx)) return NA;
         let n = Number(idx);
-        if (Number.isNaN(n) || n < 0) return NA;
-
-        let full = (state.rankNames && state.rankNames[n]) || (RANK_NAMES_FULL[n] || null);
-        if (!full) return NA;
-        if (!short) return full;
-
-        if (n < 3) return "UnR";
-        let parts = full.split(" ");
-        if (state.abbrevThreshold && n >= state.abbrevThreshold) {
-            parts[0] = parts[0].slice(0, 3);
-        } else {
-            parts[0] = parts[0].slice(0, 4);
-        }
-        return parts.join(" ");
+        let t = short ? RANK_NAMES_SHORT : RANK_NAMES_FULL;
+        if (Number.isNaN(n) || n < 0 || n >= t.length) return NA;
+        return t[n];
     }
 
     function rankColor(idx) {
@@ -446,23 +433,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         // here; they are no longer carried on every heartbeat payload.
         tauriListen("rank_icons", function (event) {
             setState({ rankIcons: event.payload || null });
-            state.dirty.players = true;
-            state.dirty.details = true;
-            render();
-        });
-
-        tauriListen("rank_names", function (event) {
-            let names = event.payload || null;
-            let threshold = 3;
-            if (names) {
-                for (let i = 3; i < names.length; i++) {
-                    if (names[i] && names[i].split(" ")[0] === "Diamond") {
-                        threshold = i;
-                        break;
-                    }
-                }
-            }
-            setState({ rankNames: names, abbrevThreshold: threshold });
             state.dirty.players = true;
             state.dirty.details = true;
             render();
@@ -1033,6 +1003,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         vc = vc ? " (" + vc + ")" : "";
         tile.title = (weapon ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin") + vc) : (weaponName + ": " + NA)) + COPY_HINT;
         if (weapon && weapon.contentTierColor) {
+            tile.style.setProperty("--tier-color", weapon.contentTierColor);
             tile.style.borderColor = weapon.contentTierColor;
         }
         if (weapon && weapon.contentTierName && weapon.contentTierIcon) {

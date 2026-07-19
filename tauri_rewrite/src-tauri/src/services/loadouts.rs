@@ -205,7 +205,7 @@ impl LoadoutService {
                                     if let Some(ref tier_uuid) = skin.content_tier_uuid {
                                         if let Some(tier) = content.content_tiers.get(&tier_uuid.to_lowercase()) {
                                             entry.skin_content_tier_name = Some(tier.display_name.clone());
-                                            entry.skin_content_tier_color = tier.highlight_color.clone();
+                                            entry.skin_content_tier_color = tier.highlight_color.as_ref().map(|c| "#".to_string() + c);
                                             entry.skin_content_tier_icon = tier.display_icon.clone();
                                         }
                                     }

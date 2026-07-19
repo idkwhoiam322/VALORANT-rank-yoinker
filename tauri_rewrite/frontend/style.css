@@ -565,8 +565,9 @@ h3 {
 }
 
 .weapon-tile:hover {
-    border-color: rgba(241, 199, 102, 0.65);
-    box-shadow: 0 0 16px rgba(241, 199, 102, 0.10), inset 0 0 12px rgba(241, 199, 102, 0.04);
+    border-color: var(--tier-color, rgba(241, 199, 102, 0.65));
+    box-shadow: 0 0 18px var(--tier-color, rgba(241, 199, 102, 0.18)),
+        inset 0 0 14px var(--tier-color, rgba(241, 199, 102, 0.04));
 }
 
 .weapon-art {
