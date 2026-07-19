@@ -1,3 +1,4 @@
+use secrecy::ExposeSecret;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -409,7 +410,7 @@ impl MainLoop {
             let port = { *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) };
             let password = snap.client.get_local_password();
             if let Some(port) = port {
-                match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
+                match ValorantWs::connect(port, password.expose_secret(), &puuid, snap.logger.clone()).await {
                     Some(ws) => Some(ws),
                     None => {
                         snap.logger.log("WS presence unavailable - using polling");
@@ -810,7 +811,7 @@ impl MainLoop {
                 (port, password, puuid)
             };
             if let Some(port) = port {
-                match ValorantWs::connect(port, &password, &puuid, snap.logger.clone()).await {
+                match ValorantWs::connect(port, password.expose_secret(), &puuid, snap.logger.clone()).await {
                     Some(w) => {
                         *ws = Some(w);
                         snap.logger.log("WS reconnected after re-auth");

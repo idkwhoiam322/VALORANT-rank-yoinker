@@ -153,8 +153,8 @@ impl ApiClient {
         *self.local_base.lock().unwrap() = format!("https://127.0.0.1:{}", port).into();
     }
 
-    pub fn get_local_password(&self) -> String {
-        self.local_password.lock().unwrap().clone().expose_secret().to_string()
+    pub fn get_local_password(&self) -> SecretString {
+        self.local_password.lock().unwrap().clone()
     }
 
     pub fn entitlements_arc(&self) -> Arc<Mutex<Option<Entitlements>>> {
