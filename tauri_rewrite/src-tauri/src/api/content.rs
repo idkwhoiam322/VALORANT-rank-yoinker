@@ -207,13 +207,17 @@ async fn fetch_competitive_tiers_raw(client: &ApiClient) -> Result<ValorantApiRe
 fn populate_competitive_tiers(cache: &mut ContentCache, resp: ValorantApiResponse<Vec<CompetitiveTiers>>) {
     if let Some(latest) = resp.data.last() {
         let mut icons = Vec::new();
+        let mut names = Vec::new();
         for tier in &latest.tiers {
             if tier.tier as usize >= icons.len() {
                 icons.resize(tier.tier as usize + 1, None);
+                names.resize(tier.tier as usize + 1, None);
             }
             icons[tier.tier as usize] = tier.small_icon.clone();
+            names[tier.tier as usize] = tier.tier_name.clone();
         }
         cache.rank_icons = Arc::new(icons);
+        cache.rank_names = Arc::new(names);
     }
     if resp.data.is_empty() {
         log::warn!("[CONTENT] populate_competitive_tiers: 0 tier sets inserted (empty response data)");

@@ -201,6 +201,7 @@ pub struct ContentCache {
     pub player_titles: HashMap<String, PlayerTitle>,
     pub player_cards: HashMap<String, PlayerCard>,
     pub rank_icons: Arc<Vec<Option<String>>>,
+    pub rank_names: Arc<Vec<Option<String>>>,
     pub content_tiers: HashMap<String, ContentTier>,
     pub seasons: Vec<Season>,
 }
@@ -218,6 +219,7 @@ impl ContentCache {
             player_titles: HashMap::new(),
             player_cards: HashMap::new(),
             rank_icons: Arc::new(Vec::new()),
+            rank_names: Arc::new(Vec::new()),
             content_tiers: HashMap::new(),
             seasons: Vec::new(),
         }
