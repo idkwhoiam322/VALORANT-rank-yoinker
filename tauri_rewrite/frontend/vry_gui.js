@@ -402,7 +402,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     }
 
     function resetState() {
-        try { localStorage.removeItem("vry-rust.cache"); } catch (e) { console.warn("resetState: failed to clear localStorage cache:", e); }
         // Preserve the current session epoch across resetState so the stale-event
         // guard remains active; epoch is only set by the backend_ready/cache_cleared
         // handler. Clear lastGameState/prevGameState: a late heartbeat from the old
@@ -443,7 +442,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
                     setState({ prevGameState: state.lastGameState });
                 }
                 setState({ lastGameState: event.payload.state });
-                setPayload(event.payload, true);
+                setPayload(event.payload);
             }
         });
 
@@ -524,11 +523,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         if (chip) chip.textContent = "Updated " + new Date(payload.time * 1000).toLocaleTimeString();
     }
 
-    function setPayload(payload, shouldCache) {
+    function setPayload(payload) {
         let version = payload && payload.version;
         let unchanged = version !== undefined && version === state.lastRenderKey;
         setState({ payload: payload });
-        if (shouldCache && !unchanged) { try { localStorage.setItem("vry-rust.cache", JSON.stringify(payload)); } catch (e) { console.warn("setPayload: failed to persist cache to localStorage:", e); } }
         if (unchanged) { bumpTimestampOnly(payload); return; }
         setState({ lastRenderKey: version });
         setState({ players: normalizePlayers(payload) });
