@@ -175,7 +175,6 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         logPanel: document.getElementById("logPanel"),
         logPre: document.getElementById("logPre"),
         logCopyBtn: document.getElementById("logCopyBtn"),
-        logRefreshBtn: document.getElementById("logRefreshBtn"),
         hbPanel: document.getElementById("hbPanel"),
         hbPre: document.getElementById("hbPre"),
         hbCopyBtn: document.getElementById("hbCopyBtn"),
@@ -1357,12 +1356,12 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
 
     // Open log file
     [
-        { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, refresh: els.logRefreshBtn, render: renderLogTail },
+        { panel: els.logPanel, pre: els.logPre, copy: els.logCopyBtn, render: renderLogTail },
         { panel: els.hbPanel, pre: els.hbPre, copy: els.hbCopyBtn, refresh: els.hbRefreshBtn, render: renderHeartbeatTail },
     ].forEach(function (p) {
         p.panel.addEventListener("toggle", function () { if (p.panel.open) p.render(); });
         p.copy.addEventListener("click", function () { copyText(p.pre.textContent, p.copy); });
-        p.refresh.addEventListener("click", p.render);
+        if (p.refresh) p.refresh.addEventListener("click", p.render);
     });
 
     // renderJson() early-returns while els.hbPanel is closed, so refresh
