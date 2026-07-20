@@ -808,6 +808,12 @@ impl MainLoop {
                                 "Heartbeat dedup: suppressing identical rebuild (same content, time advanced {}s)",
                                 heartbeat.time - prev.time
                             ));
+                        } else {
+                            let changed = diff_heartbeat_fields(prev, &heartbeat);
+                            snap.logger.log(&format!(
+                                "Heartbeat dedup: rebuild differs, changed fields: {:?}",
+                                changed
+                            ));
                         }
                         !eq
                     }
@@ -1066,4 +1072,53 @@ fn heartbeats_equal_ignoring_time(a: &HeartbeatPayload, b: &HeartbeatPayload) ->
         h
     };
     normalize(a) == normalize(b)
+}
+
+/// Returns the names of the top-level fields that differ between two
+/// normalized heartbeats. Used only for debug logging to discover which
+/// field is churning and preventing dedup.
+fn diff_heartbeat_fields(a: &HeartbeatPayload, b: &HeartbeatPayload) -> Vec<&'static str> {
+    let normalize = |h: &HeartbeatPayload| {
+        let mut h = h.clone();
+        h.time = 0;
+        h.version = 0;
+        for entry in h.already_played_with.iter_mut() {
+            entry.time_diff = 0.0;
+        }
+        h
+    };
+    let a = normalize(a);
+    let b = normalize(b);
+    let mut diffs = Vec::new();
+    if a.state != b.state {
+        diffs.push("state");
+    }
+    if a.r#type != b.r#type {
+        diffs.push("type");
+    }
+    if a.mode != b.mode {
+        diffs.push("mode");
+    }
+    if a.puuid != b.puuid {
+        diffs.push("puuid");
+    }
+    if a.map != b.map {
+        diffs.push("map");
+    }
+    if a.server != b.server {
+        diffs.push("server");
+    }
+    if a.players != b.players {
+        diffs.push("players");
+    }
+    if !Arc::ptr_eq(&a.rank_icons, &b.rank_icons) || a.rank_icons.len() != b.rank_icons.len() {
+        diffs.push("rank_icons");
+    }
+    if a.session_id != b.session_id {
+        diffs.push("session_id");
+    }
+    if a.already_played_with != b.already_played_with {
+        diffs.push("already_played_with");
+    }
+    diffs
 }
