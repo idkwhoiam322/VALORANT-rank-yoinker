@@ -755,6 +755,15 @@ impl MainLoop {
                 )
                 .await;
 
+                // session_id is a per-session constant, fully known as soon as the
+                // heartbeat is built — assign it here, not inside the should_emit
+                // branch, so a freshly-built candidate always carries the same
+                // session_id as last_emitted and the dedup comparison in
+                // heartbeats_equal_ignoring_time is meaningful. (Contrast with
+                // `version`, which genuinely can't be known until the emit decision
+                // is made below, since it's a per-emission counter.)
+                heartbeat.session_id = self.session_id.load(Ordering::SeqCst);
+
                 // Store the loadouts response for reuse on the next tick.
                 if current_state == GameState::PREGAME {
                     if let (Some(id), Some(text)) =
@@ -843,7 +852,6 @@ impl MainLoop {
                 };
                 if should_emit {
                     heartbeat.version = self.heartbeat_version.fetch_add(1, Ordering::Relaxed);
-                    heartbeat.session_id = self.session_id.load(Ordering::SeqCst);
                     snap.logger.log(&format!(
                         "Emitting heartbeat v{} state={} mode={} map={}",
                         heartbeat.version,
