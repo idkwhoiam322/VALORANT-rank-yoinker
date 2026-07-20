@@ -175,7 +175,6 @@ pub struct AppServices {
     pub loadouts: Arc<LoadoutService>,
     pub encounters: Arc<EncounterService>,
     pub heartbeat_log_path: std::path::PathBuf,
-    pub entitlements: Arc<Mutex<Option<Entitlements>>>,
     pub client_version: String,
     pub puuid: String,
     pub content: Arc<ContentCache>,
@@ -206,9 +205,12 @@ impl AppServices {
         let loadouts = Arc::new(LoadoutService::new(client.clone()));
 
         let heartbeat_log_path = root.join("logs").join("heartbeat.jsonl");
-        let _ = fs::File::create(&heartbeat_log_path);
-
-        let entitlements = client.entitlements_arc();
+        // Append-mode open so a crash/restart preserves prior-session heartbeat
+        // history instead of truncating it.
+        let _ = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&heartbeat_log_path);
 
         Self {
             logger,
@@ -221,7 +223,6 @@ impl AppServices {
             loadouts,
             encounters,
             heartbeat_log_path,
-            entitlements,
             client_version: String::new(),
             puuid: String::new(),
             content: Arc::new(ContentCache::empty()),
@@ -253,6 +254,7 @@ impl AppServices {
             previous_season_id: self.previous_season_id.clone(),
             match_player_cache: self.match_player_cache.clone(),
             current_match_id: self.current_match_id.clone(),
+            inflight_match_fetch: self.inflight_match_fetch.clone(),
         }
     }
 
@@ -371,7 +373,9 @@ impl MainLoop {
             .await
             .map_err(|e| format!("Auth: {e}"))?;
         svc.log(&format!("Authenticated as {}", entitlements.subject));
-        *svc.entitlements.lock().unwrap() = Some(entitlements.clone());
+        // Store entitlements inside ApiClient only - never in the global
+        // AppServices managed state.
+        svc.client.set_entitlements(Some(entitlements.clone()));
         svc.client_version = client_version.clone();
         svc.client.set_client_version(&client_version);
         svc.puuid = entitlements.subject.clone();

@@ -152,12 +152,18 @@ impl ApiClient {
         *self.local_base.lock().unwrap() = format!("https://127.0.0.1:{}", port).into();
     }
 
-    pub fn get_local_password(&self) -> SecretString {
+    /// Internal-only: the Riot Client lockfile password is used solely for WS
+    /// auth inside the backend. Restricted to `pub(crate)` so it cannot leak
+    /// through the public `ApiClient` API surface.
+    pub(crate) fn get_local_password(&self) -> SecretString {
         self.local_password.lock().unwrap().clone()
     }
 
-    pub fn entitlements_arc(&self) -> Arc<Mutex<Option<Entitlements>>> {
-        self.entitlements.clone()
+    /// Replace the stored entitlements. Kept internal to `ApiClient` so the
+    /// OAuth tokens are never surfaced through the global `AppServices` managed
+    /// state.
+    pub(crate) fn set_entitlements(&self, value: Option<Entitlements>) {
+        *self.entitlements.lock().unwrap() = value;
     }
 
     pub fn set_client_version(&self, version: &str) {
