@@ -75,15 +75,16 @@ fn redact_secrets(input: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot of all services & session data extracted from the RwLock so the
-// main loop can drop the guard before making HTTP calls.
+// Shared service handles. The eight `Arc`-wrapped services are owned exactly
+// once here and reused by both `AppServices` (managed, behind the RwLock) and
+// `ServiceSnapshot` (cloned per main-loop tick). Adding a new backend service
+// means adding a single field to `SharedServices` -- it is then automatically
+// present in BOTH structs and cloned by `AppServices::snapshot()`. This removes the previous dual-representation "time bomb" where a
+// field forgotten in one struct compiled cleanly but failed silently at
+// runtime.
 // ---------------------------------------------------------------------------
-//
-// NOTE: `ServiceSnapshot` and `AppServices` must be kept in sync -- every field
-// added to one must be mirrored in the other (see `AppServices::snapshot()`).
-// Forgetting to copy a field into the snapshot is a silent bug.
-// ---------------------------------------------------------------------------
-pub struct ServiceSnapshot {
+#[derive(Clone)]
+pub struct SharedServices {
     pub logger: Arc<Logger>,
     pub client: Arc<ApiClient>,
     pub presences: Arc<PresenceService>,
@@ -92,6 +93,14 @@ pub struct ServiceSnapshot {
     pub names: Arc<NamesService>,
     pub loadouts: Arc<LoadoutService>,
     pub encounters: Arc<EncounterService>,
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot of services & session data extracted from the RwLock so the main
+// loop can drop the guard before making HTTP calls.
+// ---------------------------------------------------------------------------
+pub struct ServiceSnapshot {
+    pub services: SharedServices,
     pub heartbeat_log_path: std::path::PathBuf,
     pub content: Arc<ContentCache>,
     pub season_id: Arc<str>,
@@ -101,6 +110,16 @@ pub struct ServiceSnapshot {
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     /// Current match_id for cache scoping.
     pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+// Field access to the shared services is forwarded via `Deref` so existing
+// call sites (`snap.rank`, `snap.client`, …) keep working while the fields
+// live in a single canonical `SharedServices` struct.
+impl std::ops::Deref for ServiceSnapshot {
+    type Target = SharedServices;
+    fn deref(&self) -> &SharedServices {
+        &self.services
+    }
 }
 
 impl ServiceSnapshot {
@@ -160,22 +179,17 @@ impl ServiceSnapshot {
 // AppServices – session state behind a RwLock so initialisation can mutate.
 // ---------------------------------------------------------------------------
 //
-// NOTE: `AppServices` and `ServiceSnapshot` must be kept in sync -- see the
-// cross-reference comment on `ServiceSnapshot`. Any new session field here must
-// also be copied into the snapshot in `AppServices::snapshot()`.
+// The eight shared `Arc` service handles live in the single `SharedServices`
+// value (`services`); see its doc comment for why that removes the previous
+// dual-representation hazard. `client_version` is deliberately
+// NOT stored here -- it lives on `MainLoop` so the main loop can read it
+// without taking the RwLock, eliminating the snapshot-phase read bottleneck
+//.
 // ---------------------------------------------------------------------------
 pub struct AppServices {
-    pub logger: Arc<Logger>,
+    pub services: SharedServices,
     pub config: ConfigManager,
-    pub client: Arc<ApiClient>,
-    pub presences: Arc<PresenceService>,
-    pub rank: Arc<RankService>,
-    pub stats: Arc<StatsService>,
-    pub names: Arc<NamesService>,
-    pub loadouts: Arc<LoadoutService>,
-    pub encounters: Arc<EncounterService>,
     pub heartbeat_log_path: std::path::PathBuf,
-    pub client_version: String,
     pub puuid: String,
     pub content: Arc<ContentCache>,
     pub season_id: Arc<str>,
@@ -191,18 +205,36 @@ pub struct AppServices {
     pub loop_reset_requested: Arc<AtomicBool>,
 }
 
+impl std::ops::Deref for AppServices {
+    type Target = SharedServices;
+    fn deref(&self) -> &SharedServices {
+        &self.services
+    }
+}
+
 impl AppServices {
     pub fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
-        let client = Arc::new(client);
         let logger = Arc::new(Logger::new(root.clone()));
+        let client = Arc::new(client);
         client.set_logger(logger.clone());
         let config = ConfigManager::new(root.clone());
-        let encounters = Arc::new(EncounterService::new(root.clone()));
         let presences = Arc::new(PresenceService::new(client.clone()));
         let rank = Arc::new(RankService::new(client.clone()));
         let stats = Arc::new(StatsService::new(client.clone()));
         let names = Arc::new(NamesService::new(client.clone()));
         let loadouts = Arc::new(LoadoutService::new(client.clone()));
+        let encounters = Arc::new(EncounterService::new(root.clone()));
+
+        let services = SharedServices {
+            logger,
+            client,
+            presences,
+            rank,
+            stats,
+            names,
+            loadouts,
+            encounters,
+        };
 
         let heartbeat_log_path = root.join("logs").join("heartbeat.jsonl");
         // Append-mode open so a crash/restart preserves prior-session heartbeat
@@ -213,17 +245,9 @@ impl AppServices {
             .open(&heartbeat_log_path);
 
         Self {
-            logger,
+            services,
             config,
-            client,
-            presences,
-            rank,
-            stats,
-            names,
-            loadouts,
-            encounters,
             heartbeat_log_path,
-            client_version: String::new(),
             puuid: String::new(),
             content: Arc::new(ContentCache::empty()),
             season_id: Arc::from(""),
@@ -233,6 +257,7 @@ impl AppServices {
             restart_request: Arc::new(Notify::new()),
             restart_requested: Arc::new(AtomicBool::new(false)),
             loop_reset_requested: Arc::new(AtomicBool::new(false)),
+            inflight_match_fetch: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -240,14 +265,7 @@ impl AppServices {
     /// can drop the RwLock guard before making any HTTP requests.
     pub fn snapshot(&self) -> ServiceSnapshot {
         ServiceSnapshot {
-            logger: self.logger.clone(),
-            client: self.client.clone(),
-            presences: self.presences.clone(),
-            rank: self.rank.clone(),
-            stats: self.stats.clone(),
-            names: self.names.clone(),
-            loadouts: self.loadouts.clone(),
-            encounters: self.encounters.clone(),
+            services: self.services.clone(),
             heartbeat_log_path: self.heartbeat_log_path.clone(),
             content: self.content.clone(),
             season_id: self.season_id.clone(),
@@ -259,7 +277,7 @@ impl AppServices {
     }
 
     pub fn log(&self, msg: &str) {
-        self.logger.log(msg);
+        self.services.logger.log(msg);
     }
 
     pub async fn clear_volatile_caches(&self) {
@@ -272,6 +290,11 @@ pub struct MainLoop {
     heartbeat_version: AtomicU64,
     session_id: AtomicU64,
     lockfile_port: std::sync::Mutex<Option<u16>>,
+    /// Client version, owned by MainLoop so the main loop reads it without
+    /// taking the AppServices RwLock. Written on every
+    /// (re)auth; the RwLock copy was removed to close the snapshot-phase
+    /// bottleneck.
+    client_version: std::sync::Mutex<String>,
 }
 
 impl MainLoop {
@@ -283,6 +306,7 @@ impl MainLoop {
             heartbeat_version: AtomicU64::new(1),
             session_id: AtomicU64::new(0),
             lockfile_port: std::sync::Mutex::new(None),
+            client_version: std::sync::Mutex::new(String::new()),
         }
     }
 
@@ -376,7 +400,7 @@ impl MainLoop {
         // Store entitlements inside ApiClient only - never in the global
         // AppServices managed state.
         svc.client.set_entitlements(Some(entitlements.clone()));
-        svc.client_version = client_version.clone();
+        *self.client_version.lock().unwrap() = client_version.clone();
         svc.client.set_client_version(&client_version);
         svc.puuid = entitlements.subject.clone();
 
@@ -488,7 +512,7 @@ impl MainLoop {
                     Some(e) => e.clone(),
                     None => return Err("Entitlements cleared - re-initializing".into()),
                 };
-                let cv = svc.client_version.clone();
+                let cv = self.client_version.lock().unwrap().clone();
                 let puuid = svc.puuid.clone();
                 let snap = svc.snapshot();
 
@@ -922,7 +946,7 @@ impl MainLoop {
                 let fresh_cv = snap.client.get_client_version();
                 {
                     let mut svc = services.write().await;
-                    svc.client_version = fresh_cv;
+                    *self.client_version.lock().unwrap() = fresh_cv;
                     if let Some(ref e) = fresh_entitlements {
                         svc.puuid = e.subject.clone();
                     }
@@ -962,7 +986,7 @@ impl MainLoop {
                             let fresh_cv = snap.client.get_client_version();
                             {
                                 let mut svc = services.write().await;
-                                svc.client_version = fresh_cv;
+                                *self.client_version.lock().unwrap() = fresh_cv;
                                 if let Some(ref e) = fresh_entitlements {
                                     svc.puuid = e.subject.clone();
                                 }

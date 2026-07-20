@@ -31,7 +31,6 @@ pub async fn restart_application(
 ) -> Result<(), String> {
     let mut svc = services.write().await;
     svc.client.set_entitlements(None);
-    svc.client_version = String::new();
     svc.puuid = String::new();
     svc.content = Arc::new(crate::models::content::ContentCache::empty());
     svc.season_id = Arc::from("");
