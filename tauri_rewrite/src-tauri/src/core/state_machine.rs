@@ -814,6 +814,28 @@ impl MainLoop {
                                 "Heartbeat dedup: rebuild differs, changed fields: {:?}",
                                 changed
                             ));
+                            // DEBUG: throwaway logging of prev/new values, to be removed after diagnosis.
+                            let describe = |h: &HeartbeatPayload| {
+                                format!(
+                                "state={} type={} mode={:?} puuid={} map={:?} server={:?} players={} rank_icons={} session_id={} already_played_with={}",
+                                h.state,
+                                h.r#type,
+                                h.mode,
+                                h.puuid,
+                                h.map,
+                                h.server,
+                                h.players.len(),
+                                h.rank_icons.len(),
+                                h.session_id,
+                                h.already_played_with.len(),
+                            )
+                            };
+                            snap.logger
+                                .log(&format!("Heartbeat dedup DEBUG prev: {}", describe(prev)));
+                            snap.logger.log(&format!(
+                                "Heartbeat dedup DEBUG new:  {}",
+                                describe(&heartbeat)
+                            ));
                         }
                         !eq
                     }
