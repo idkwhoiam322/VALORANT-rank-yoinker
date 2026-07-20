@@ -256,6 +256,16 @@ h3 {
         0 28px 64px rgba(0, 0, 0, 0.55) !important;
 }
 
+.player-button.self-card:hover,
+.player-button.self-card:focus-visible,
+.player-button.self-card.is-selected {
+    border-color: rgba(241, 199, 102, 0.85);
+    box-shadow:
+        0 0 0 1px rgba(241, 199, 102, 0.18),
+        0 0 32px rgba(241, 199, 102, 0.10),
+        0 28px 64px rgba(0, 0, 0, 0.55) !important;
+}
+
 .player-button.is-blue {
     background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%),
