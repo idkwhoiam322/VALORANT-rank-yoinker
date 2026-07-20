@@ -169,6 +169,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         teamDivider: document.getElementById("teamDivider"),
         screenshotButton: document.getElementById("screenshotButton"),
         playedWithEmpty: document.getElementById("playedWithEmpty"),
+        playedWithPanel: document.getElementById("playedWithPanel"),
         playedWithTable: document.getElementById("playedWithTable"),
         playedWithBody: document.getElementById("playedWithBody"),
         logPanel: document.getElementById("logPanel"),
@@ -1128,6 +1129,10 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function capitalize(str) { return str ? str.charAt(0).toUpperCase() + str.slice(1) : ""; }
 
     function renderPlayedWith() {
+        // Skip the (relatively expensive) player-map scan on every render when
+        // the played-with section is collapsed - it's only useful when visible
+        //(mirrors the early-return guard in renderJson()).
+        if (els.playedWithPanel && !els.playedWithPanel.open) return;
         let payload = state.payload;
         let entries = (payload && Array.isArray(payload.alreadyPlayedWith)) ? payload.alreadyPlayedWith : [];
 
@@ -1365,6 +1370,12 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     // open-to-refresh pattern used by the panels above.
     if (els.hbPanel) {
         els.hbPanel.addEventListener("toggle", function () { if (els.hbPanel.open) renderJson(); });
+    }
+
+    // renderPlayedWith() early-returns while collapsed, so render on open to
+    // avoid showing stale/empty content.
+    if (els.playedWithPanel) {
+        els.playedWithPanel.addEventListener("toggle", function () { if (els.playedWithPanel.open) renderPlayedWith(); });
     }
 
     // ---- boot ----
