@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+
+cd "$repo_root/tauri_rewrite/src-tauri"
+
+if ! cargo fmt --check; then
+    echo "cargo fmt: reformatting..."
+    cargo fmt
+
+    git -C "$repo_root" diff --name-only |
+    while IFS= read -r f; do
+        case "$f" in
+            *.rs) git -C "$repo_root" add -- "$f" ;;
+        esac
+    done
+fi
