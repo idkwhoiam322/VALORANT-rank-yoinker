@@ -1,37 +1,37 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use lru::LruCache;
-use tokio::sync::Mutex;
+use std::time::Duration;
 
 const UPDATES_CACHE_TTL: Duration = Duration::from_secs(300);
 /// Bounds the updates cache so it cannot grow unbounded; TTL still applies on top.
 const UPDATES_CACHE_CAP: usize = 200;
+/// Match details are now TTL-bounded too (was LRU-only, so stale entries could
+/// live forever).
+const MATCH_DETAILS_TTL: Duration = Duration::from_secs(600);
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::mmr::{CompetitiveUpdatesResponse, MatchDetailsResponse, PlayerStats};
+use crate::services::cache::TtlLruCache;
 
 pub struct StatsService {
     client: Arc<ApiClient>,
-    match_details_cache: Mutex<LruCache<String, MatchDetailsResponse>>,
-    updates_cache: Mutex<LruCache<String, (PlayerStats, Instant)>>,
+    match_details_cache: TtlLruCache<String, MatchDetailsResponse>,
+    updates_cache: TtlLruCache<String, PlayerStats>,
 }
 
 impl StatsService {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
-            match_details_cache: Mutex::new(LruCache::new(NonZeroUsize::new(200).unwrap())),
-            updates_cache: Mutex::new(LruCache::new(NonZeroUsize::new(UPDATES_CACHE_CAP).unwrap())),
+            match_details_cache: TtlLruCache::new(200, MATCH_DETAILS_TTL),
+            updates_cache: TtlLruCache::new(UPDATES_CACHE_CAP, UPDATES_CACHE_TTL),
         }
     }
 
     pub async fn clear_cache(&self) {
-        self.match_details_cache.lock().await.clear();
-        self.updates_cache.lock().await.clear();
+        self.match_details_cache.clear().await;
+        self.updates_cache.clear().await;
     }
 
     pub async fn get_stats(
@@ -41,21 +41,10 @@ impl StatsService {
         puuid: &str,
     ) -> PlayerStats {
         // Check TTL cache first (double-checked locking)
-        {
-            let mut cache = self.updates_cache.lock().await;
-            if let Some((stats, ts)) = cache.get(puuid) {
-                if ts.elapsed() < UPDATES_CACHE_TTL {
-                    let ttl_left = UPDATES_CACHE_TTL
-                        .as_secs()
-                        .saturating_sub(ts.elapsed().as_secs());
-                    self.client.cache_hit(
-                        "stats",
-                        &crate::api::client::anon_id(puuid),
-                        Some(ttl_left),
-                    );
-                    return stats.clone();
-                }
-            }
+        if let Some((stats, ttl_left)) = self.updates_cache.get(puuid).await {
+            self.client
+                .cache_hit("stats", &crate::api::client::anon_id(puuid), Some(ttl_left));
+            return stats;
         }
 
         // Fetch competitive updates
@@ -115,22 +104,20 @@ impl StatsService {
             &crate::api::client::anon_id(&match_id)
         );
 
-        // Fetch match details (cached with LRU eviction) - use double-checked locking
+        // Fetch match details (cached with LRU + TTL eviction).
         let match_data_opt = {
             // Fast path: check cache
-            let cached = {
-                let mut cache = self.match_details_cache.lock().await;
-                cache.get(&match_id).cloned()
-            };
-            if let Some(data) = cached {
+            if let Some(data) = self.match_details_cache.get(&match_id).await {
                 self.client.cache_hit(
                     "match details",
                     &crate::api::client::anon_id(&match_id),
                     None,
                 );
-                Some(data)
+                Some(data.0)
             } else {
-                // Slow path: fetch outside lock, re-acquire for insert
+                // Slow path: fetch outside lock, then store (store also acts as
+                // the double-check — a concurrent tick that landed first simply
+                // overwrote us).
                 match self
                     .client
                     .fetch_json_retry_typed::<MatchDetailsResponse>(
@@ -145,23 +132,14 @@ impl StatsService {
                     .await
                 {
                     Ok(data) => {
-                        let mut cache = self.match_details_cache.lock().await;
-                        // Double-check: another task may have inserted while we fetched
-                        if let Some(existing) = cache.get(&match_id).cloned() {
-                            self.client.cache_hit(
-                                "match details",
-                                &crate::api::client::anon_id(&match_id),
-                                None,
-                            );
-                            Some(existing)
-                        } else {
-                            log::debug!(
-                                "stats: match details fetched ok for {}",
-                                crate::api::client::anon_id(&match_id)
-                            );
-                            cache.put(match_id.clone(), data.clone());
-                            Some(data)
-                        }
+                        log::debug!(
+                            "stats: match details fetched ok for {}",
+                            crate::api::client::anon_id(&match_id)
+                        );
+                        self.match_details_cache
+                            .insert(match_id.clone(), data.clone())
+                            .await;
+                        Some(data)
                     }
                     Err(e) => {
                         log::warn!(
@@ -175,13 +153,9 @@ impl StatsService {
         };
 
         let stats = self.process_match_data(match_data_opt.as_ref(), match_summary);
-        let mut cache = self.updates_cache.lock().await;
-        if let Some((existing, ts)) = cache.get(puuid) {
-            if ts.elapsed() < UPDATES_CACHE_TTL {
-                return existing.clone();
-            }
-        }
-        cache.put(puuid.to_string(), (stats.clone(), Instant::now()));
+        self.updates_cache
+            .insert(puuid.to_string(), stats.clone())
+            .await;
         stats
     }
 
@@ -198,19 +172,16 @@ impl StatsService {
         client_version: &str,
     ) -> Result<MatchDetailsResponse, ApiError> {
         // Fast path: check cache
-        {
-            let mut cache = self.match_details_cache.lock().await;
-            if let Some(data) = cache.get(match_id) {
-                self.client.cache_hit(
-                    "match details",
-                    &crate::api::client::anon_id(match_id),
-                    None,
-                );
-                return Ok(data.clone());
-            }
+        if let Some(data) = self.match_details_cache.get(match_id).await {
+            self.client.cache_hit(
+                "match details",
+                &crate::api::client::anon_id(match_id),
+                None,
+            );
+            return Ok(data.0);
         }
 
-        // Slow path: fetch outside the lock, re-acquire for insert
+        // Slow path: fetch, then store (store also acts as the double-check).
         let result = self
             .client
             .fetch_json_retry_typed::<MatchDetailsResponse>(
@@ -226,19 +197,10 @@ impl StatsService {
 
         match result {
             Ok(data) => {
-                let mut cache = self.match_details_cache.lock().await;
-                // Double-check: another task may have inserted while we fetched
-                if let Some(existing) = cache.get(match_id).cloned() {
-                    self.client.cache_hit(
-                        "match details",
-                        &crate::api::client::anon_id(match_id),
-                        None,
-                    );
-                    Ok(existing)
-                } else {
-                    cache.put(match_id.to_string(), data.clone());
-                    Ok(data)
-                }
+                self.match_details_cache
+                    .insert(match_id.to_string(), data.clone())
+                    .await;
+                Ok(data)
             }
             Err(e) => {
                 log::warn!(

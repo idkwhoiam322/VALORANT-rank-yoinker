@@ -1,36 +1,32 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use lru::LruCache;
-use tokio::sync::Mutex;
+use std::time::Duration;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
 use crate::api::endpoints;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::mmr::{MmrResponse, PlayerRank};
+use crate::services::cache::TtlLruCache;
 
 /// Bounds the rank cache so it cannot grow unbounded; TTL still applies on top.
 const RANK_CACHE_CAP: usize = 500;
+const RANK_CACHE_TTL: Duration = Duration::from_secs(300);
 
 pub struct RankService {
     client: Arc<ApiClient>,
-    cache: Mutex<LruCache<String, (PlayerRank, Instant)>>,
-    cache_ttl: Duration,
+    cache: TtlLruCache<String, PlayerRank>,
 }
 
 impl RankService {
     pub fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
-            cache: Mutex::new(LruCache::new(NonZeroUsize::new(RANK_CACHE_CAP).unwrap())),
-            cache_ttl: Duration::from_secs(300),
+            cache: TtlLruCache::new(RANK_CACHE_CAP, RANK_CACHE_TTL),
         }
     }
 
     pub async fn invalidate_cache(&self) {
-        self.cache.lock().await.clear();
+        self.cache.clear().await;
     }
 
     pub async fn get_rank(
@@ -42,26 +38,16 @@ impl RankService {
         previous_season_id: Option<&str>,
         content: &ContentCache,
     ) -> PlayerRank {
-        // Fast path: read lock
-        {
-            let mut cache = self.cache.lock().await;
-            if let Some((rank, time)) = cache.get(puuid) {
-                if time.elapsed() < self.cache_ttl {
-                    let ttl_left = self
-                        .cache_ttl
-                        .as_secs()
-                        .saturating_sub(time.elapsed().as_secs());
-                    self.client.cache_hit(
-                        "rank",
-                        &crate::api::client::anon_id(puuid),
-                        Some(ttl_left),
-                    );
-                    return rank.clone();
-                }
-            }
+        // Fast path: cached + still fresh.
+        if let Some((rank, ttl_left)) = self.cache.get(puuid).await {
+            self.client
+                .cache_hit("rank", &crate::api::client::anon_id(puuid), Some(ttl_left));
+            return rank;
         }
 
-        // Slow path: release lock before HTTP, re-acquire for double-check + insert
+        // Slow path: fetch, then store. The store also serves as the
+        // double-check — a concurrent tick that landed first will have inserted
+        // a fresh entry we simply overwrite.
         let result = self
             .fetch_rank(
                 entitlements,
@@ -74,13 +60,7 @@ impl RankService {
             .await;
         match result {
             Ok(rank) => {
-                let mut cache = self.cache.lock().await;
-                if let Some((existing, time)) = cache.get(puuid) {
-                    if time.elapsed() < self.cache_ttl {
-                        return existing.clone();
-                    }
-                }
-                cache.put(puuid.to_string(), (rank.clone(), Instant::now()));
+                self.cache.insert(puuid.to_string(), rank.clone()).await;
                 rank
             }
             Err(_) => PlayerRank::empty(),
