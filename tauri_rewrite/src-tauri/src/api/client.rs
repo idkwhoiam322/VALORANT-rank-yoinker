@@ -370,7 +370,15 @@ impl ApiClient {
             req = req.json(&b);
         }
 
-        let resp = req.send().await.map_err(ApiError::Http)?;
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                if url_type == UrlType::Local {
+                    self.local_api_dead.store(true, Ordering::Relaxed);
+                }
+                return Err(ApiError::Http(e));
+            }
+        };
         let elapsed = start.elapsed();
         let log_line = format!(
             "[API] <- {} {} {} ({:?})",

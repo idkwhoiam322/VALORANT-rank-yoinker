@@ -979,21 +979,31 @@ impl MainLoop {
                 ));
                 snap.clear_volatile_caches().await;
 
-                // If RC is fully closed the lockfile is gone; wait for the
-                // user to (re)launch it and re-read the *fresh* port /
-                // password. A backgrounded RC keeps its lockfile, so this
-                // only triggers on a genuine close — never relaunches.
-                if !auth::get_lockfile_path().exists() {
-                    snap.logger
-                        .log("Riot Client closed — waiting for it to come back…");
-                    let _ = app.emit("riot_client_waiting", serde_json::json!({}));
-                    if let Some(lf) =
-                        auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await
-                    {
+                // Re-read the lockfile to discover a potentially changed port.
+                // When RC restarts, the lockfile is re-created with a new port
+                // but the file still exists — only re-reading reveals the change.
+                // If the lockfile is gone (RC fully closed), wait for it.
+                match auth::parse_lockfile(&auth::get_lockfile_path()) {
+                    Ok(lf) => {
                         let fresh_port = lf.port;
                         snap.client.set_local_auth(lf.password.clone(), fresh_port);
                         *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(fresh_port);
+                        snap.logger
+                            .log(&format!("Re-read lockfile — port {}", fresh_port));
+                    }
+                    Err(_) => {
+                        snap.logger
+                            .log("Riot Client closed — waiting for it to come back…");
+                        let _ = app.emit("riot_client_waiting", serde_json::json!({}));
+                        if let Some(lf) =
+                            auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await
+                        {
+                            let fresh_port = lf.port;
+                            snap.client.set_local_auth(lf.password.clone(), fresh_port);
+                            *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(fresh_port);
+                        }
                     }
                 }
 
@@ -1054,6 +1064,11 @@ impl MainLoop {
                 }
             }
         }
+
+        // Clear again in case internal calls (refresh_entitlements_with_retry)
+        // set the flag during re-auth, which would trigger a redundant second
+        // invocation and drop the freshly-reconnected WS.
+        snap.client.clear_local_api_dead();
 
         cleared
     }
