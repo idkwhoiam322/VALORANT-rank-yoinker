@@ -495,7 +495,12 @@ impl MainLoop {
 
             // Honor an explicit cache-clear request: drop per-match carry-over
             // locals so stale match data can't leak into the next match.
-            if services.read().await.loop_reset_requested.swap(false, Ordering::Relaxed) {
+            if services
+                .read()
+                .await
+                .loop_reset_requested
+                .swap(false, Ordering::Relaxed)
+            {
                 pregame_loadout_cache = None;
                 last_known_snapshot = None;
                 match_context = None;

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
-use std::sync::Arc;
 use lru::LruCache;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::api::client::{ApiClient, ApiError, UrlType};
@@ -52,7 +52,8 @@ impl NamesService {
             for p in puuids {
                 if let Some((name, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
-                        self.client.cache_hit("names", &crate::api::client::anon_id(&p), None);
+                        self.client
+                            .cache_hit("names", &crate::api::client::anon_id(&p), None);
                         cached_names.insert(p.clone(), name.clone());
                         continue;
                     }
@@ -82,8 +83,10 @@ impl NamesService {
                             let puuid = entry.get("puuid").and_then(|v| v.as_str());
                             let alias = entry.get("alias");
                             if let (Some(puuid), Some(alias)) = (puuid, alias) {
-                                let game_name = first_str(alias, &["gameName", "game_name", "GameName"]);
-                                let tag_line = first_str(alias, &["tagLine", "tag_line", "TagLine"]);
+                                let game_name =
+                                    first_str(alias, &["gameName", "game_name", "GameName"]);
+                                let tag_line =
+                                    first_str(alias, &["tagLine", "tag_line", "TagLine"]);
                                 if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
                                     let name = format!("{}#{}", game_name, tag_line);
                                     cached_names.insert(puuid.to_string(), name);
@@ -127,7 +130,9 @@ impl NamesService {
                                 let subject = first_str(player, &["Subject", "subject"]);
                                 let game_name = first_str(player, &["GameName", "game_name"]);
                                 let tag_line = first_str(player, &["TagLine", "tag_line"]);
-                                if let (Some(subject), Some(game_name), Some(tag_line)) = (subject, game_name, tag_line) {
+                                if let (Some(subject), Some(game_name), Some(tag_line)) =
+                                    (subject, game_name, tag_line)
+                                {
                                     let name = format!("{}#{}", game_name, tag_line);
                                     cached_names.insert(subject.to_string(), name);
                                     newly_resolved.push(subject.to_string());
@@ -147,7 +152,9 @@ impl NamesService {
             // `cached_names` set, so pre-existing entries are left untouched.
             let mut cache = self.cache.lock().await;
             for p in &newly_resolved {
-                let Some(name) = cached_names.get(p) else { continue };
+                let Some(name) = cached_names.get(p) else {
+                    continue;
+                };
                 if let Some((_, time)) = cache.get(p) {
                     if time.elapsed() < self.cache_ttl {
                         continue; // a concurrent fetch already cached this

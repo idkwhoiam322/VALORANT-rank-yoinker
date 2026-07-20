@@ -30,7 +30,10 @@ async fn fetch_rank_and_stats(
     entitlements: &Entitlements,
     client_version: &str,
     subject: &str,
-) -> (crate::models::mmr::PlayerRank, crate::models::mmr::PlayerStats) {
+) -> (
+    crate::models::mmr::PlayerRank,
+    crate::models::mmr::PlayerStats,
+) {
     for attempt in 0..3 {
         let rank = svc
             .rank
@@ -55,33 +58,60 @@ async fn fetch_rank_and_stats(
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
-    (crate::models::mmr::PlayerRank::empty(), crate::models::mmr::PlayerStats::default_stats())
+    (
+        crate::models::mmr::PlayerRank::empty(),
+        crate::models::mmr::PlayerStats::default_stats(),
+    )
 }
 
 async fn resolve_mode_from_queue_id(queue_id: &str, payload: &mut HeartbeatPayload) {
-    if payload.mode.is_some() { return; }
+    if payload.mode.is_some() {
+        return;
+    }
     if !queue_id.is_empty() {
         payload.mode = Some(crate::services::config::get_gamemode_name(queue_id).to_string());
     }
 }
 
 async fn resolve_mode_from_presence(
-    svc: &ServiceSnapshot, entitlements: &Entitlements,
-    client_version: &str, puuid: &str,
+    svc: &ServiceSnapshot,
+    entitlements: &Entitlements,
+    client_version: &str,
+    puuid: &str,
     payload: &mut HeartbeatPayload,
 ) {
-    if payload.mode.is_some() { return; }
-    let Ok(presences) = svc.presences.get_presences(entitlements, client_version).await else { return };
-    let Some(own) = crate::services::presences::PresenceService::find_own_presence(&presences, puuid) else { return };
-    let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) else { return };
-    let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) else { return };
+    if payload.mode.is_some() {
+        return;
+    }
+    let Ok(presences) = svc
+        .presences
+        .get_presences(entitlements, client_version)
+        .await
+    else {
+        return;
+    };
+    let Some(own) =
+        crate::services::presences::PresenceService::find_own_presence(&presences, puuid)
+    else {
+        return;
+    };
+    let Some(private) =
+        crate::services::presences::PresenceService::decode_private_presence(&own.private)
+    else {
+        return;
+    };
+    let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) else {
+        return;
+    };
     if !qid.is_empty() {
         payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
     }
 }
 
 fn resolve_mode_from_map(map_id: &str, payload: &mut HeartbeatPayload) {
-    if payload.mode.is_some() { return; }
+    if payload.mode.is_some() {
+        return;
+    }
     let lower = map_id.to_lowercase();
     if lower.contains("/game/maps/triad/triad") {
         payload.mode = Some("Deathmatch".into());
@@ -138,20 +168,30 @@ pub async fn build_heartbeat(
     // detection, because WS data may carry only changed entries.
     let (presences, ws_data) = match ws_presences {
         Some(p) => (Some(Cow::Borrowed(p)), true),
-        None => match svc.presences.get_presences(entitlements, client_version).await {
+        None => match svc
+            .presences
+            .get_presences(entitlements, client_version)
+            .await
+        {
             Ok(p) => (Some(Cow::Owned(p)), false),
             Err(_) => (None, false),
         },
     };
 
     if let Some(ref p) = presences {
-        if let Some(own) = crate::services::presences::PresenceService::find_own_presence(p, puuid) {
-            if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+        if let Some(own) = crate::services::presences::PresenceService::find_own_presence(p, puuid)
+        {
+            if let Some(private) =
+                crate::services::presences::PresenceService::decode_private_presence(&own.private)
+            {
                 if is_custom_game(&private) {
                     payload.mode = Some("Custom Game".into());
-                } else if let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) {
+                } else if let Some(qid) =
+                    crate::services::presences::PresenceService::extract_queue_id(&private)
+                {
                     if !qid.is_empty() {
-                        payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
+                        payload.mode =
+                            Some(crate::services::config::get_gamemode_name(&qid).to_string());
                     }
                 }
             }
@@ -163,14 +203,41 @@ pub async fn build_heartbeat(
 
     let used_pregame_loadouts: Option<String> = match state {
         GameState::INGAME => {
-            build_ingame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data).await;
+            build_ingame_payload(
+                svc,
+                entitlements,
+                client_version,
+                puuid,
+                &mut payload,
+                known_match_id,
+                existing_match_data,
+            )
+            .await;
             None
         }
         GameState::PREGAME => {
-            build_pregame_payload(svc, entitlements, client_version, puuid, &mut payload, known_match_id, existing_match_data, cached_pregame_loadouts).await
+            build_pregame_payload(
+                svc,
+                entitlements,
+                client_version,
+                puuid,
+                &mut payload,
+                known_match_id,
+                existing_match_data,
+                cached_pregame_loadouts,
+            )
+            .await
         }
         GameState::MENUS => {
-            build_menus_payload(svc, entitlements, client_version, puuid, &mut payload, presences_slice).await;
+            build_menus_payload(
+                svc,
+                entitlements,
+                client_version,
+                puuid,
+                &mut payload,
+                presences_slice,
+            )
+            .await;
             None
         }
         GameState::DISCONNECTED => None,
@@ -191,34 +258,57 @@ pub async fn get_match_context(
 ) -> Option<(String, String, serde_json::Value)> {
     match state {
         GameState::INGAME => {
-            let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &endpoints::glz_core_player(puuid), entitlements, client_version,
-                3, Duration::from_secs(1),
-                |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
-            ).await.ok()?;
+            let json = svc
+                .client
+                .fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &endpoints::glz_core_player(puuid),
+                    entitlements,
+                    client_version,
+                    3,
+                    Duration::from_secs(1),
+                    |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                )
+                .await
+                .ok()?;
             let match_id = json["MatchID"].as_str()?.to_string();
 
             // Fetch match data to find self's team from Players array.
             // Also validates MapID - it may populate later than Players/TeamID.
             let match_endpoint = endpoints::glz_core_match(&match_id);
-            let match_json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &match_endpoint, entitlements, client_version,
-                3, Duration::from_secs(2),
-                |j| {
-                    j["MapID"].as_str().map_or(false, |s| !s.is_empty())
-                    && j["Players"].as_array().map_or(false, |a| {
-                        a.iter().any(|p| p["Subject"].as_str() == Some(puuid) && p["TeamID"].as_str().is_some())
-                    })
-                },
-            ).await.ok()?;
+            let match_json = svc
+                .client
+                .fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &match_endpoint,
+                    entitlements,
+                    client_version,
+                    3,
+                    Duration::from_secs(2),
+                    |j| {
+                        j["MapID"].as_str().map_or(false, |s| !s.is_empty())
+                            && j["Players"].as_array().map_or(false, |a| {
+                                a.iter().any(|p| {
+                                    p["Subject"].as_str() == Some(puuid)
+                                        && p["TeamID"].as_str().is_some()
+                                })
+                            })
+                    },
+                )
+                .await
+                .ok()?;
 
-            let my_team = match_json["Players"].as_array()?
+            let my_team = match_json["Players"]
+                .as_array()?
                 .iter()
                 .find(|p| p["Subject"].as_str() == Some(puuid))
                 .and_then(|p| p["TeamID"].as_str())?;
 
             let map_id = match_json["MapID"].as_str().unwrap_or("?");
-            let resolved = svc.content.get_map_name(map_id).unwrap_or_else(|| map_id.to_string());
+            let resolved = svc
+                .content
+                .get_map_name(map_id)
+                .unwrap_or_else(|| map_id.to_string());
             svc.logger.log(&format!(
                 "INGAME match context: match={match_id} raw_map={map_id} resolved_map={resolved} team={my_team}"
             ));
@@ -226,27 +316,47 @@ pub async fn get_match_context(
             Some((match_id, my_team.to_string(), match_json))
         }
         GameState::PREGAME => {
-            let json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &endpoints::glz_pregame_player(puuid), entitlements, client_version,
-                3, Duration::from_secs(1),
-                |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
-            ).await.ok()?;
+            let json = svc
+                .client
+                .fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &endpoints::glz_pregame_player(puuid),
+                    entitlements,
+                    client_version,
+                    3,
+                    Duration::from_secs(1),
+                    |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                )
+                .await
+                .ok()?;
             let match_id = json["MatchID"].as_str()?.to_string();
 
             // Fetch match data to find self's team.
             // Also validates MapID - it may populate later than AllyTeam.
             let match_endpoint = endpoints::glz_pregame_match(&match_id);
-            let match_json = svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz, &match_endpoint, entitlements, client_version,
-                3, Duration::from_secs(2),
-                |j| {
-                    j["MapID"].as_str().map_or(false, |s| !s.is_empty())
-                    && j["AllyTeam"]["TeamID"].as_str().map_or(false, |s| !s.is_empty())
-                },
-            ).await.ok()?;
+            let match_json = svc
+                .client
+                .fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &match_endpoint,
+                    entitlements,
+                    client_version,
+                    3,
+                    Duration::from_secs(2),
+                    |j| {
+                        j["MapID"].as_str().map_or(false, |s| !s.is_empty())
+                            && j["AllyTeam"]["TeamID"]
+                                .as_str()
+                                .map_or(false, |s| !s.is_empty())
+                    },
+                )
+                .await
+                .ok()?;
 
             let my_team = match_json["AllyTeam"]["TeamID"].as_str()?;
-            let resolved = svc.content.get_map_name(&match_json["MapID"].as_str().unwrap_or("?"))
+            let resolved = svc
+                .content
+                .get_map_name(&match_json["MapID"].as_str().unwrap_or("?"))
                 .unwrap_or_else(|| match_json["MapID"].as_str().unwrap_or("?").to_string());
             svc.logger.log(&format!(
                 "PREGAME match context: match={match_id} raw_map={} resolved_map={resolved} team={my_team}",
@@ -275,37 +385,53 @@ async fn fetch_match_context(
     let (match_data, match_id) = match existing_match_data {
         Some(data) => {
             let mid = known_match_id.unwrap_or_default().to_string();
-            if mid.is_empty() { return None; }
+            if mid.is_empty() {
+                return None;
+            }
             (data, mid)
         }
         None => {
             let mid = if let Some(id) = known_match_id {
-                if !id.is_empty() { id.to_string() } else { return None; }
+                if !id.is_empty() {
+                    id.to_string()
+                } else {
+                    return None;
+                }
             } else {
-                match svc.client.fetch_json_retry(
-                    crate::api::client::UrlType::Glz,
-                    &player_endpoint(puuid),
-                    entitlements, client_version,
-                    3,
-                    Duration::from_secs(2),
-                    |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
-                ).await {
+                match svc
+                    .client
+                    .fetch_json_retry(
+                        crate::api::client::UrlType::Glz,
+                        &player_endpoint(puuid),
+                        entitlements,
+                        client_version,
+                        3,
+                        Duration::from_secs(2),
+                        |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                    )
+                    .await
+                {
                     Ok(json) => match json["MatchID"].as_str() {
                         Some(id) if !id.is_empty() => id.to_string(),
                         _ => return None,
-                    }
+                    },
                     Err(_) => return None,
                 }
             };
 
-            match svc.client.fetch_json_retry(
-                crate::api::client::UrlType::Glz,
-                &match_endpoint(&mid),
-                entitlements, client_version,
-                3,
-                Duration::from_secs(2),
-                |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
-            ).await {
+            match svc
+                .client
+                .fetch_json_retry(
+                    crate::api::client::UrlType::Glz,
+                    &match_endpoint(&mid),
+                    entitlements,
+                    client_version,
+                    3,
+                    Duration::from_secs(2),
+                    |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
+                )
+                .await
+            {
                 Ok(json) => (json, mid),
                 Err(_) => return None,
             }
@@ -313,19 +439,16 @@ async fn fetch_match_context(
     };
 
     let raw_map = match_data["MapID"].as_str().unwrap_or("?");
-    payload.map = svc
-        .content
-        .get_map_name(raw_map)
-        .or_else(|| {
-            // Fallback: some endpoints return a display name verbatim (e.g. the
-            // pregame endpoint returned a bare "Summit"). Preserve it as-is
-            // rather than dropping to unknown.
-            if raw_map.is_empty() || raw_map == "?" {
-                None
-            } else {
-                Some(raw_map.to_string())
-            }
-        });
+    payload.map = svc.content.get_map_name(raw_map).or_else(|| {
+        // Fallback: some endpoints return a display name verbatim (e.g. the
+        // pregame endpoint returned a bare "Summit"). Preserve it as-is
+        // rather than dropping to unknown.
+        if raw_map.is_empty() || raw_map == "?" {
+            None
+        } else {
+            Some(raw_map.to_string())
+        }
+    });
     svc.logger.log(&format!(
         "match map resolved: raw={raw_map} -> display={}",
         payload.map.as_deref().unwrap_or("unknown")
@@ -370,7 +493,10 @@ fn build_player_heartbeat(
         peak_rank_act: player_rank.peak_rank_act.clone(),
         previous_rank: player_rank.previous_rank,
         rr: player_rank.rr,
-        win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+        win_percentage: Some(format!(
+            "{} ({})",
+            player_rank.wr, player_rank.number_of_games
+        )),
         last_active: format_last_active(player_stats.last_active_epoch),
         level: player
             .player_identity
@@ -401,17 +527,24 @@ async fn build_ingame_payload(
     existing_match_data: Option<serde_json::Value>,
 ) {
     let (mut match_data, match_id) = match fetch_match_context(
-        svc, entitlements, client_version, puuid, payload,
-        known_match_id, existing_match_data,
-        endpoints::glz_core_player, endpoints::glz_core_match,
-    ).await {
+        svc,
+        entitlements,
+        client_version,
+        puuid,
+        payload,
+        known_match_id,
+        existing_match_data,
+        endpoints::glz_core_player,
+        endpoints::glz_core_match,
+    )
+    .await
+    {
         Some(v) => v,
         None => return,
     };
 
     // Parse players (take ownership of Players to avoid clone)
-    let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].take())
-    {
+    let players: Vec<CoregamePlayer> = match serde_json::from_value(match_data["Players"].take()) {
         Ok(p) => p,
         Err(_) => return,
     };
@@ -468,12 +601,8 @@ async fn build_ingame_payload(
                     );
                     entry
                 } else {
-                    let (rank, stats) = fetch_rank_and_stats(
-                        svc,
-                        entitlements,
-                        client_version,
-                        &subject,
-                    ).await;
+                    let (rank, stats) =
+                        fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
                     if rank.status_good {
                         svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
                     }
@@ -485,7 +614,6 @@ async fn build_ingame_payload(
         } else {
             fetch_rank_and_stats(svc, entitlements, client_version, &subject).await
         };
-
 
         let agent_name = player
             .character_id
@@ -507,7 +635,10 @@ async fn build_ingame_payload(
 
         // Save encounters before moving subject into the map (skip self)
         if subject_lower != puuid.to_lowercase() {
-            let name = names.get(&subject).cloned().unwrap_or_else(|| "Unknown".into());
+            let name = names
+                .get(&subject)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".into());
             let team_str = player.team_id.clone().unwrap_or_else(|| "Unknown".into());
 
             if ally_team.is_some() {
@@ -597,10 +728,18 @@ async fn build_pregame_payload(
     cached_loadouts_text: Option<String>,
 ) -> Option<String> {
     let (match_data, match_id) = match fetch_match_context(
-        svc, entitlements, client_version, puuid, payload,
-        known_match_id, existing_match_data,
-        endpoints::glz_pregame_player, endpoints::glz_pregame_match,
-    ).await {
+        svc,
+        entitlements,
+        client_version,
+        puuid,
+        payload,
+        known_match_id,
+        existing_match_data,
+        endpoints::glz_pregame_player,
+        endpoints::glz_pregame_match,
+    )
+    .await
+    {
         Some(v) => v,
         None => return None,
     };
@@ -648,14 +787,19 @@ async fn build_pregame_payload(
             append_enemy_players_from_loadouts(&text, &mut players, &match_data);
             Some(text)
         }
-        None => match svc.client.fetch_json_retry(
-            crate::api::client::UrlType::Glz,
-            &endpoints::glz_pregame_loadouts(&match_id),
-            entitlements, client_version,
-            3,
-            Duration::from_secs(2),
-            |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
-        ).await {
+        None => match svc
+            .client
+            .fetch_json_retry(
+                crate::api::client::UrlType::Glz,
+                &endpoints::glz_pregame_loadouts(&match_id),
+                entitlements,
+                client_version,
+                3,
+                Duration::from_secs(2),
+                |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
+            )
+            .await
+        {
             Ok(loadouts_json_value) => {
                 let text = loadouts_json_value.to_string();
                 append_enemy_players_from_loadouts(&text, &mut players, &match_data);
@@ -689,11 +833,9 @@ async fn build_pregame_payload(
         if let Ok(structured) =
             serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
         {
-            let lj = svc.loadouts.build_loadout_json(
-                &structured,
-                &players,
-                &svc.content,
-            );
+            let lj = svc
+                .loadouts
+                .build_loadout_json(&structured, &players, &svc.content);
             lj
         } else {
             Default::default()
@@ -711,11 +853,8 @@ async fn build_pregame_payload(
         };
 
         let (player_rank, player_stats) = if let Some(entry) = cached {
-            svc.client.cache_hit(
-                "match player",
-                &crate::api::client::anon_id(&subject),
-                None,
-            );
+            svc.client
+                .cache_hit("match player", &crate::api::client::anon_id(&subject), None);
             entry
         } else {
             let result = fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
@@ -727,7 +866,6 @@ async fn build_pregame_payload(
             }
             result
         };
-
 
         let agent_name = player
             .character_id
@@ -768,7 +906,11 @@ async fn build_menus_payload(
     // Cow avoids cloning the slice when it's already available.
     let presences: Cow<'_, [Presence]> = match presences {
         Some(p) => Cow::Borrowed(p),
-        None => match svc.presences.get_presences(entitlements, client_version).await {
+        None => match svc
+            .presences
+            .get_presences(entitlements, client_version)
+            .await
+        {
             Ok(p) => Cow::Owned(p),
             Err(_) => return,
         },
@@ -776,9 +918,12 @@ async fn build_menus_payload(
 
     // Extract self presence data: mode + account level
     let mut self_level: Option<u32> = None;
-    let own_presence = crate::services::presences::PresenceService::find_own_presence(&presences, puuid);
+    let own_presence =
+        crate::services::presences::PresenceService::find_own_presence(&presences, puuid);
     if let Some(own) = own_presence {
-        if let Some(private) = crate::services::presences::PresenceService::decode_private_presence(&own.private) {
+        if let Some(private) =
+            crate::services::presences::PresenceService::decode_private_presence(&own.private)
+        {
             if is_custom_game(&private) {
                 payload.mode = Some("Custom Game".into());
             } else if let Some(qid) =
@@ -795,9 +940,8 @@ async fn build_menus_payload(
     }
 
     // Collect puuids to fetch: self + party members
-    let party_puuids = crate::services::presences::PresenceService::find_party_member_puuids(
-        &presences, puuid,
-    );
+    let party_puuids =
+        crate::services::presences::PresenceService::find_party_member_puuids(&presences, puuid);
 
     let mut all_puuids = vec![puuid.to_string()];
     all_puuids.extend(party_puuids.iter().cloned());
@@ -819,8 +963,7 @@ async fn build_menus_payload(
         let previous_rank = player_rank.previous_rank;
 
         let player_stats = if subject == puuid {
-            svc
-                .stats
+            svc.stats
                 .get_stats(entitlements, client_version, &subject)
                 .await
         } else {
@@ -837,7 +980,10 @@ async fn build_menus_payload(
             peak_rank_act: player_rank.peak_rank_act,
             previous_rank,
             rr: player_rank.rr,
-            win_percentage: Some(format!("{} ({})", player_rank.wr, player_rank.number_of_games)),
+            win_percentage: Some(format!(
+                "{} ({})",
+                player_rank.wr, player_rank.number_of_games
+            )),
             last_active: format_last_active(player_stats.last_active_epoch),
             level: if subject == puuid { self_level } else { None },
             leaderboard: player_rank.leaderboard,
