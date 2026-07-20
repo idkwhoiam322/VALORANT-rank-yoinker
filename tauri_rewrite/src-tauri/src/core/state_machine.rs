@@ -1007,8 +1007,35 @@ impl MainLoop {
                     }
                 }
 
+                let mut delay = 5u64;
+                let mut retry_count = 0u32;
                 loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    // Re-read lockfile each cycle to catch port changes from
+                    // RC restarts that happen while we're in this loop.
+                    match auth::parse_lockfile(&auth::get_lockfile_path()) {
+                        Ok(lf) => {
+                            let fresh_port = lf.port;
+                            snap.client.set_local_auth(lf.password.clone(), fresh_port);
+                            *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(fresh_port);
+                        }
+                        Err(_) => {
+                            snap.logger
+                                .log("Riot Client closed — waiting for it to come back…");
+                            let _ = app.emit("riot_client_waiting", serde_json::json!({}));
+                            if let Some(lf) =
+                                auth::ensure_lockfile_ready(std::time::Duration::from_secs(60))
+                                    .await
+                            {
+                                let fresh_port = lf.port;
+                                snap.client.set_local_auth(lf.password.clone(), fresh_port);
+                                *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) =
+                                    Some(fresh_port);
+                            }
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
                     match snap.client.refresh_entitlements_with_retry().await {
                         Ok(()) => {
                             let fresh_entitlements = snap.client.get_entitlements();
@@ -1025,7 +1052,16 @@ impl MainLoop {
                             );
                             break;
                         }
-                        Err(_) => continue,
+                        Err(_) => {
+                            retry_count += 1;
+                            if retry_count >= 6 {
+                                snap.logger
+                                    .log("Deferred retry limit reached — returning to main loop");
+                                break;
+                            }
+                            delay = (delay * 2).min(30);
+                            continue;
+                        }
                     }
                 }
                 true
