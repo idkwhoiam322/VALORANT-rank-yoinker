@@ -15,7 +15,7 @@ use crate::api::response_helpers::{get_match_score, get_winning_team};
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
-use crate::models::heartbeat::HeartbeatPayload;
+use crate::models::heartbeat::{EncounterEntry, HeartbeatPayload, PlayerHeartbeat};
 use crate::models::mmr::{PlayerRank, PlayerStats};
 use crate::models::presences::{GameState, Presence};
 use crate::services::config::ConfigManager;
@@ -433,8 +433,8 @@ impl MainLoop {
     async fn run_main_loop(&self, app: &AppHandle) -> Result<(), String> {
         let services = self.services.clone();
         let mut last_state: Option<GameState> = None;
-        let mut last_emitted: Option<HeartbeatPayload> = None;
-        let mut last_presences: Option<Vec<Presence>> = None;
+        let mut last_emitted: Option<HeartbeatDedupKey> = None;
+        let mut last_presences: Option<(Vec<Presence>, GameState)> = None;
         let mut match_context: Option<(String, String)> = None;
         // Pregame loadouts are immutable during agent select, so cache the raw
         // response per match_id and reuse it across ticks. (match_id, loadouts text)
@@ -550,7 +550,7 @@ impl MainLoop {
             // Cache presence data from WS pushes so build_heartbeat can reuse them
             // for mode/queue resolution without a separate HTTP call.
             if let Some(p) = new_presences {
-                last_presences = Some(p);
+                last_presences = Some((p, current_state));
             }
 
             // During INGAME steady state: suppress all heartbeat/API processing
@@ -750,7 +750,10 @@ impl MainLoop {
                     build_state,
                     known_match_id.as_deref(),
                     pre_fetched_data,
-                    last_presences.as_deref(),
+                    last_presences
+                        .as_ref()
+                        .filter(|(_, st)| *st == current_state)
+                        .map(|(p, _)| p.as_slice()),
                     cached_pregame_loadouts,
                 )
                 .await;
@@ -814,8 +817,8 @@ impl MainLoop {
                         let eq = heartbeats_equal_ignoring_time(prev, &heartbeat);
                         if eq {
                             snap.logger.log(&format!(
-                                "Heartbeat dedup: suppressing identical rebuild (same content, time advanced {}s)",
-                                heartbeat.time - prev.time
+                                "Heartbeat dedup: suppressing identical rebuild (same content, time={})",
+                                heartbeat.time
                             ));
                         } else {
                             let changed = diff_heartbeat_fields(prev, &heartbeat);
@@ -839,8 +842,10 @@ impl MainLoop {
                                 h.already_played_with.len(),
                             )
                             };
-                            snap.logger
-                                .log(&format!("Heartbeat dedup DEBUG prev: {}", describe(prev)));
+                            snap.logger.log(&format!(
+                                "Heartbeat dedup DEBUG prev: {}",
+                                describe(&prev.to_payload())
+                            ));
                             snap.logger.log(&format!(
                                 "Heartbeat dedup DEBUG new:  {}",
                                 describe(&heartbeat)
@@ -861,7 +866,7 @@ impl MainLoop {
                     ));
                     snap.log_heartbeat(&heartbeat);
                     let _ = app.emit("heartbeat", &heartbeat);
-                    last_emitted = Some(heartbeat.clone());
+                    last_emitted = Some(HeartbeatDedupKey::from_payload(&heartbeat));
                 }
             }
         }
@@ -1085,69 +1090,164 @@ impl MainLoop {
     }
 }
 
+/// Lightweight structural key used for heartbeat dedup. It carries the same
+/// fields that influence what the user sees, but the heavy `players` and
+/// `already_played_with` collections are wrapped in `Arc` so storing the
+/// last-emitted heartbeat does **not** require a deep `HashMap` clone on every
+/// tick (the previous code cloned the entire `HeartbeatPayload` both for the
+/// comparison and for `last_emitted`).
+#[derive(Debug, Clone, PartialEq)]
+struct HeartbeatDedupKey {
+    state: String,
+    r#type: String,
+    mode: Option<String>,
+    puuid: String,
+    map: Option<String>,
+    server: Option<String>,
+    match_id: Option<String>,
+    players: Arc<HashMap<String, PlayerHeartbeat>>,
+    rank_icons: Arc<Vec<Option<String>>>,
+    session_id: u64,
+    already_played_with: Arc<Vec<EncounterEntry>>,
+}
+
+impl HeartbeatDedupKey {
+    /// Build a dedup key from a `HeartbeatPayload`. The `players` and
+    /// `already_played_with` maps are cloned into fresh `Arc`s; this only runs
+    /// when a heartbeat is actually emitted (not every tick), so the cost is
+    /// bounded by emit frequency rather than tick frequency.
+    fn from_payload(h: &HeartbeatPayload) -> Self {
+        HeartbeatDedupKey {
+            state: h.state.clone(),
+            r#type: h.r#type.clone(),
+            mode: h.mode.clone(),
+            puuid: h.puuid.clone(),
+            map: h.map.clone(),
+            server: h.server.clone(),
+            match_id: h.match_id.clone(),
+            players: Arc::new(h.players.clone()),
+            rank_icons: h.rank_icons.clone(),
+            session_id: h.session_id,
+            already_played_with: Arc::new(h.already_played_with.clone()),
+        }
+    }
+
+    /// Reconstruct a `HeartbeatPayload` carrying only the dedup-relevant fields
+    /// (used by debug logging). `time`/`version` are left at defaults.
+    fn to_payload(&self) -> HeartbeatPayload {
+        HeartbeatPayload {
+            time: 0,
+            state: self.state.clone(),
+            r#type: self.r#type.clone(),
+            mode: self.mode.clone(),
+            puuid: self.puuid.clone(),
+            map: self.map.clone(),
+            server: self.server.clone(),
+            match_id: self.match_id.clone(),
+            players: (*self.players).clone(),
+            rank_icons: self.rank_icons.clone(),
+            version: 0,
+            session_id: self.session_id,
+            already_played_with: (*self.already_played_with).clone(),
+        }
+    }
+}
+
+/// Compare two `EncounterEntry` slices field-by-field, ignoring `time_diff`
+/// (which is `now - epoch` recomputed fresh every tick and would always
+/// differ, defeating the dedup of `already_played_with`).
+fn encounter_entries_equal_ignoring_time_diff(a: &[EncounterEntry], b: &[EncounterEntry]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    for (ea, eb) in a.iter().zip(b.iter()) {
+        if ea.times != eb.times
+            || ea.name != eb.name
+            || ea.agent != eb.agent
+            || ea.map != eb.map
+            || ea.last_agent != eb.last_agent
+            || ea.last_map != eb.last_map
+            || ea.relation != eb.relation
+            || ea.relation_name != eb.relation_name
+            || ea.ally_wins != eb.ally_wins
+            || ea.ally_losses != eb.ally_losses
+            || ea.ally_unknown != eb.ally_unknown
+            || ea.ally_count != eb.ally_count
+            || ea.enemy_wins != eb.enemy_wins
+            || ea.enemy_losses != eb.enemy_losses
+            || ea.enemy_unknown != eb.enemy_unknown
+            || ea.enemy_count != eb.enemy_count
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Two heartbeats are "the same" for emission purposes if nothing the user
 /// would see has changed. `time` always differs between builds by
 /// construction (it's `SystemTime::now()`), `version` is assigned at
 /// emission time (not yet meaningful at comparison time), and
 /// `time_diff` (in `already_played_with`) is `now - epoch` recomputed fresh
-/// every tick — all three are normalized to zero for comparison only.
-fn heartbeats_equal_ignoring_time(a: &HeartbeatPayload, b: &HeartbeatPayload) -> bool {
-    let normalize = |h: &HeartbeatPayload| {
-        let mut h = h.clone();
-        h.time = 0;
-        h.version = 0;
-        for entry in h.already_played_with.iter_mut() {
-            entry.time_diff = 0.0;
-        }
-        h
-    };
-    normalize(a) == normalize(b)
+/// every tick — all three are normalized away in the comparison below, so no
+/// full clone is needed.
+fn heartbeats_equal_ignoring_time(prev: &HeartbeatDedupKey, cur: &HeartbeatPayload) -> bool {
+    prev.state == cur.state
+        && prev.r#type == cur.r#type
+        && prev.mode == cur.mode
+        && prev.puuid == cur.puuid
+        && prev.map == cur.map
+        && prev.server == cur.server
+        && prev.match_id == cur.match_id
+        && *prev.players == cur.players
+        && prev.rank_icons == cur.rank_icons
+        && prev.session_id == cur.session_id
+        && encounter_entries_equal_ignoring_time_diff(
+            &prev.already_played_with,
+            &cur.already_played_with,
+        )
 }
 
-/// Returns the names of the top-level fields that differ between two
-/// normalized heartbeats. Used only for debug logging to discover which
-/// field is churning and preventing dedup.
-fn diff_heartbeat_fields(a: &HeartbeatPayload, b: &HeartbeatPayload) -> Vec<&'static str> {
-    let normalize = |h: &HeartbeatPayload| {
-        let mut h = h.clone();
-        h.time = 0;
-        h.version = 0;
-        for entry in h.already_played_with.iter_mut() {
-            entry.time_diff = 0.0;
-        }
-        h
-    };
-    let a = normalize(a);
-    let b = normalize(b);
+/// Returns the names of the top-level fields that differ between the previous
+/// dedup key and the current heartbeat. Used only for debug logging to
+/// discover which field is churning and preventing dedup. `time`/`version`/
+/// `time_diff` are ignored (they churn by construction).
+fn diff_heartbeat_fields(prev: &HeartbeatDedupKey, cur: &HeartbeatPayload) -> Vec<&'static str> {
     let mut diffs = Vec::new();
-    if a.state != b.state {
+    if prev.state != cur.state {
         diffs.push("state");
     }
-    if a.r#type != b.r#type {
+    if prev.r#type != cur.r#type {
         diffs.push("type");
     }
-    if a.mode != b.mode {
+    if prev.mode != cur.mode {
         diffs.push("mode");
     }
-    if a.puuid != b.puuid {
+    if prev.puuid != cur.puuid {
         diffs.push("puuid");
     }
-    if a.map != b.map {
+    if prev.map != cur.map {
         diffs.push("map");
     }
-    if a.server != b.server {
+    if prev.server != cur.server {
         diffs.push("server");
     }
-    if a.players != b.players {
+    if prev.match_id != cur.match_id {
+        diffs.push("matchId");
+    }
+    if *prev.players != cur.players {
         diffs.push("players");
     }
-    if !Arc::ptr_eq(&a.rank_icons, &b.rank_icons) || a.rank_icons.len() != b.rank_icons.len() {
+    if prev.rank_icons != cur.rank_icons {
         diffs.push("rank_icons");
     }
-    if a.session_id != b.session_id {
+    if prev.session_id != cur.session_id {
         diffs.push("session_id");
     }
-    if a.already_played_with != b.already_played_with {
+    if !encounter_entries_equal_ignoring_time_diff(
+        &prev.already_played_with,
+        &cur.already_played_with,
+    ) {
         diffs.push("already_played_with");
     }
     diffs
