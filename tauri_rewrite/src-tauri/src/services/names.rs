@@ -64,7 +64,8 @@ impl NamesService {
 
         if !missing.is_empty() {
             // Resolve via local API then PD fallback
-            let mut newly_resolved: Vec<String> = Vec::new();
+            let mut newly_resolved: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             let headers = entitlements.build_headers(client_version);
             let body = serde_json::json!({ "puuids": missing });
             match self
@@ -90,7 +91,7 @@ impl NamesService {
                                 if let (Some(game_name), Some(tag_line)) = (game_name, tag_line) {
                                     let name = format!("{}#{}", game_name, tag_line);
                                     cached_names.insert(puuid.to_string(), name);
-                                    newly_resolved.push(puuid.to_string());
+                                    newly_resolved.insert(puuid.to_string());
                                 }
                             }
                         }
@@ -101,10 +102,11 @@ impl NamesService {
                 }
             }
 
-            // Fallback: fetch remaining via PD name-service
+            // Fallback: fetch remaining via PD name-service. Track resolved
+            // names in `newly_resolved` so we don't re-scan `cached_names`
             let still_missing: Vec<String> = missing
                 .iter()
-                .filter(|p| !cached_names.contains_key(*p))
+                .filter(|p| !newly_resolved.contains(*p))
                 .cloned()
                 .collect();
 
@@ -135,7 +137,7 @@ impl NamesService {
                                 {
                                     let name = format!("{}#{}", game_name, tag_line);
                                     cached_names.insert(subject.to_string(), name);
-                                    newly_resolved.push(subject.to_string());
+                                    newly_resolved.insert(subject.to_string());
                                 }
                             }
                         }

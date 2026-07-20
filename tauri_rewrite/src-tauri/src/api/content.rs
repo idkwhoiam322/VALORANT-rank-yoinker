@@ -287,29 +287,25 @@ fn process_seasons(
     let mut previous_season_id: Option<String> = None;
 
     if let Some(seasons) = content["Seasons"].as_array() {
-        cache.seasons = seasons
-            .iter()
-            .filter_map(|s| {
-                serde_json::from_value::<crate::models::content::Season>(s.clone()).ok()
-            })
-            .collect();
-
-        let mut current_start_time = String::new();
+        // Single pass: populate the season cache, locate the active act, and
+        // remember its StartTime (used to find the previous act). The previous
+        // act is the one whose EndTime equals the current act's StartTime
+        //(was previously three separate O(n) passes).
+        let mut current_start_time: Option<String> = None;
         for season in seasons {
-            if season["Type"] != "act" {
-                continue;
-            }
-            if season["IsActive"] == true {
-                current_season_id = season["ID"].as_str().unwrap_or("").to_string();
-                current_start_time = season["StartTime"].as_str().unwrap_or("").to_string();
+            if let Ok(s) = serde_json::from_value::<crate::models::content::Season>(season.clone())
+            {
+                if s.season_type.as_deref() == Some("act") && s.is_active {
+                    current_season_id = s.id.clone();
+                    current_start_time = Some(s.start_time.clone());
+                }
+                cache.seasons.push(s);
             }
         }
-        if !current_start_time.is_empty() {
-            for season in seasons {
-                if season["Type"] == "act"
-                    && season["EndTime"].as_str().unwrap_or("") == current_start_time
-                {
-                    previous_season_id = season["ID"].as_str().map(|s| s.to_string());
+        if let Some(start) = current_start_time {
+            for s in &cache.seasons {
+                if s.season_type.as_deref() == Some("act") && s.end_time == start {
+                    previous_season_id = Some(s.id.clone());
                     break;
                 }
             }
