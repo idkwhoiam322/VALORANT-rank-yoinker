@@ -1,5 +1,5 @@
 use secrecy::ExposeSecret;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -110,6 +110,11 @@ pub struct ServiceSnapshot {
     pub match_player_cache: Arc<std::sync::Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     /// Current match_id for cache scoping.
     pub current_match_id: Arc<std::sync::Mutex<Option<String>>>,
+    /// Guards against two concurrent ticks fetching match-player rank/stats for
+    /// the same puuid at once. The first tick to miss the cache marks the puuid
+    /// in-flight; a concurrent miss sees the mark and skips its own fetch, relying
+    /// on the first tick's `put`.
+    pub inflight_match_fetch: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 // Field access to the shared services is forwarded via `Deref` so existing
@@ -140,6 +145,7 @@ impl ServiceSnapshot {
         let mut cache = self.match_player_cache.lock().unwrap();
         cache.clear();
         *self.current_match_id.lock().unwrap() = None;
+        self.inflight_match_fetch.lock().unwrap().clear();
     }
 
     /// Set the current match scope. If the match_id differs from the cached
@@ -150,6 +156,7 @@ impl ServiceSnapshot {
         if current_id.as_deref() != Some(match_id) {
             *current_id = Some(match_id.to_string());
             self.match_player_cache.lock().unwrap().clear();
+            self.inflight_match_fetch.lock().unwrap().clear();
         }
     }
 
@@ -166,6 +173,7 @@ impl ServiceSnapshot {
         self.rank.invalidate_cache().await;
         self.stats.clear_cache().await;
         self.names.clear_cache().await;
+        self.inflight_match_fetch.lock().unwrap().clear();
         self.clear_match_player_cache();
     }
 
@@ -196,6 +204,7 @@ pub struct AppServices {
     pub previous_season_id: Option<String>,
     pub match_player_cache: Arc<Mutex<HashMap<String, (PlayerRank, PlayerStats)>>>,
     pub current_match_id: Arc<Mutex<Option<String>>>,
+    pub inflight_match_fetch: Arc<Mutex<HashSet<String>>>,
     pub restart_request: Arc<Notify>,
     pub restart_requested: Arc<AtomicBool>,
     /// Set by clear_all_cache so the running main loop drops its per-match
@@ -254,10 +263,10 @@ impl AppServices {
             previous_season_id: None,
             match_player_cache: Arc::new(Mutex::new(HashMap::new())),
             current_match_id: Arc::new(Mutex::new(None)),
+            inflight_match_fetch: Arc::new(Mutex::new(HashSet::new())),
             restart_request: Arc::new(Notify::new()),
             restart_requested: Arc::new(AtomicBool::new(false)),
             loop_reset_requested: Arc::new(AtomicBool::new(false)),
-            inflight_match_fetch: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -505,19 +514,26 @@ impl MainLoop {
 
         loop {
             // --- Snapshot phase: briefly hold read lock, then drop ---
-            let (snap, entitlements, cv, puuid) = {
+            // Only `svc.snapshot()` (Arc clones) and `svc.puuid` (small String)
+            // are read under the RwLock. `client_version` is read from MainLoop
+            // (its own mutex, never the AppServices RwLock) so the read-lock
+            // critical section stays as short as possible.
+            let (snap, entitlements, puuid) = {
                 let svc = services.read().await;
 
-                let entitlements = match svc.entitlements.lock().unwrap().as_ref() {
-                    Some(e) => e.clone(),
+                // Entitlements live in ApiClient (not the global AppServices
+                // state) so OAuth tokens aren't exposed through managed state
+                let entitlements = match svc.client.get_entitlements() {
+                    Some(e) => e,
                     None => return Err("Entitlements cleared - re-initializing".into()),
                 };
-                let cv = self.client_version.lock().unwrap().clone();
                 let puuid = svc.puuid.clone();
                 let snap = svc.snapshot();
 
-                (snap, entitlements, cv, puuid)
+                (snap, entitlements, puuid)
             };
+            // Read client_version without the AppServices RwLock.
+            let cv = self.client_version.lock().unwrap().clone();
             // RwLock guard is dropped here – all processing below happens
             // without holding it, allowing concurrent writes (e.g. re-init).
 
@@ -576,7 +592,10 @@ impl MainLoop {
             };
 
             // Cache presence data from WS pushes so build_heartbeat can reuse them
-            // for mode/queue resolution without a separate HTTP call.
+            // for mode/queue resolution without a separate HTTP call. We record the
+            // state the presence was captured in: a presence from a *different* game
+            // state is stale and must not be reused to resolve the current mode
+            //.
             if let Some(p) = new_presences {
                 last_presences = Some((p, current_state));
             }

@@ -51,7 +51,12 @@ impl RateLimiter {
         }
     }
 
-    fn check_rate(&mut self) -> Option<Duration> {
+    /// Returns how long the caller must wait if the per-second budget is
+    /// exhausted; otherwise `None` **and the request slot is reserved under the
+    /// same lock** so two concurrent tasks cannot both pass the check before
+    /// either records. Because the timestamp is pushed here, the
+    /// separate `record_request` step is no longer needed.
+    fn check_rate(&mut self) -> (Option<Duration>, Option<Instant>) {
         let now = Instant::now();
         while let Some(&t) = self.history.front() {
             if now.duration_since(t) > Duration::from_secs(1) {
@@ -63,14 +68,21 @@ impl RateLimiter {
         if self.history.len() >= self.max_per_second {
             if let Some(&oldest) = self.history.front() {
                 let wait = Duration::from_secs(1).saturating_sub(now.duration_since(oldest));
-                return Some(wait);
+                return (Some(wait), None);
             }
         }
-        None
+        // Budget available: reserve the slot now, while we still hold the lock.
+        self.history.push_back(now);
+        (None, Some(now))
     }
 
-    fn record_request(&mut self) {
-        self.history.push_back(Instant::now());
+    /// Remove a specific reserved slot from the history. Used on 429 responses
+    /// so retries don't consume the per-second budget for requests that didn't
+    /// go through.
+    fn release_slot(&mut self, timestamp: Instant) {
+        if let Some(pos) = self.history.iter().position(|&t| t == timestamp) {
+            self.history.remove(pos);
+        }
     }
 }
 
@@ -522,7 +534,7 @@ impl ApiClient {
                 ));
                 tokio::time::sleep(rem).await;
             }
-            let wait = {
+            let (wait, slot) = {
                 let mut limiter = self.rate_limiters[idx].lock().unwrap();
                 limiter.check_rate()
             };
@@ -547,6 +559,9 @@ impl ApiClient {
                 return Err(ApiError::NotFound);
             }
             if response.status().as_u16() == 429 {
+                if let Some(ts) = slot {
+                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                }
                 let delay = Self::retry_after_delay(&response, attempt);
                 self.set_cooldown(url_type, delay);
                 self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
@@ -565,10 +580,8 @@ impl ApiClient {
                 ));
             }
 
-            // Only count successful requests against the per-second limiter; 429s
-            // would otherwise inflate the window and tighten throttling further.
-            let mut limiter = self.rate_limiters[idx].lock().unwrap();
-            limiter.record_request();
+            // The per-second slot was already reserved in `check_rate`, so no
+            // separate record is needed here.
             return Ok(response);
         }
 
@@ -729,7 +742,7 @@ impl ApiClient {
                 ));
                 tokio::time::sleep(rem).await;
             }
-            let wait = {
+            let (wait, slot) = {
                 let mut limiter = self.rate_limiters[idx].lock().unwrap();
                 limiter.check_rate()
             };
@@ -748,6 +761,9 @@ impl ApiClient {
                 return Err(ApiError::NotFound);
             }
             if response.status().as_u16() == 429 {
+                if let Some(ts) = slot {
+                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                }
                 let delay = Self::retry_after_delay(&response, attempt);
                 self.set_cooldown(url_type, delay);
                 self.app_log(&format!("[API] 429 Too Many Requests ({url_type:?} {endpoint}) - retry {}/{} sleeping {:?}", attempt + 1, MAX_429_RETRIES, delay));
@@ -766,10 +782,8 @@ impl ApiClient {
                 ));
             }
 
-            // Only count successful requests against the per-second limiter; 429s
-            // would otherwise inflate the window and tighten throttling further.
-            let mut limiter = self.rate_limiters[idx].lock().unwrap();
-            limiter.record_request();
+            // The per-second slot was already reserved in `check_rate`, so no
+            // separate record is needed here.
             return Ok(response);
         }
 
@@ -969,15 +983,13 @@ impl ApiClient {
                 ));
                 tokio::time::sleep(rem).await;
             }
-            {
-                let wait = {
-                    let mut limiter = self.rate_limiters[idx].lock().unwrap();
-                    limiter.check_rate()
-                };
-                if let Some(delay) = wait {
-                    self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
-                    tokio::time::sleep(delay).await;
-                }
+            let (wait, slot) = {
+                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                limiter.check_rate()
+            };
+            if let Some(delay) = wait {
+                self.app_log(&format!("[API] rate limited (ValAPI) - sleeping {delay:?}"));
+                tokio::time::sleep(delay).await;
             }
 
             let resp = self
@@ -986,6 +998,9 @@ impl ApiClient {
             let status = resp.status();
 
             if status.as_u16() == 429 {
+                if let Some(ts) = slot {
+                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                }
                 let delay = Self::retry_after_delay(&resp, attempt);
                 self.set_cooldown(UrlType::Custom, delay);
                 self.app_log(&format!(
@@ -1009,9 +1024,8 @@ impl ApiClient {
                 )));
             }
 
-            // Only count successful requests against the per-second limiter.
-            let mut limiter = self.rate_limiters[idx].lock().unwrap();
-            limiter.record_request();
+            // The per-second slot was already reserved in `check_rate`, so no
+            // separate record is needed here.
             return serde_json::from_str(&text).map_err(|e| {
                 ApiError::ServerError(format!(
                     "ValAPI JSON parse error: {} - body: {}",

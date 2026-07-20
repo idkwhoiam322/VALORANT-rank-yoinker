@@ -8,6 +8,7 @@ use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
 use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
 use crate::models::match_data::CoregamePlayer;
+use crate::models::mmr::{PlayerRank, PlayerStats};
 use crate::models::presences::{GameState, Presence};
 use crate::services::encounters::EncounterRecord;
 
@@ -570,12 +571,37 @@ async fn build_ingame_payload(
                     );
                     entry
                 } else {
-                    let (rank, stats) =
-                        fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
-                    if rank.status_good {
-                        svc.put_match_cache_entry(subject.clone(), (rank.clone(), stats.clone()));
+                    // Only one concurrent tick should fetch rank/stats for a given
+                    // puuid. Mark the puuid in-flight under the same short critical
+                    // section we use for the cache miss check; a concurrent miss
+                    // sees the mark and skips its own fetch.
+                    let should_fetch = {
+                        let mut inflight = svc.inflight_match_fetch.lock().unwrap();
+                        if inflight.contains(&subject) {
+                            false
+                        } else {
+                            inflight.insert(subject.clone());
+                            true
+                        }
+                    };
+                    if should_fetch {
+                        let (rank, stats) =
+                            fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
+                        // Re-check under lock so a concurrent tick that won the
+                        // race isn't clobbered; then clear our in-flight mark.
+                        {
+                            let mut cache = svc.match_player_cache.lock().unwrap();
+                            if rank.status_good && !cache.contains_key(&subject) {
+                                cache.insert(subject.clone(), (rank.clone(), stats.clone()));
+                            }
+                        }
+                        svc.inflight_match_fetch.lock().unwrap().remove(&subject);
+                        (rank, stats)
+                    } else {
+                        // Another tick is fetching this puuid; surface empty data
+                        // for this tick. It will be populated on the next heartbeat.
+                        (PlayerRank::empty(), PlayerStats::default_stats())
                     }
-                    (rank, stats)
                 }
             } else {
                 fetch_rank_and_stats(svc, entitlements, client_version, &subject).await
