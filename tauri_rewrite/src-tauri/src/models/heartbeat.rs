@@ -15,6 +15,8 @@ pub struct HeartbeatPayload {
     pub map: Option<String>,
     #[serde(default)]
     pub server: Option<String>,
+    #[serde(default, rename = "matchId")]
+    pub match_id: Option<String>,
     pub players: HashMap<String, PlayerHeartbeat>,
     #[serde(default, rename = "rankIcons")]
     pub rank_icons: Arc<Vec<Option<String>>>,

@@ -154,6 +154,7 @@ pub async fn build_heartbeat(
         puuid: puuid.to_string(),
         map: None,
         server: None,
+        match_id: known_match_id.map(|s| s.to_string()),
         players: HashMap::new(),
         rank_icons: Arc::new(Vec::new()),
         version: 0,

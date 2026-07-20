@@ -413,7 +413,7 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         // guard remains active; epoch is only set by the backend_ready/cache_cleared
         // handler. Clear lastGameState/prevGameState: a late heartbeat from the old
         // session can no longer seed these because the epoch guard is still active.
-        setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null, lastGameState: null, prevGameState: null });
+        setState({ payload: null, players: [], lastRenderKey: null, selectedPuuid: null, matchPuuid: undefined, lastGameState: null, prevGameState: null });
         markAllDirty();
         render();
     }
@@ -537,16 +537,17 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
     function setPayload(payload) {
         let version = payload && payload.version;
         let unchanged = version !== undefined && version === state.lastRenderKey;
-        let newMatchPuuid = payload && payload.puuid;
+        let newMatchPuuid = payload && (payload.matchId || null);
         setState({ payload: payload });
         if (unchanged) { bumpTimestampOnly(payload); return; }
         setState({ lastRenderKey: version });
         setState({ players: normalizePlayers(payload) });
-        // Only drop the current selection when the match/account identity actually
-        // changes. A player can be absent from a single heartbeat (e.g. during the
-        // PREGAME->INGAME handoff before loadouts are fetched) without it being a
-        // new match, so clearing on transient absence would flicker the details
-        // panel closed and never auto-restore it.
+        // Only drop the current selection when the match identity actually
+        // changes (keyed off payload.matchId, the real per-match id — NOT the
+        // account puuid, which is constant). A player can be absent from a single
+        // heartbeat (e.g. during the PREGAME->INGAME handoff before loadouts are
+        // fetched) without it being a new match, so clearing on transient absence
+        // would flicker the details panel closed and never auto-restore it.
         if (state.selectedPuuid && state.matchPuuid !== undefined && newMatchPuuid !== state.matchPuuid) { setState({ selectedPuuid: null }); }
         setState({ matchPuuid: newMatchPuuid });
         markAllDirty();
