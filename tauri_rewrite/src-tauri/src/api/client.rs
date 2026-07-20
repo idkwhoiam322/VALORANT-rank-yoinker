@@ -899,12 +899,16 @@ impl ApiClient {
                     if validate(&json) {
                         match serde_json::from_value::<T>(json) {
                             Ok(v) => return Ok(v),
+                            // A parse failure after a *successful* HTTP response means
+                            // a schema/API change, not a transient error — retrying the
+                            // identical request cannot help, so bail out immediately
+                            // instead of burning the remaining retry budget.
                             Err(e) => {
-                                self.app_log(&format!(
-                                    "[API] retry {label}: JSON parse error: {e}"
+                                let err = ApiError::ServerError(format!(
+                                    "JSON parse error: {e} (endpoint: {endpoint})"
                                 ));
-                                last_error =
-                                    Some(ApiError::ServerError(format!("JSON parse error: {e}")));
+                                self.app_log(&format!("[API] {label}: {err} - not retrying"));
+                                return Err(err);
                             }
                         }
                     } else {

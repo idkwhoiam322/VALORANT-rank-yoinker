@@ -73,41 +73,6 @@ async fn resolve_mode_from_queue_id(queue_id: &str, payload: &mut HeartbeatPaylo
     }
 }
 
-async fn resolve_mode_from_presence(
-    svc: &ServiceSnapshot,
-    entitlements: &Entitlements,
-    client_version: &str,
-    puuid: &str,
-    payload: &mut HeartbeatPayload,
-) {
-    if payload.mode.is_some() {
-        return;
-    }
-    let Ok(presences) = svc
-        .presences
-        .get_presences(entitlements, client_version)
-        .await
-    else {
-        return;
-    };
-    let Some(own) =
-        crate::services::presences::PresenceService::find_own_presence(&presences, puuid)
-    else {
-        return;
-    };
-    let Some(private) =
-        crate::services::presences::PresenceService::decode_private_presence(&own.private)
-    else {
-        return;
-    };
-    let Some(qid) = crate::services::presences::PresenceService::extract_queue_id(&private) else {
-        return;
-    };
-    if !qid.is_empty() {
-        payload.mode = Some(crate::services::config::get_gamemode_name(&qid).to_string());
-    }
-}
-
 fn resolve_mode_from_map(map_id: &str, payload: &mut HeartbeatPayload) {
     if payload.mode.is_some() {
         return;
@@ -459,7 +424,10 @@ async fn fetch_match_context(
         resolve_mode_from_queue_id(qid, payload).await;
     }
     payload.server = match_data["GamePodID"].as_str().map(parse_server);
-    resolve_mode_from_presence(svc, entitlements, client_version, puuid, payload).await;
+    // NOTE: `resolve_mode_from_presence` is intentionally NOT called here. During
+    // an active match `QueueID` (above) is authoritative, and the presence-based
+    // fallback is only needed in MENUS state. Skipping it avoids a redundant HTTP
+    // presence fetch every tick.
     if let Some(map_id) = match_data["MapID"].as_str() {
         resolve_mode_from_map(map_id, payload);
     }
