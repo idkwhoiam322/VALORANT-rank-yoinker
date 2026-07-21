@@ -116,11 +116,6 @@
         gap: 8px;
     }
 
-    .refresh-btn.is-compact {
-        padding: 4px 10px;
-        font-size: 0.68rem;
-    }
-
     /* --- confirm modal --- */
     .modal-backdrop {
         position: fixed;
@@ -600,13 +595,6 @@
     .card-stat .stat-value.na {
         color: var(--muted);
         font-weight: 700;
-    }
-
-    .party-badge {
-        font-size: 0.62rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        color: var(--gold);
     }
 
     .player-button.self-card {

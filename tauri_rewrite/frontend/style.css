@@ -1,8 +1,5 @@
 :root {
     color-scheme: dark;
-    --bg: #05080f;
-    --bg-2: #0a1020;
-    --panel: rgba(8, 14, 26, 0.80);
     --panel-soft: rgba(14, 24, 42, 0.65);
     --panel-strong: rgba(20, 36, 62, 0.88);
     --line: rgba(229, 197, 145, 0.14);
@@ -63,14 +60,12 @@ button {
     cursor: pointer;
 }
 
-h1,
 h2,
 h3,
 p {
     margin: 0;
 }
 
-h1,
 h2,
 h3 {
     letter-spacing: 0;
@@ -93,21 +88,8 @@ h2 {
     text-transform: uppercase;
 }
 
-.roster-heading h2 {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.roster-heading h2::before {
-    content: "";
-    display: block;
-    width: 4px;
-    height: 1.1em;
-    border-radius: 2px;
-    background: var(--ember);
-    box-shadow: 0 0 10px rgba(255, 70, 85, 0.7);
-    flex-shrink: 0;
+.players-column {
+    margin-top: 0;
 }
 
 h3 {
@@ -116,19 +98,6 @@ h3 {
     font-weight: 950;
     text-transform: uppercase;
 }
-
-.players-column {
-    margin-top: 0;
-}
-
-.roster-heading {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 14px;
-}
-
 
 .teams-layout {
     display: grid;
@@ -164,26 +133,6 @@ h3 {
         rgba(91, 156, 246, 0.55) 85%,
         transparent 100%
     );
-}
-
-.team-header {
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--line);
-    font-size: 0.76rem;
-    font-weight: 950;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.team-header.is-blue {
-    color: var(--blue);
-    border-color: rgba(124, 181, 255, 0.28);
-}
-
-.team-header.is-red {
-    color: var(--ember);
-    border-color: rgba(255, 70, 85, 0.28);
 }
 
 .players-grid {
@@ -643,11 +592,6 @@ h3 {
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-}
-
-.weapon-column-rifles .weapon-tile,
-.weapon-column-heavy .weapon-tile {
-    height: var(--weapon-tile-height);
 }
 
 .buddy {
