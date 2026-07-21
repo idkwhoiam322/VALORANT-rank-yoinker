@@ -167,6 +167,9 @@ h3 {
     inset: auto 18px 0;
     height: 2px;
     background: linear-gradient(90deg, transparent, rgba(241, 199, 102, 0.95), transparent);
+}
+
+.player-button.is-selected::after {
     animation: shimmer-gold 2.6s ease-in-out infinite;
 }
 
