@@ -50,10 +50,10 @@ impl NamesService {
         {
             let mut cache = self.cache.lock().await;
             for p in puuids {
-                if let Some((name, time)) = cache.get(p) {
+                if let Some((name, time)) = cache.get(p.as_str()) {
                     if time.elapsed() < self.cache_ttl {
                         self.client
-                            .cache_hit("names", &crate::api::client::anon_id(&p), None);
+                            .cache_hit("names", &crate::api::client::anon_id(p), None);
                         cached_names.insert(p.clone(), name.clone());
                         continue;
                     }
@@ -102,8 +102,8 @@ impl NamesService {
                 }
             }
 
-            // Fallback: fetch remaining via PD name-service. Track resolved
-            // names in `newly_resolved` so we don't re-scan `cached_names`
+            // Fallback: fetch remaining via PD name-service only if local
+            // resolution didn't resolve all requested puuids.
             let still_missing: Vec<String> = missing
                 .iter()
                 .filter(|p| !newly_resolved.contains(*p))
@@ -157,7 +157,7 @@ impl NamesService {
                 let Some(name) = cached_names.get(p) else {
                     continue;
                 };
-                if let Some((_, time)) = cache.get(p) {
+                if let Some((_, time)) = cache.get(p.as_str()) {
                     if time.elapsed() < self.cache_ttl {
                         continue; // a concurrent fetch already cached this
                     }
