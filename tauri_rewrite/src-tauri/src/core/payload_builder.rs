@@ -121,11 +121,11 @@ pub async fn build_heartbeat(
         map: None,
         server: None,
         match_id: known_match_id.map(|s| s.to_string()),
-        players: HashMap::new(),
+        players: Arc::new(HashMap::new()),
         rank_icons: Arc::new(Vec::new()),
         version: 0,
         session_id: 0,
-        already_played_with: vec![],
+        already_played_with: Arc::new(vec![]),
     };
 
     // Mode/queue detection: prefer WS-cached presences (no HTTP).
@@ -668,11 +668,11 @@ async fn build_ingame_payload(
                 agent_name.as_deref(),
                 payload.map.as_deref(),
             ) {
-                payload.already_played_with.push(entry);
+                Arc::make_mut(&mut payload.already_played_with).push(entry);
             }
         }
 
-        payload.players.insert(subject, heartbeat_player);
+        Arc::make_mut(&mut payload.players).insert(subject, heartbeat_player);
     }
 }
 
@@ -880,11 +880,11 @@ async fn build_pregame_payload(
             player,
         );
 
-        payload.players.insert(subject, heartbeat_player);
+        Arc::make_mut(&mut payload.players).insert(subject, heartbeat_player);
     }
 
     // Populate already_played_with from stored encounters
-    payload.already_played_with = svc.encounters.get_all_summaries(puuid);
+    payload.already_played_with = Arc::new(svc.encounters.get_all_summaries(puuid));
 
     saved_loadouts_text
 }
@@ -992,7 +992,7 @@ async fn build_menus_payload(
             weapons: None,
         };
 
-        payload.players.insert(subject, heartbeat_player);
+        Arc::make_mut(&mut payload.players).insert(subject, heartbeat_player);
     }
 
     // Resolve names
@@ -1002,15 +1002,16 @@ async fn build_menus_payload(
         .get_names_from_puuids(entitlements, client_version, &puuids)
         .await
     {
+        let players = Arc::make_mut(&mut payload.players);
         for (puuid, name) in names {
-            if let Some(player) = payload.players.get_mut(&puuid) {
+            if let Some(player) = players.get_mut(&puuid) {
                 player.name = Some(name);
             }
         }
     }
 
     // Populate already_played_with from stored encounters
-    payload.already_played_with = svc.encounters.get_all_summaries(puuid);
+    payload.already_played_with = Arc::new(svc.encounters.get_all_summaries(puuid));
 }
 
 fn format_last_active(epoch: Option<i64>) -> Option<String> {

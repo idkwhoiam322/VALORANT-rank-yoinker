@@ -846,11 +846,11 @@ impl MainLoop {
                                 heartbeat.mode = snap_payload.mode.clone();
                             }
                             if heartbeat.players.is_empty() {
-                                heartbeat.players = snap_payload.players.clone();
+                                heartbeat.players = Arc::clone(&snap_payload.players);
                             }
-                            heartbeat.rank_icons = snap_payload.rank_icons.clone();
+                            heartbeat.rank_icons = Arc::clone(&snap_payload.rank_icons);
                             heartbeat.already_played_with =
-                                snap_payload.already_played_with.clone();
+                                Arc::clone(&snap_payload.already_played_with);
                         }
                     }
                 } else if let Some(id) = known_match_id.as_deref() {
@@ -1223,10 +1223,10 @@ impl HeartbeatDedupKey {
             map: h.map.clone(),
             server: h.server.clone(),
             match_id: h.match_id.clone(),
-            players: Arc::new(h.players.clone()),
+            players: h.players.clone(),
             rank_icons: h.rank_icons.clone(),
             session_id: h.session_id,
-            already_played_with: Arc::new(h.already_played_with.clone()),
+            already_played_with: h.already_played_with.clone(),
         }
     }
 
@@ -1242,11 +1242,11 @@ impl HeartbeatDedupKey {
             map: self.map.clone(),
             server: self.server.clone(),
             match_id: self.match_id.clone(),
-            players: (*self.players).clone(),
+            players: self.players.clone(),
             rank_icons: self.rank_icons.clone(),
             version: 0,
             session_id: self.session_id,
-            already_played_with: (*self.already_played_with).clone(),
+            already_played_with: self.already_played_with.clone(),
         }
     }
 }
@@ -1297,7 +1297,7 @@ fn heartbeats_equal_ignoring_time(prev: &HeartbeatDedupKey, cur: &HeartbeatPaylo
         && prev.map == cur.map
         && prev.server == cur.server
         && prev.match_id == cur.match_id
-        && *prev.players == cur.players
+        && prev.players == cur.players
         && prev.rank_icons == cur.rank_icons
         && prev.session_id == cur.session_id
         && encounter_entries_equal_ignoring_time_diff(
@@ -1333,7 +1333,7 @@ fn diff_heartbeat_fields(prev: &HeartbeatDedupKey, cur: &HeartbeatPayload) -> Ve
     if prev.match_id != cur.match_id {
         diffs.push("matchId");
     }
-    if *prev.players != cur.players {
+    if prev.players != cur.players {
         diffs.push("players");
     }
     if prev.rank_icons != cur.rank_icons {
