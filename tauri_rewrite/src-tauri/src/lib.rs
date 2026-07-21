@@ -1,3 +1,6 @@
+#![forbid(unsafe_code)]
+#![deny(warnings)]
+
 mod api;
 mod commands;
 mod core;
