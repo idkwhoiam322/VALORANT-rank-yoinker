@@ -3,12 +3,28 @@ param(
     [switch]$SkipCargoFetch
 )
 
+# Auto-elevate: restart as Administrator if not already running elevated.
+# Tool install (rustup, winget) requires admin rights on Windows.
+if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Not running as Administrator. Relaunching with elevated privileges..." -ForegroundColor Yellow
+    $argList = @("-NoProfile", "-File", "`"$PSCommandPath`"")
+    if ($NoToolInstall) { $argList += "-NoToolInstall" }
+    if ($SkipCargoFetch) { $argList += "-SkipCargoFetch" }
+    Start-Process -FilePath powershell -ArgumentList $argList -Verb RunAs
+    exit 0
+}
+
 $ErrorActionPreference = "Stop"
 $OriginalPref = $ErrorActionPreference
 
 function Test-Command($cmd) {
     Get-Command $cmd -ErrorAction SilentlyContinue
 }
+
+$RepoRoot = $PSScriptRoot
+$TauriDir = Join-Path $RepoRoot "tauri_rewrite"
+$SrcTauriDir = Join-Path $TauriDir "src-tauri"
+$FrontendDir = Join-Path $TauriDir "frontend"
 
 $Pass = 0
 $Fail = 0
@@ -74,7 +90,6 @@ Step "Checking Rust edition" {
 # ---- 3. Tauri prerequisites ----
 Step "Checking Tauri prerequisites" {
     if (!(Test-Command cargo)) { throw "cargo required to check Tauri deps" }
-    $targetDir = Join-Path $PSScriptRoot "tauri_rewrite" "src-tauri"
     $result = & cargo tauri info 2>&1
     if ($LASTEXITCODE -ne 0) {
         Warn "Tauri prerequisites may be incomplete. Run 'cargo tauri info' manually."
@@ -85,9 +100,8 @@ Step "Checking Tauri prerequisites" {
 
 # ---- 4. Cargo dependencies ----
 Step "Fetching Cargo dependencies" {
-    $targetDir = Join-Path $PSScriptRoot "tauri_rewrite" "src-tauri"
-    if (!(Test-Path $targetDir)) { throw "Expected src-tauri at $targetDir" }
-    Push-Location $targetDir
+    if (!(Test-Path $SrcTauriDir)) { throw "Expected src-tauri at $SrcTauriDir" }
+    Push-Location $SrcTauriDir
     try {
         $result = cargo fetch 2>&1
         if ($LASTEXITCODE -ne 0) { throw "cargo fetch failed: $result" }
@@ -97,8 +111,7 @@ Step "Fetching Cargo dependencies" {
 
 # ---- 5. Check (not build, just check for errors) ----
 Step "Running cargo check" {
-    $targetDir = Join-Path $PSScriptRoot "tauri_rewrite" "src-tauri"
-    Push-Location $targetDir
+    Push-Location $SrcTauriDir
     try {
         $result = cargo check 2>&1
         if ($LASTEXITCODE -ne 0) { throw "cargo check failed" }
@@ -108,12 +121,74 @@ Step "Running cargo check" {
 
 # ---- 6. Clippy ----
 Step "Running cargo clippy" {
-    $targetDir = Join-Path $PSScriptRoot "tauri_rewrite" "src-tauri"
-    Push-Location $targetDir
+    Push-Location $SrcTauriDir
     try {
         $result = cargo clippy -- -D warnings 2>&1
         if ($LASTEXITCODE -ne 0) { throw "clippy found issues" }
         Write-Host "no issues"
+    } finally { Pop-Location }
+}
+
+# ---- 7. Node.js / npm ----
+Step "Checking Node.js" {
+    if (!(Test-Command node)) {
+        if ($NoToolInstall) { throw "node not found. Install from https://nodejs.org" }
+        Write-Host -NoNewline "not found, installing via winget... "
+        winget install OpenJS.NodeJS.LTS 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "winget install failed. Install Node.js manually from https://nodejs.org" }
+        # Re-source PATH for the current session
+        $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "User") + ";$env:PATH"
+        $env:PATH = [Environment]::GetEnvironmentVariable("PATH", "Machine") + ";$env:PATH"
+    }
+    $ver = node --version
+    if ($LASTEXITCODE -ne 0) { throw "node failed: $ver" }
+    Write-Host $ver
+}
+
+Step "Checking npm" {
+    if (!(Test-Command npm)) { throw "npm not found after Node.js install" }
+    $ver = npm --version
+    if ($LASTEXITCODE -ne 0) { throw "npm failed: $ver" }
+    Write-Host $ver
+}
+
+# ---- 8. Frontend dev dependencies ----
+Step "Setting up frontend tooling" {
+    Push-Location $TauriDir
+    try {
+        # Create package.json if absent
+        if (!(Test-Path (Join-Path $TauriDir "package.json"))) {
+            $result = npm init -y 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "npm init failed: $result" }
+        }
+        # Install TypeScript if absent
+        $hasTsc = Test-Command tsc
+        if ($hasTsc) {
+            # Check if it's the local one or a global one
+            $localTsc = Join-Path $TauriDir "node_modules" ".bin" "tsc"
+            if (!(Test-Path $localTsc)) { $hasTsc = $false }
+        }
+        if (!$hasTsc) {
+            $result = npm install -D typescript 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "npm install typescript failed: $result" }
+        }
+        Write-Host "OK"
+    } finally { Pop-Location }
+}
+
+# ---- 9. Frontend type-check ----
+Step "Running TypeScript check (--checkJs)" {
+    Push-Location $TauriDir
+    try {
+        $result = npx tsc --noEmit 2>&1
+        $exit = $LASTEXITCODE
+        if ($exit -ne 0) {
+            # Show the actual errors but still throw
+            Write-Host
+            Write-Host $result -ForegroundColor Yellow
+            throw "TypeScript found type errors"
+        }
+        Write-Host "no type errors"
     } finally { Pop-Location }
 }
 
@@ -132,5 +207,8 @@ if ($Fail -gt 0) {
     exit 1
 } else {
     Write-Host "Development environment is ready." -ForegroundColor Green
-    Write-Host "Run:  cd tauri_rewrite/src-tauri && cargo tauri dev" -ForegroundColor Cyan
+    Write-Host "Commands:" -ForegroundColor Cyan
+    Write-Host "  cd tauri_rewrite/src-tauri && cargo tauri dev   # Run in dev mode" -ForegroundColor Cyan
+    Write-Host "  cd tauri_rewrite && npx tsc --noEmit           # Type-check frontend JS" -ForegroundColor Cyan
+    Write-Host "  cd tauri_rewrite/src-tauri && cargo clippy     # Rust lint check" -ForegroundColor Cyan
 }
