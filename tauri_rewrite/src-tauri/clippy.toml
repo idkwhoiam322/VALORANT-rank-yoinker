@@ -1,0 +1,11 @@
+# clippy.toml — project-wide clippy configuration for vry-rust.
+# Run: cargo clippy -- -D warnings
+#
+# Allow rules: noisy pedantic lints that fire on patterns common in Tauri apps.
+
+# Triggered by generated Tauri builder chains, IPC handler lists, etc.
+allow = [
+  "clippy::module_name_repetitions",  # e.g. `services::service_config` vs `services::config`
+  "clippy::too_many_lines",           # big match handlers / render methods
+  "clippy::similar_names",            # e.g. `pd_url` / `glz_url`, `old_value` / `new_value`
+]
