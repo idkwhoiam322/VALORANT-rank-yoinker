@@ -1417,12 +1417,6 @@ window.addEventListener("unhandledrejection", function (e) {
         player.isSelf ? "You" : player.name,
         "Unknown Player",
       );
-      let youBadge = null;
-      if (player.isSelf) {
-        youBadge = document.createElement("span");
-        youBadge.className = "self-badge";
-        youBadge.textContent = "You";
-      }
       let agent = document.createElement("span");
       agent.className = "agent-name";
       agent.textContent = txt(player.agent, "Agent " + NA);
@@ -1450,9 +1444,7 @@ window.addEventListener("unhandledrejection", function (e) {
       let action = document.createElement("span");
       action.className = "player-action";
       action.textContent = "View loadout & stats";
-      identity.append(name);
-      if (youBadge) identity.append(youBadge);
-      identity.append(agent, metaRow, action);
+      identity.append(name, agent, metaRow, action);
       button.append(
         avatar,
         identity,
