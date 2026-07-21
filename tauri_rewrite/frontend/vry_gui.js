@@ -11,19 +11,11 @@ function pickTauriListen() {
     if (t && t.listen) return t.listen;
     return null;
 }
-function pickTauriEmit() {
-    let t = window.__TAURI__;
-    if (t && t.event && t.event.emit) return t.event.emit;
-    if (t && t.emit) return t.emit;
-    return null;
-}
 let _tauriInvoke = pickTauriInvoke();
 let _tauriListen = pickTauriListen();
-let _tauriEmit = pickTauriEmit();
 let tauriInvoke = _tauriInvoke || (() => Promise.reject(new Error('IPC unavailable')));
 let tauriListen = _tauriListen || (() => Promise.resolve(() => {}));
-let tauriEmit = _tauriEmit || (() => Promise.resolve());
-if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
+if (!_tauriInvoke && !_tauriListen) {
     console.warn('[VRY] Tauri IPC global not detected; the app appears to be running outside the Tauri runtime. Backend-dependent features will be unavailable.');
 }
 
