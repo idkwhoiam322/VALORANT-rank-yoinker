@@ -381,8 +381,9 @@ window.addEventListener("unhandledrejection", function (e) {
         }
         if (opts.showBadge) document.body.classList.add("show-you-badge");
 
+        let canvas;
         try {
-            let canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" });
+            canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: "#0f1115" });
             doCleanup();
             if (opts.showBadge) document.body.classList.remove("show-you-badge");
             let blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
@@ -416,11 +417,24 @@ window.addEventListener("unhandledrejection", function (e) {
             doCleanup();
             if (opts.showBadge) document.body.classList.remove("show-you-badge");
             buttonEl.disabled = false;
+            if (canvas) { canvas.width = 0; canvas.height = 0; canvas = null; }
+            setTimeout(function () { if (typeof gc === "function") gc(); }, 0);
         }
     }
 
+    async function loadHtml2Canvas() {
+        if (typeof html2canvas !== "undefined") return html2canvas;
+        return new Promise(function (resolve, reject) {
+            let script = document.createElement("script");
+            script.src = "html2canvas.min.js";
+            script.onload = function () { resolve(html2canvas); };
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+
     async function takeScreenshot() {
-        if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
+        try { await loadHtml2Canvas(); } catch (e) { console.error("[VRY] Failed to load html2canvas:", e); showToast("Screenshot library failed to load."); return; }
         captureToClipboard(els.teamsLayout, els.screenshotButton, {
             overlayStyle: "body::before { display: none !important; }.player-button { background: rgba(10, 14, 24, 0.92) !important; }.player-button::after { display: none !important; }.player-button.self-card,.player-button.is-blue,.player-button.is-red { background: rgba(10, 14, 24, 0.92) !important; box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }.player-button:hover,.player-button:focus-visible,.player-button.is-selected { transform: none !important; }* { animation: none !important; }",
             styleId: "tmp-scr",
@@ -431,7 +445,7 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     async function takeDetailScreenshot() {
-        if (typeof html2canvas === "undefined") { showToast("Screenshot library not loaded yet."); return; }
+        try { await loadHtml2Canvas(); } catch (e) { console.error("[VRY] Failed to load html2canvas:", e); showToast("Screenshot library failed to load."); return; }
         let target = els.detailsPanel;
         if (!target || target.hidden) { showToast("No player loadout open."); return; }
         captureToClipboard(target, els.screenshotPlayerBtn, {
@@ -721,6 +735,7 @@ window.addEventListener("unhandledrejection", function (e) {
         state.dirty.details = true;
         render();
         updateSelection();
+        if (typeof gc === "function") gc();
     }
 
     function updateSelection() {
