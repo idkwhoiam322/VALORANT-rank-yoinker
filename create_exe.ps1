@@ -11,8 +11,9 @@ ld.exe copy on PATH so GCC's collect2 uses ld.lld instead of MinGW's
 single-threaded ld.bfd. Builds are ~2.4x faster when LLVM is installed.
 Falls back to the default MinGW linker when LLD is not available.
 
-    Profile settings (opt-level, LTO, etc.) are applied via environment
-    variables instead of rewriting Cargo.toml.
+    Profiles are defined in Cargo.toml: [profile.release] for fast dev,
+    [profile.release-max] for max performance (opt-level=3, fat LTO,
+    stripped). Pass -Release to select the latter.
 
 .PARAMETER Clean
     Run cargo clean before building (removes tauri_rewrite\src-tauri\target\).
@@ -89,10 +90,10 @@ function Find-Lld {
 }
 
 function Invoke-Cargo {
-    param([string]$Dir)
+    param([string]$Dir, [string]$Profile)
     Push-Location -Path $Dir
     $ErrorActionPreference = "Continue"
-    cargo build --release 2>&1 | ForEach-Object { Write-Host $_ }
+    cargo build --profile $Profile --locked 2>&1 | ForEach-Object { Write-Host $_ }
     $rc = $LASTEXITCODE
     Pop-Location
     if ($rc -ne 0) { Fail "cargo build failed (exit code $rc) -- see output above." }
@@ -142,16 +143,15 @@ if ($lldPath) {
     Write-Step "LLD not found -- using default MinGW linker"
 }
 
-# ── profile via env vars (no Cargo.toml rewriting) ───────────────────
-$profileLabel = if ($Release) { "release" } else { "dev" }
-$envBackup = @{}
+# ── profile selection ────────────────────────────────────────────────
+$profileName = if ($Release) { "release-max" } else { "release" }
+$targetDir = $profileName
+
+# ── job throttling (default: ~half the cores to protect in-game FPS) ──
+$cores = [Environment]::ProcessorCount
+$envBackupJobs = $env:CARGO_BUILD_JOBS
 
 try {
-    # ── job throttling (default: ~half the cores to protect in-game FPS) ──
-    # .cargo/config.toml throttles jobs to floor(cores/2) by default; override
-    # here via CARGO_BUILD_JOBS so -NoThrottle actually uses every core.
-    $cores = [Environment]::ProcessorCount
-    $envBackup.CARGO_BUILD_JOBS = $env:CARGO_BUILD_JOBS
     if ($NoThrottle) {
         $env:CARGO_BUILD_JOBS = "$cores"
         Write-Step "Throttling disabled (-NoThrottle) -- building with all $cores cores"
@@ -159,22 +159,6 @@ try {
         $jobCount = if ($Jobs -gt 0) { $Jobs } else { [math]::Max(1, [math]::Floor($cores / 2)) }
         $env:CARGO_BUILD_JOBS = "$jobCount"
         Write-Step "Throttling build to $jobCount of $cores cores (pass -NoThrottle for full speed)"
-    }
-
-    if ($Release) {
-        Write-Step "Applying maximum performance profile"
-        $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
-        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "3"
-        $envBackup.CARGO_PROFILE_RELEASE_LTO = $env:CARGO_PROFILE_RELEASE_LTO
-        $env:CARGO_PROFILE_RELEASE_LTO = "true"
-        $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS
-        $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1"
-        $envBackup.CARGO_PROFILE_RELEASE_STRIP = $env:CARGO_PROFILE_RELEASE_STRIP
-        $env:CARGO_PROFILE_RELEASE_STRIP = "true"
-    } else {
-        Write-Step "Applying fast dev profile (opt-level = 1)"
-        $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL = $env:CARGO_PROFILE_RELEASE_OPT_LEVEL
-        $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = "1"
     }
 
     if ($Clean) {
@@ -185,10 +169,10 @@ try {
         Pop-Location
     }
 
-    Write-Step "Building vry-rust.exe"
-    Invoke-Cargo -Dir ".\tauri_rewrite\src-tauri"
+    Write-Step "Building vry-rust.exe ($profileName profile)"
+    Invoke-Cargo -Dir ".\tauri_rewrite\src-tauri" -Profile $profileName
 
-    $exePath = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\target\release\vry-rust.exe"
+    $exePath = Join-Path $PSScriptRoot "tauri_rewrite\src-tauri\target\$targetDir\vry-rust.exe"
     if (-not (Test-Path $exePath)) {
         Fail "Build finished but no exe at $exePath -- check cargo output above."
     }
@@ -199,30 +183,11 @@ try {
     }
 
     Write-Step "Done"
-    Write-Host "Built: $exePath ($profileLabel)" -ForegroundColor Green
+    Write-Host "Built: $exePath ($profileName profile)" -ForegroundColor Green
 }
 finally {
-    # Restore job throttling env var
-    if ($envBackup.ContainsKey("CARGO_BUILD_JOBS")) {
-        if ($null -ne $envBackup.CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = $envBackup.CARGO_BUILD_JOBS }
-        else { Remove-Item -Path env:CARGO_BUILD_JOBS -ErrorAction SilentlyContinue }
-    }
-    # Restore profile env vars
-    if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL) { $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = $envBackup.CARGO_PROFILE_RELEASE_OPT_LEVEL }
-    else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_OPT_LEVEL -ErrorAction SilentlyContinue }
-    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_LTO")) {
-        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_LTO) { $env:CARGO_PROFILE_RELEASE_LTO = $envBackup.CARGO_PROFILE_RELEASE_LTO }
-        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_LTO -ErrorAction SilentlyContinue }
-    }
-    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_CODEGEN_UNITS")) {
-        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS) { $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = $envBackup.CARGO_PROFILE_RELEASE_CODEGEN_UNITS }
-        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS -ErrorAction SilentlyContinue }
-    }
-    if ($envBackup.ContainsKey("CARGO_PROFILE_RELEASE_STRIP")) {
-        if ($null -ne $envBackup.CARGO_PROFILE_RELEASE_STRIP) { $env:CARGO_PROFILE_RELEASE_STRIP = $envBackup.CARGO_PROFILE_RELEASE_STRIP }
-        else { Remove-Item -Path env:CARGO_PROFILE_RELEASE_STRIP -ErrorAction SilentlyContinue }
-    }
-    # Clean up temp LLD binaries
+    if ($null -ne $envBackupJobs) { $env:CARGO_BUILD_JOBS = $envBackupJobs }
+    else { Remove-Item -Path env:CARGO_BUILD_JOBS -ErrorAction SilentlyContinue }
     if ($lldBinsDir -and ($env:PATH -like "$lldBinsDir*")) {
         $env:PATH = $env:PATH -replace [regex]::Escape("$lldBinsDir;"), ""
     }
