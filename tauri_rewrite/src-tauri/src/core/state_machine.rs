@@ -518,7 +518,7 @@ impl MainLoop {
             // are read under the RwLock. `client_version` is read from MainLoop
             // (its own mutex, never the AppServices RwLock) so the read-lock
             // critical section stays as short as possible.
-            let (snap, entitlements, puuid) = {
+            let (snap, entitlements, puuid, cooldown) = {
                 let svc = services.read().await;
 
                 // Entitlements live in ApiClient (not the global AppServices
@@ -528,9 +528,10 @@ impl MainLoop {
                     None => return Err("Entitlements cleared - re-initializing".into()),
                 };
                 let puuid = svc.puuid.clone();
+                let cooldown = svc.config.get().cooldown;
                 let snap = svc.snapshot();
 
-                (snap, entitlements, puuid)
+                (snap, entitlements, puuid, cooldown)
             };
             // Read client_version without the AppServices RwLock.
             let cv = self.client_version.lock().unwrap().clone();
@@ -555,7 +556,15 @@ impl MainLoop {
 
             // ----- State detection: WebSocket (preferred) or polling (fallback) -----
             let (current_state, new_presences) = self
-                .detect_state(&snap, &entitlements, &cv, &puuid, &mut ws, last_state)
+                .detect_state(
+                    &snap,
+                    &entitlements,
+                    &cv,
+                    &puuid,
+                    &mut ws,
+                    last_state,
+                    cooldown,
+                )
                 .await;
 
             // Detect 503 from local API — Riot client session expired (e.g. user
@@ -604,7 +613,6 @@ impl MainLoop {
             // UNLESS we still don't have match_context (map unknown) - keep retrying
             if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
                 if match_context.is_some() {
-                    let cooldown = services.read().await.config.get().cooldown;
                     tokio::time::sleep(Duration::from_secs(cooldown)).await;
                     continue;
                 }
@@ -1127,6 +1135,7 @@ impl MainLoop {
         puuid: &str,
         ws: &mut Option<ValorantWs>,
         last_state: Option<GameState>,
+        cooldown: u64,
     ) -> (Option<GameState>, Option<Vec<Presence>>) {
         // Cold start: poll immediately instead of waiting for the cooldown timer.
         if last_state.is_none() {
@@ -1170,7 +1179,7 @@ impl MainLoop {
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(self.services.read().await.config.get().cooldown)) => {
+                _ = tokio::time::sleep(Duration::from_secs(cooldown)) => {
                     (last_state, None)
                 }
             }
