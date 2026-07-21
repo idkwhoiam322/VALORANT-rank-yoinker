@@ -3,7 +3,7 @@ target/
 *.rs.bk
 
 # Tauri build artifacts (auto-generated)
-src-tauri/gen/
+**/gen/
 
 # Node / frontend
 node_modules/
