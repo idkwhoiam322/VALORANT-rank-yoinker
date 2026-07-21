@@ -126,6 +126,7 @@ pub async fn build_heartbeat(
         version: 0,
         session_id: 0,
         already_played_with: Arc::new(vec![]),
+        last_match_available: svc.last_match_cache.lock().unwrap().is_some(),
     };
 
     // Mode/queue detection: prefer WS-cached presences (no HTTP).
@@ -519,13 +520,32 @@ async fn build_ingame_payload(
         Err(_) => return,
     };
 
-    // Get names for all players
+    // Get names for all players (cached per match_id to avoid redundant lookups)
     let puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
-    let names = svc
-        .names
-        .get_names_from_puuids(entitlements, client_version, &puuids)
-        .await
-        .unwrap_or_default();
+    let names = {
+        let cache_hit = {
+            let cache = svc.match_names_cache.lock().unwrap();
+            cache.as_ref().and_then(|(cached_match_id, cached_names)| {
+                if cached_match_id == &match_id {
+                    Some(cached_names.clone())
+                } else {
+                    None
+                }
+            })
+        };
+        match cache_hit {
+            Some(names) => names,
+            None => {
+                let names = svc
+                    .names
+                    .get_names_from_puuids(entitlements, client_version, &puuids)
+                    .await
+                    .unwrap_or_default();
+                *svc.match_names_cache.lock().unwrap() = Some((match_id.clone(), names.clone()));
+                names
+            }
+        }
+    };
 
     // Find ally team
     let ally_team = players

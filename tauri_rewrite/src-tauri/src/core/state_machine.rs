@@ -115,6 +115,12 @@ pub struct ServiceSnapshot {
     /// in-flight; a concurrent miss sees the mark and skips its own fetch, relying
     /// on the first tick's `put`.
     pub inflight_match_fetch: Arc<std::sync::Mutex<HashSet<String>>>,
+    /// Cached last-match ID — set at match-end so the frontend can show
+    /// "Last Match" immediately without an API call.
+    pub last_match_cache: Arc<std::sync::Mutex<Option<String>>>,
+    /// Names cache scoped to the current match — cleared on match transition.
+    /// Avoids redundant name-resolution calls every INGAME tick.
+    pub match_names_cache: Arc<std::sync::Mutex<Option<(String, HashMap<String, String>)>>>,
 }
 
 // Field access to the shared services is forwarded via `Deref` so existing
@@ -145,6 +151,7 @@ impl ServiceSnapshot {
         let mut cache = self.match_player_cache.lock().unwrap();
         cache.clear();
         *self.current_match_id.lock().unwrap() = None;
+        *self.match_names_cache.lock().unwrap() = None;
         self.inflight_match_fetch.lock().unwrap().clear();
     }
 
@@ -156,6 +163,7 @@ impl ServiceSnapshot {
         if current_id.as_deref() != Some(match_id) {
             *current_id = Some(match_id.to_string());
             self.match_player_cache.lock().unwrap().clear();
+            *self.match_names_cache.lock().unwrap() = None;
             self.inflight_match_fetch.lock().unwrap().clear();
         }
     }
@@ -173,6 +181,8 @@ impl ServiceSnapshot {
         self.rank.invalidate_cache().await;
         self.stats.clear_cache().await;
         self.names.clear_cache().await;
+        *self.last_match_cache.lock().unwrap() = None;
+        *self.match_names_cache.lock().unwrap() = None;
         self.inflight_match_fetch.lock().unwrap().clear();
         self.clear_match_player_cache();
     }
@@ -207,6 +217,12 @@ pub struct AppServices {
     pub inflight_match_fetch: Arc<Mutex<HashSet<String>>>,
     pub restart_request: Arc<Notify>,
     pub restart_requested: Arc<AtomicBool>,
+    /// Cached last-match ID — set at match-end so the frontend can show
+    /// "Last Match" immediately without an API call.
+    pub last_match_cache: Arc<std::sync::Mutex<Option<String>>>,
+    /// Names cache scoped to the current match — cleared on match transition.
+    /// Avoids redundant name-resolution calls every INGAME tick.
+    pub match_names_cache: Arc<std::sync::Mutex<Option<(String, HashMap<String, String>)>>>,
     /// Set by clear_all_cache so the running main loop drops its per-match
     /// carry-over locals (match_context / last_known_snapshot /
     /// pregame_loadout_cache) on the next tick, preventing stale match data
@@ -264,6 +280,8 @@ impl AppServices {
             match_player_cache: Arc::new(Mutex::new(HashMap::new())),
             current_match_id: Arc::new(Mutex::new(None)),
             inflight_match_fetch: Arc::new(Mutex::new(HashSet::new())),
+            last_match_cache: Arc::new(Mutex::new(None)),
+            match_names_cache: Arc::new(Mutex::new(None)),
             restart_request: Arc::new(Notify::new()),
             restart_requested: Arc::new(AtomicBool::new(false)),
             loop_reset_requested: Arc::new(AtomicBool::new(false)),
@@ -282,6 +300,8 @@ impl AppServices {
             match_player_cache: self.match_player_cache.clone(),
             current_match_id: self.current_match_id.clone(),
             inflight_match_fetch: self.inflight_match_fetch.clone(),
+            last_match_cache: self.last_match_cache.clone(),
+            match_names_cache: self.match_names_cache.clone(),
         }
     }
 
@@ -623,6 +643,9 @@ impl MainLoop {
             // State transition: INGAME -> not INGAME => update encounter results
             if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
+                    // Seed last_match_cache so the frontend renders "Last Match"
+                    // without needing an API call.
+                    *snap.last_match_cache.lock().unwrap() = Some(match_id.clone());
                     // Drop the last-known snapshot so the carry-over safety net
                     // cannot leak this match's data into the next one.
                     last_known_snapshot = None;
@@ -1256,6 +1279,7 @@ impl HeartbeatDedupKey {
             version: 0,
             session_id: self.session_id,
             already_played_with: self.already_played_with.clone(),
+            last_match_available: false,
         }
     }
 }

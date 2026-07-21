@@ -26,6 +26,8 @@ pub struct HeartbeatPayload {
     pub session_id: u64,
     #[serde(default, rename = "alreadyPlayedWith")]
     pub already_played_with: Arc<Vec<EncounterEntry>>,
+    #[serde(default, rename = "lastMatchAvailable")]
+    pub last_match_available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
