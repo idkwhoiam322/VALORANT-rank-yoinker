@@ -1042,12 +1042,8 @@ fn format_last_active(epoch: Option<i64>) -> Option<String> {
         .as_secs() as i64;
     let diff = (now - epoch).max(0);
 
-    if diff < 60 {
-        Some("now".into())
-    } else if diff < 3600 {
-        Some(format!("{}m ago", diff / 60))
-    } else if diff < 86400 {
-        Some(format!("{}h ago", diff / 3600))
+    if diff < 86400 {
+        Some(format!("<{}h ago", diff / 3600 + 1))
     } else {
         Some(format!("{}d ago", diff / 86400))
     }

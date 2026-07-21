@@ -88,71 +88,7 @@ impl StatsService {
             }
         };
 
-        let match_id = match &match_summary.match_id {
-            Some(id) => id.clone(),
-            None => {
-                log::debug!(
-                    "stats: match_id is None for {}",
-                    &crate::api::client::anon_id(puuid)
-                );
-                return PlayerStats::default_stats();
-            }
-        };
-
-        log::debug!(
-            "stats: match_id={}",
-            &crate::api::client::anon_id(&match_id)
-        );
-
-        // Fetch match details (cached with LRU + TTL eviction).
-        let match_data_opt = {
-            // Fast path: check cache
-            if let Some(data) = self.match_details_cache.get(&match_id).await {
-                self.client.cache_hit(
-                    "match details",
-                    &crate::api::client::anon_id(&match_id),
-                    None,
-                );
-                Some(data.0)
-            } else {
-                // Slow path: fetch outside lock, then store (store also acts as
-                // the double-check — a concurrent tick that landed first simply
-                // overwrote us).
-                match self
-                    .client
-                    .fetch_json_retry_typed::<MatchDetailsResponse>(
-                        UrlType::Pd,
-                        &endpoints::pd_match_details(&match_id),
-                        entitlements,
-                        client_version,
-                        3,
-                        Duration::from_secs(1),
-                        |j| j.get("matchInfo").or_else(|| j.get("MatchInfo")).is_some(),
-                    )
-                    .await
-                {
-                    Ok(data) => {
-                        log::debug!(
-                            "stats: match details fetched ok for {}",
-                            crate::api::client::anon_id(&match_id)
-                        );
-                        self.match_details_cache
-                            .insert(match_id.clone(), data.clone())
-                            .await;
-                        Some(data)
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "stats: match details fetch failed for {}: {e:?}",
-                            &crate::api::client::anon_id(&match_id)
-                        );
-                        None
-                    }
-                }
-            }
-        };
-
-        let stats = self.process_match_data(match_data_opt.as_ref(), match_summary);
+        let stats = self.process_match_data(match_summary);
         self.updates_cache
             .insert(puuid.to_string(), stats.clone())
             .await;
@@ -212,17 +148,8 @@ impl StatsService {
         }
     }
 
-    fn process_match_data(
-        &self,
-        match_data: Option<&MatchDetailsResponse>,
-        summary: &crate::models::mmr::CompetitiveUpdate,
-    ) -> PlayerStats {
-        let match_info = match_data.and_then(|md| md.match_info.as_ref());
-        let last_comp_start = summary
-            .match_start_time
-            .or_else(|| match_info.and_then(|mi| mi.game_start_millis));
-        let game_length = match_info.and_then(|mi| mi.game_length_millis).unwrap_or(0);
-        let last_active_epoch = last_comp_start.map(|t| (t + game_length) / 1000);
+    fn process_match_data(&self, summary: &crate::models::mmr::CompetitiveUpdate) -> PlayerStats {
+        let last_active_epoch = summary.match_start_time.map(|t| t / 1000);
 
         PlayerStats { last_active_epoch }
     }
