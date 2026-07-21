@@ -840,7 +840,8 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
             identity.className = "player-main";
             let name = document.createElement("span");
             name.className = "player-name";
-            name.textContent = txt(player.name, "Unknown Player");
+            // Censor Self Player Name
+            name.textContent = txt(player.isSelf ? "You" : player.name, "Unknown Player");
             let youBadge = null;
             if (player.isSelf) { youBadge = document.createElement("span"); youBadge.className = "self-badge"; youBadge.textContent = "You"; }
             let agent = document.createElement("span");
@@ -957,7 +958,8 @@ if (!_tauriInvoke && !_tauriListen && !_tauriEmit) {
         els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
         els.selectedAgent.alt = selected.agent || "";
         els.selectedAgent.classList.toggle("is-selecting", selected.agentSelectionState === "selected");
-        els.selectedName.textContent = txt(selected.name, "Unknown Player");
+        // Censor Self Player Name
+        els.selectedName.textContent = txt(selected.isSelf ? "You" : selected.name, "Unknown Player");
         els.selectedName.title = txt(selected.name, "Unknown Player") + COPY_HINT;
         let hasName = selected.name && selected.name.indexOf("#") !== -1;
         if (hasName) {
