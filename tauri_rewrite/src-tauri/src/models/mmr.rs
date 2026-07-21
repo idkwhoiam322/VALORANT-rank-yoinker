@@ -42,12 +42,6 @@ pub struct SeasonalInfo {
 
     #[serde(default)]
     pub number_of_games: Option<u32>,
-
-    #[serde(default)]
-    pub number_of_wins: Option<u32>,
-
-    #[serde(default)]
-    pub peak_rank: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,12 +111,6 @@ pub struct MatchDetailsResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchInfo {
-    #[serde(default, rename = "gameStartMillis")]
-    pub game_start_millis: Option<i64>,
-
-    #[serde(default, rename = "gameLengthMillis")]
-    pub game_length_millis: Option<i64>,
-
     #[serde(default, rename = "winningTeam", alias = "WinningTeam")]
     pub winning_team: Option<String>,
 }

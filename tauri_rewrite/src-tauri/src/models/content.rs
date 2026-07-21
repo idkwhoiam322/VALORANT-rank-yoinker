@@ -14,10 +14,6 @@ pub struct Agent {
     pub uuid: String,
     #[serde(default)]
     pub display_name: String,
-    #[serde(default)]
-    pub display_icon: Option<String>,
-    #[serde(default)]
-    pub is_playable_character: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,11 +133,7 @@ pub struct CompetitiveTiers {
 pub struct Tier {
     pub tier: u32,
     #[serde(default)]
-    pub tier_name: Option<String>,
-    #[serde(default)]
     pub small_icon: Option<String>,
-    #[serde(default)]
-    pub large_icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,8 +158,6 @@ pub struct ContentTier {
     pub display_icon: Option<String>,
     #[serde(default)]
     pub highlight_color: Option<String>,
-    #[serde(default)]
-    pub rank: Option<u32>,
 }
 
 /// A single entry from the Riot content-service `Seasons` array. Used to resolve a
