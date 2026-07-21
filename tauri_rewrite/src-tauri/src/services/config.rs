@@ -47,7 +47,7 @@ impl ConfigManager {
     }
 }
 
-pub fn get_gamemode_name(queue_id: &str) -> &'static str {
+pub(crate) fn get_gamemode_name(queue_id: &str) -> &'static str {
     match queue_id {
         "competitive" => "Competitive",
         "unrated" => "Unrated",

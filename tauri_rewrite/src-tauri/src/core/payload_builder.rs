@@ -96,7 +96,7 @@ fn is_custom_game(private: &serde_json::Value) -> bool {
         || private.get("partyState").and_then(|v| v.as_str()) == Some("CUSTOM_GAME_SETUP")
 }
 
-pub async fn build_heartbeat(
+pub(crate) async fn build_heartbeat(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
     client_version: &str,

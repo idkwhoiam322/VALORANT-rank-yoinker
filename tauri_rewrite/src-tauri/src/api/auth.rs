@@ -10,14 +10,14 @@ use crate::models::auth::{Entitlements, Lockfile, Region};
 const LOCKFILE_PATH: &str = r"Riot Games\Riot Client\Config\lockfile";
 const LOG_PATH: &str = r"VALORANT\Saved\Logs\ShooterGame.log";
 
-pub fn get_lockfile_path() -> PathBuf {
+pub(crate) fn get_lockfile_path() -> PathBuf {
     let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
         std::env::var("APPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".into())
     });
     PathBuf::from(localappdata).join(LOCKFILE_PATH)
 }
 
-pub fn get_log_path() -> PathBuf {
+pub(crate) fn get_log_path() -> PathBuf {
     let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
         std::env::var("APPDATA").unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".into())
     });
@@ -37,7 +37,7 @@ fn get_riot_client_installs_path() -> PathBuf {
 /// Reads `RiotClientInstalls.json` (a JSON dict of client key -> install path)
 /// and returns the first value whose path exists; falls back to the common
 /// fixed install locations. Returns `None` only if nothing is found.
-pub fn get_riot_client_install_path() -> Option<PathBuf> {
+fn get_riot_client_install_path() -> Option<PathBuf> {
     let candidates: Vec<PathBuf> = {
         let installs = get_riot_client_installs_path();
         let mut list = Vec::new();
@@ -82,7 +82,7 @@ pub fn get_riot_client_install_path() -> Option<PathBuf> {
 /// The presence of the lockfile is the only signal we use to decide whether to
 /// launch. A backgrounded / signed-out RC keeps its lockfile, so we never
 /// relaunch on top of an existing instance (avoids duplicate processes).
-pub fn launch_riot_client() {
+fn launch_riot_client() {
     if let Some(path) = get_riot_client_install_path() {
         let path_str = path.to_string_lossy().to_string();
         let _ = std::process::Command::new("cmd")
@@ -103,7 +103,7 @@ pub fn launch_riot_client() {
 /// whose endpoints are not yet bound). Callers must still attempt the real
 /// auth/connect and treat failure as "not ready yet", exactly like Python's
 /// `get_headers()` retry-on-ConnectionError.
-pub async fn ensure_lockfile_ready(budget: Duration) -> Option<Lockfile> {
+pub(crate) async fn ensure_lockfile_ready(budget: Duration) -> Option<Lockfile> {
     let path = get_lockfile_path();
     if path.exists() {
         if let Ok(lf) = parse_lockfile(&path) {
@@ -128,7 +128,7 @@ pub async fn ensure_lockfile_ready(budget: Duration) -> Option<Lockfile> {
     }
 }
 
-pub fn parse_lockfile(path: &PathBuf) -> Result<Lockfile, ApiError> {
+pub(crate) fn parse_lockfile(path: &PathBuf) -> Result<Lockfile, ApiError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ApiError::Lockfile(format!("Cannot read lockfile: {}", e)))?;
 
@@ -153,7 +153,7 @@ pub fn parse_lockfile(path: &PathBuf) -> Result<Lockfile, ApiError> {
     })
 }
 
-pub fn parse_region_from_logs(path: &PathBuf) -> Result<Region, ApiError> {
+pub(crate) fn parse_region_from_logs(path: &PathBuf) -> Result<Region, ApiError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ApiError::Auth(format!("Cannot read log file: {}", e)))?;
 
@@ -196,7 +196,7 @@ pub fn parse_region_from_logs(path: &PathBuf) -> Result<Region, ApiError> {
     }
 }
 
-pub fn parse_client_version(path: &PathBuf) -> Result<String, ApiError> {
+fn parse_client_version(path: &PathBuf) -> Result<String, ApiError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ApiError::Auth(format!("Cannot read log file for version: {}", e)))?;
 
@@ -211,7 +211,7 @@ pub fn parse_client_version(path: &PathBuf) -> Result<String, ApiError> {
     Ok("unknown".into())
 }
 
-pub async fn authenticate(
+pub(crate) async fn authenticate(
     client: &ApiClient,
     lockfile: &Lockfile,
 ) -> Result<(Entitlements, String), ApiError> {

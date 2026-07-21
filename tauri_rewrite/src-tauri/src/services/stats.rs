@@ -14,14 +14,14 @@ use crate::models::auth::Entitlements;
 use crate::models::mmr::{CompetitiveUpdatesResponse, MatchDetailsResponse, PlayerStats};
 use crate::services::cache::TtlLruCache;
 
-pub struct StatsService {
+pub(crate) struct StatsService {
     client: Arc<ApiClient>,
     match_details_cache: TtlLruCache<String, MatchDetailsResponse>,
     updates_cache: TtlLruCache<String, PlayerStats>,
 }
 
 impl StatsService {
-    pub fn new(client: Arc<ApiClient>) -> Self {
+    pub(crate) fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
             match_details_cache: TtlLruCache::new(200, MATCH_DETAILS_TTL),
@@ -29,12 +29,12 @@ impl StatsService {
         }
     }
 
-    pub async fn clear_cache(&self) {
+    pub(crate) async fn clear_cache(&self) {
         self.match_details_cache.clear().await;
         self.updates_cache.clear().await;
     }
 
-    pub async fn get_stats(
+    pub(crate) async fn get_stats(
         &self,
         entitlements: &Entitlements,
         client_version: &str,
@@ -101,7 +101,7 @@ impl StatsService {
     /// already fetched during the per-player stats path. On a cache miss this
     /// performs the same retry+`matchInfo`-validation fetch the stats path uses,
     /// so behavior on a miss is identical to a direct `client.fetch_json_retry`.
-    pub async fn get_match_details(
+    pub(crate) async fn get_match_details(
         &self,
         match_id: &str,
         entitlements: &Entitlements,

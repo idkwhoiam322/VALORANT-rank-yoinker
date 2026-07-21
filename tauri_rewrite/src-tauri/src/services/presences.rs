@@ -18,7 +18,7 @@ fn presence_b64_engine() -> &'static base64::engine::general_purpose::GeneralPur
     })
 }
 
-pub struct PresenceService {
+pub(crate) struct PresenceService {
     client: Arc<ApiClient>,
 }
 
@@ -40,7 +40,10 @@ impl PresenceService {
         Ok(resp.presences)
     }
 
-    pub fn find_own_presence<'a>(presences: &'a [Presence], puuid: &str) -> Option<&'a Presence> {
+    pub(crate) fn find_own_presence<'a>(
+        presences: &'a [Presence],
+        puuid: &str,
+    ) -> Option<&'a Presence> {
         presences
             .iter()
             .find(|p| p.puuid.as_deref() == Some(puuid) && p.product.as_deref() == Some("valorant"))
@@ -55,7 +58,9 @@ impl PresenceService {
         serde_json::from_slice(&bytes).ok()
     }
 
-    pub fn decode_private_presence(private_val: &Option<String>) -> Option<serde_json::Value> {
+    pub(crate) fn decode_private_presence(
+        private_val: &Option<String>,
+    ) -> Option<serde_json::Value> {
         let b64 = private_val.as_deref().unwrap_or("");
         if b64.is_empty() {
             return None;
@@ -63,7 +68,7 @@ impl PresenceService {
         Self::decode_private_presence_json(b64)
     }
 
-    pub fn extract_game_state(private: &serde_json::Value) -> Option<String> {
+    fn extract_game_state(private: &serde_json::Value) -> Option<String> {
         if let Some(state) = private
             .get("matchPresenceData")
             .and_then(|mpd| mpd.get("sessionLoopState"))
@@ -77,7 +82,7 @@ impl PresenceService {
             .map(|s| s.to_string())
     }
 
-    pub fn extract_queue_id(private: &serde_json::Value) -> Option<String> {
+    pub(crate) fn extract_queue_id(private: &serde_json::Value) -> Option<String> {
         // Check nested matchPresenceData first, then flat queueId
         if let Some(qid) = private
             .get("matchPresenceData")
@@ -93,7 +98,7 @@ impl PresenceService {
     }
 
     /// Extract account level from private presence (nested or flat)
-    pub fn extract_account_level(private: &serde_json::Value) -> Option<u32> {
+    pub(crate) fn extract_account_level(private: &serde_json::Value) -> Option<u32> {
         if let Some(level) = private
             .get("playerPresenceData")
             .and_then(|ppd| ppd.get("accountLevel"))
@@ -109,7 +114,7 @@ impl PresenceService {
 
     /// Riot swaps between a nested `partyPresenceData.partyId` and a flat
     /// `partyId` field depending on the endpoint/client version. Check both.
-    pub fn extract_party_id(private: &serde_json::Value) -> Option<String> {
+    fn extract_party_id(private: &serde_json::Value) -> Option<String> {
         if let Some(id) = private
             .get("partyPresenceData")
             .and_then(|ppd| ppd.get("partyId"))
@@ -131,7 +136,10 @@ impl PresenceService {
     /// multiple presences for the same account (e.g. Riot client +
     /// Valorant) with different private payload formats; stopping at
     /// the first puuid match may pick a non-Valorant entry.
-    pub fn find_party_member_puuids(presences: &[Presence], self_puuid: &str) -> Vec<String> {
+    pub(crate) fn find_party_member_puuids(
+        presences: &[Presence],
+        self_puuid: &str,
+    ) -> Vec<String> {
         let own_party_id = presences
             .iter()
             .filter_map(|p| {
@@ -165,7 +173,7 @@ impl PresenceService {
             .collect()
     }
 
-    pub async fn detect_game_state_from_poll(
+    pub(crate) async fn detect_game_state_from_poll(
         &self,
         entitlements: &Entitlements,
         client_version: &str,

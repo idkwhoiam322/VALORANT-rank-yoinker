@@ -8,7 +8,7 @@ use chrono::Local;
 use tauri::AppHandle;
 use tauri::Emitter;
 
-pub struct Logger {
+pub(crate) struct Logger {
     log_path: PathBuf,
     file: Mutex<Option<BufWriter<File>>>,
     buffer: Mutex<VecDeque<String>>,

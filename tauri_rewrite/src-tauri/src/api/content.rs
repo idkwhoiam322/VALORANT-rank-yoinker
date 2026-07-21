@@ -321,7 +321,7 @@ fn process_seasons(
     (current_season_id, previous_season_id)
 }
 
-pub async fn fetch_all_content(
+pub(crate) async fn fetch_all_content(
     client: &ApiClient,
     region_shard: &str,
     entitlements: &crate::models::auth::Entitlements,
@@ -511,6 +511,6 @@ pub async fn fetch_all_content(
     (cache, season_id, previous_season_id)
 }
 
-pub fn is_before_ascendant(season_id: &str) -> bool {
+pub(crate) fn is_before_ascendant(season_id: &str) -> bool {
     before_ascendant_set().contains(season_id)
 }

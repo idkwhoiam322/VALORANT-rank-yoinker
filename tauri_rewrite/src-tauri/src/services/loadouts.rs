@@ -16,16 +16,16 @@ const SOCKET_SKIN_LEVEL: &str = "e7c63390-eda7-46e0-bb7a-a6abdacd2433";
 const SOCKET_SKIN_CHROMA: &str = "3ad1b2b2-acdb-4524-852f-954a76ddae0a";
 const SOCKET_BUDDY: &str = "77258665-71d1-4623-bc72-44db9bd5b3b3";
 
-pub struct LoadoutService {
+pub(crate) struct LoadoutService {
     client: Arc<ApiClient>,
 }
 
 impl LoadoutService {
-    pub fn new(client: Arc<ApiClient>) -> Self {
+    pub(crate) fn new(client: Arc<ApiClient>) -> Self {
         Self { client }
     }
 
-    pub async fn get_match_loadouts(
+    pub(crate) async fn get_match_loadouts(
         &self,
         entitlements: &Entitlements,
         client_version: &str,
@@ -56,7 +56,7 @@ impl LoadoutService {
         Ok(self.build_loadout_json(&loadouts_resp, players, content))
     }
 
-    pub fn build_loadout_json(
+    pub(crate) fn build_loadout_json(
         &self,
         loadouts_resp: &CoregameLoadoutsResponse,
         players: &[CoregamePlayer],

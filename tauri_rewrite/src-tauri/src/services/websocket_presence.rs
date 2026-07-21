@@ -73,7 +73,7 @@ impl ServerCertVerifier for AcceptInvalidServerCert {
 /// Carries both the game state and the entire presences array so
 /// the heartbeat builder can reuse the data for mode/queue resolution
 /// instead of a separate HTTP call.
-pub struct WsPresenceEvent {
+pub(crate) struct WsPresenceEvent {
     pub state: GameState,
     pub presences: Vec<Presence>,
 }
@@ -85,7 +85,7 @@ pub struct WsPresenceEvent {
 /// `OnJsonApiEvent_chat_v4_presences` and pushes `WsPresenceEvent`
 /// into a channel.  The main loop uses these for fast state detection
 /// and for mode/queue resolution without a separate HTTP call.
-pub struct ValorantWs {
+pub(crate) struct ValorantWs {
     state_rx: mpsc::Receiver<WsPresenceEvent>,
 }
 
@@ -93,7 +93,7 @@ impl ValorantWs {
     /// Try to connect to the Riot local WebSocket and subscribe to presence
     /// events.  Returns `None` when the connection cannot be established
     /// (the caller falls back to polling).
-    pub async fn connect(
+    pub(crate) async fn connect(
         port: u16,
         password: &str,
         puuid: &str,
@@ -134,14 +134,14 @@ impl ValorantWs {
 
     /// Receive the next presence event (non-blocking callers should
     /// use `tokio::select!` with a timeout as fallback).
-    pub async fn recv(&mut self) -> Option<WsPresenceEvent> {
+    pub(crate) async fn recv(&mut self) -> Option<WsPresenceEvent> {
         self.state_rx.recv().await
     }
 
     /// Attempt to receive the next presence event without blocking.
     /// Returns the event if one is immediately available in the buffer,
     /// or an error if the channel is empty or closed.
-    pub fn try_recv(&mut self) -> Result<WsPresenceEvent, mpsc::error::TryRecvError> {
+    pub(crate) fn try_recv(&mut self) -> Result<WsPresenceEvent, mpsc::error::TryRecvError> {
         self.state_rx.try_recv()
     }
 }

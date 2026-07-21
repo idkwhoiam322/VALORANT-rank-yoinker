@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 
 /// An LRU-bounded cache whose entries also expire after `ttl`. Wrapped in a
 /// `tokio::sync::Mutex` so it can be shared across async tasks.
-pub struct TtlLruCache<K, V> {
+pub(crate) struct TtlLruCache<K, V> {
     inner: Mutex<LruCache<K, (V, Instant)>>,
     ttl: Duration,
 }

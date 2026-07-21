@@ -84,7 +84,7 @@ fn redact_secrets(input: &str) -> String {
 // runtime.
 // ---------------------------------------------------------------------------
 #[derive(Clone)]
-pub struct SharedServices {
+pub(crate) struct SharedServices {
     pub logger: Arc<Logger>,
     pub client: Arc<ApiClient>,
     pub presences: Arc<PresenceService>,
@@ -99,7 +99,7 @@ pub struct SharedServices {
 // Snapshot of services & session data extracted from the RwLock so the main
 // loop can drop the guard before making HTTP calls.
 // ---------------------------------------------------------------------------
-pub struct ServiceSnapshot {
+pub(crate) struct ServiceSnapshot {
     pub services: SharedServices,
     pub heartbeat_log_path: std::path::PathBuf,
     pub content: Arc<ContentCache>,
@@ -134,7 +134,7 @@ impl std::ops::Deref for ServiceSnapshot {
 }
 
 impl ServiceSnapshot {
-    pub fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
+    pub(crate) fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
         use std::io::Write;
         if let Ok(line) = serde_json::to_string(heartbeat) {
             if let Ok(mut f) = fs::OpenOptions::new()
@@ -147,7 +147,7 @@ impl ServiceSnapshot {
         }
     }
 
-    pub fn clear_match_player_cache(&self) {
+    pub(crate) fn clear_match_player_cache(&self) {
         let mut cache = self.match_player_cache.lock().unwrap();
         cache.clear();
         *self.current_match_id.lock().unwrap() = None;
@@ -158,7 +158,7 @@ impl ServiceSnapshot {
     /// Set the current match scope. If the match_id differs from the cached
     /// scope, the entire cache is cleared and the new scope is stored.
     /// Call once per heartbeat before processing players.
-    pub fn set_match_cache_scope(&self, match_id: &str) {
+    pub(crate) fn set_match_cache_scope(&self, match_id: &str) {
         let mut current_id = self.current_match_id.lock().unwrap();
         if current_id.as_deref() != Some(match_id) {
             *current_id = Some(match_id.to_string());
@@ -170,7 +170,7 @@ impl ServiceSnapshot {
 
     /// Get a single entry from the match-scoped cache for the given puuid.
     /// Pure getter - no side effects.
-    pub fn get_match_cache_entry(&self, puuid: &str) -> Option<(PlayerRank, PlayerStats)> {
+    pub(crate) fn get_match_cache_entry(&self, puuid: &str) -> Option<(PlayerRank, PlayerStats)> {
         self.match_player_cache.lock().unwrap().get(puuid).cloned()
     }
 
@@ -204,7 +204,7 @@ impl ServiceSnapshot {
 // without taking the RwLock, eliminating the snapshot-phase read bottleneck
 //.
 // ---------------------------------------------------------------------------
-pub struct AppServices {
+pub(crate) struct AppServices {
     pub services: SharedServices,
     pub config: ConfigManager,
     pub heartbeat_log_path: std::path::PathBuf,
@@ -238,7 +238,7 @@ impl std::ops::Deref for AppServices {
 }
 
 impl AppServices {
-    pub fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
+    pub(crate) fn new(root: std::path::PathBuf, client: ApiClient) -> Self {
         let logger = Arc::new(Logger::new(root.clone()));
         let client = Arc::new(client);
         client.set_logger(logger.clone());
@@ -290,7 +290,7 @@ impl AppServices {
 
     /// Clone the services + scalars needed during the main loop so the caller
     /// can drop the RwLock guard before making any HTTP requests.
-    pub fn snapshot(&self) -> ServiceSnapshot {
+    pub(crate) fn snapshot(&self) -> ServiceSnapshot {
         ServiceSnapshot {
             services: self.services.clone(),
             heartbeat_log_path: self.heartbeat_log_path.clone(),
@@ -305,16 +305,16 @@ impl AppServices {
         }
     }
 
-    pub fn log(&self, msg: &str) {
+    pub(crate) fn log(&self, msg: &str) {
         self.services.logger.log(msg);
     }
 
-    pub async fn clear_volatile_caches(&self) {
+    pub(crate) async fn clear_volatile_caches(&self) {
         self.snapshot().clear_volatile_caches().await;
     }
 }
 
-pub struct MainLoop {
+pub(crate) struct MainLoop {
     pub services: Arc<RwLock<AppServices>>,
     heartbeat_version: AtomicU64,
     session_id: AtomicU64,
@@ -327,7 +327,7 @@ pub struct MainLoop {
 }
 
 impl MainLoop {
-    pub fn new(root: std::path::PathBuf, pd_url: String, glz_url: String) -> Self {
+    pub(crate) fn new(root: std::path::PathBuf, pd_url: String, glz_url: String) -> Self {
         let client = ApiClient::new(pd_url, glz_url);
         let services = Arc::new(RwLock::new(AppServices::new(root, client)));
         Self {
@@ -339,7 +339,7 @@ impl MainLoop {
         }
     }
 
-    pub async fn run(&self, app: AppHandle) {
+    pub(crate) async fn run(&self, app: AppHandle) {
         let services = self.services.clone();
 
         {

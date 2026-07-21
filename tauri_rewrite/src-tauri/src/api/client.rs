@@ -142,16 +142,16 @@ impl ApiClient {
         }
     }
 
-    pub fn set_logger(&self, logger: Arc<Logger>) {
+    pub(crate) fn set_logger(&self, logger: Arc<Logger>) {
         *self.logger.lock().unwrap() = Some(logger);
     }
 
-    pub fn update_urls(&self, pd_url: String, glz_url: String) {
+    pub(crate) fn update_urls(&self, pd_url: String, glz_url: String) {
         *self.pd_base.lock().unwrap() = pd_url.into();
         *self.glz_base.lock().unwrap() = glz_url.into();
     }
 
-    pub fn set_local_auth(&self, password: String, port: u16) {
+    pub(crate) fn set_local_auth(&self, password: String, port: u16) {
         let header = format!(
             "Basic {}",
             base64::Engine::encode(
@@ -178,11 +178,11 @@ impl ApiClient {
         *self.entitlements.lock().unwrap() = value;
     }
 
-    pub fn set_client_version(&self, version: &str) {
+    pub(crate) fn set_client_version(&self, version: &str) {
         *self.client_version.lock().unwrap() = version.to_string();
     }
 
-    pub fn get_client_version(&self) -> String {
+    pub(crate) fn get_client_version(&self) -> String {
         self.client_version.lock().unwrap().clone()
     }
 
@@ -461,7 +461,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn fetch(
+    pub(crate) async fn fetch(
         &self,
         url_type: UrlType,
         endpoint: &str,
@@ -472,7 +472,7 @@ impl ApiClient {
             .await
     }
 
-    pub async fn fetch_with_method(
+    async fn fetch_with_method(
         &self,
         url_type: UrlType,
         endpoint: &str,
@@ -596,7 +596,7 @@ impl ApiClient {
         Err(ApiError::RateLimited)
     }
 
-    pub async fn fetch_json<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
         &self,
         url_type: UrlType,
         endpoint: &str,
@@ -606,7 +606,7 @@ impl ApiClient {
             .await
     }
 
-    pub async fn fetch_json_with_body<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn fetch_json_with_body<T: serde::de::DeserializeOwned>(
         &self,
         url_type: UrlType,
         endpoint: &str,
@@ -804,7 +804,7 @@ impl ApiClient {
     /// by refreshing entitlements + client_version and retrying once.
     /// The `validate` closure determines if the response is acceptable;
     /// returns `Err` only after all retries are exhausted.
-    pub async fn fetch_json_retry(
+    pub(crate) async fn fetch_json_retry(
         &self,
         url_type: UrlType,
         endpoint: &str,
@@ -970,7 +970,7 @@ impl ApiClient {
         Err(last_error.unwrap_or(ApiError::ServerError("max retries exhausted".into())))
     }
 
-    pub async fn fetch_valorant_api<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn fetch_valorant_api<T: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
     ) -> Result<T, ApiError> {

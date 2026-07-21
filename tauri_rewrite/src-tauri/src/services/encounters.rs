@@ -92,13 +92,13 @@ fn dedup_sorted(mut records: Vec<&EncounterRecord>) -> Vec<&EncounterRecord> {
     records
 }
 
-pub struct EncounterService {
+pub(crate) struct EncounterService {
     stats_path: PathBuf,
     data: Mutex<EncounterData>,
 }
 
 impl EncounterService {
-    pub fn new(root: PathBuf) -> Self {
+    pub(crate) fn new(root: PathBuf) -> Self {
         let stats_dir = root.join("stats");
         let stats_path = stats_dir.join("encounters.json");
         let _ = fs::create_dir_all(&stats_dir);
@@ -118,7 +118,7 @@ impl EncounterService {
         }
     }
 
-    pub fn save_encounter(&self, puuid: &str, record: EncounterRecord) {
+    pub(crate) fn save_encounter(&self, puuid: &str, record: EncounterRecord) {
         let mut data = self.data.lock().unwrap();
         let match_id = record.match_id.clone();
 
@@ -193,7 +193,7 @@ impl EncounterService {
         self.save_to_disk(&data.records);
     }
 
-    pub fn update_match_result(
+    pub(crate) fn update_match_result(
         &self,
         match_id: &str,
         my_team: &str,
@@ -245,7 +245,7 @@ impl EncounterService {
         changed
     }
 
-    pub fn build_encounter_summary(
+    pub(crate) fn build_encounter_summary(
         &self,
         puuid: &str,
         current_match_id: &str,

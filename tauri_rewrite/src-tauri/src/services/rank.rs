@@ -12,24 +12,24 @@ use crate::services::cache::TtlLruCache;
 const RANK_CACHE_CAP: usize = 500;
 const RANK_CACHE_TTL: Duration = Duration::from_secs(300);
 
-pub struct RankService {
+pub(crate) struct RankService {
     client: Arc<ApiClient>,
     cache: TtlLruCache<String, PlayerRank>,
 }
 
 impl RankService {
-    pub fn new(client: Arc<ApiClient>) -> Self {
+    pub(crate) fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
             cache: TtlLruCache::new(RANK_CACHE_CAP, RANK_CACHE_TTL),
         }
     }
 
-    pub async fn invalidate_cache(&self) {
+    pub(crate) async fn invalidate_cache(&self) {
         self.cache.clear().await;
     }
 
-    pub async fn get_rank(
+    pub(crate) async fn get_rank(
         &self,
         entitlements: &Entitlements,
         client_version: &str,

@@ -14,14 +14,14 @@ use crate::models::auth::Entitlements;
 /// Bounds the names cache so it cannot grow unbounded; TTL still applies on top.
 const NAMES_CACHE_CAP: usize = 1000;
 
-pub struct NamesService {
+pub(crate) struct NamesService {
     client: Arc<ApiClient>,
     cache: Mutex<LruCache<String, (String, Instant)>>,
     cache_ttl: Duration,
 }
 
 impl NamesService {
-    pub fn new(client: Arc<ApiClient>) -> Self {
+    pub(crate) fn new(client: Arc<ApiClient>) -> Self {
         Self {
             client,
             cache: Mutex::new(LruCache::new(NonZeroUsize::new(NAMES_CACHE_CAP).unwrap())),
@@ -29,11 +29,11 @@ impl NamesService {
         }
     }
 
-    pub async fn clear_cache(&self) {
+    pub(crate) async fn clear_cache(&self) {
         self.cache.lock().await.clear();
     }
 
-    pub async fn get_names_from_puuids(
+    pub(crate) async fn get_names_from_puuids(
         &self,
         entitlements: &Entitlements,
         client_version: &str,
