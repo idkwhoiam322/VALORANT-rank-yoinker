@@ -305,7 +305,10 @@ window.addEventListener("unhandledrejection", function (e) {
             let img = document.createElement("img");
             img.className = "rank-icon";
             img.src = safeHttps(iconUrl);
+            img.decoding = "async";
             img.loading = "lazy";
+            img.width = 24;
+            img.height = 24;
             v.append(img);
             v.append(" ");
         }
@@ -925,7 +928,7 @@ window.addEventListener("unhandledrejection", function (e) {
             let rankBadge = document.createElement("span");
             rankBadge.className = "player-meta";
             let rankIconUrl = state.rankIcons && state.rankIcons[player.rank];
-            if (rankIconUrl) { let ri = document.createElement("img"); ri.className = "rank-icon"; ri.src = safeHttps(rankIconUrl); ri.loading = "lazy"; rankBadge.append(ri); rankBadge.append(" "); }
+            if (rankIconUrl) { let ri = document.createElement("img"); ri.className = "rank-icon"; ri.src = safeHttps(rankIconUrl); ri.decoding = "async"; ri.loading = "lazy"; ri.width = 24; ri.height = 24; rankBadge.append(ri); rankBadge.append(" "); }
             rankBadge.append(document.createTextNode(rankName(player.rank, true)));
             let bc = rankColor(player.rank);
             if (bc) rankBadge.style.color = bc;
@@ -999,7 +1002,7 @@ window.addEventListener("unhandledrejection", function (e) {
             let weapon = getWeapon(player, weaponName);
             let slot = document.createElement("span");
             slot.className = "preview-slot";
-            if (weapon && weapon.skinDisplayIcon) { let img = document.createElement("img"); img.src = safeHttps(weapon.skinDisplayIcon); img.alt = weapon.skinDisplayName || weapon.weapon || "Weapon"; slot.append(img); }
+            if (weapon && weapon.skinDisplayIcon) { let img = document.createElement("img"); img.src = safeHttps(weapon.skinDisplayIcon); img.decoding = "async"; img.width = 48; img.height = 48; img.alt = weapon.skinDisplayName || weapon.weapon || "Weapon"; slot.append(img); }
             let copy = document.createElement("span");
             copy.className = "preview-copy";
             let label = document.createElement("span");
@@ -1034,6 +1037,9 @@ window.addEventListener("unhandledrejection", function (e) {
         }
         if (!selected) return;
         let agentNotSelected = selected.agentSelectionState === "";
+        els.selectedAgent.decoding = "async";
+        els.selectedAgent.width = 80;
+        els.selectedAgent.height = 80;
         els.selectedAgent.src = safeHttps(selected.agentImgLink);
         els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
         els.selectedAgent.alt = selected.agent || "";
@@ -1097,7 +1103,7 @@ window.addEventListener("unhandledrejection", function (e) {
             let art = document.createElement("div");
             art.className = "expression-art";
             let iconSrc = expression && (expression.fullTransparentIcon || expression.displayIcon);
-            if (iconSrc) { let img = document.createElement("img"); img.src = safeHttps(iconSrc); img.alt = (expression && expression.displayName) || "Expression"; art.append(img); }
+            if (iconSrc) { let img = document.createElement("img"); img.src = safeHttps(iconSrc); img.decoding = "async"; img.width = 48; img.height = 48; img.alt = (expression && expression.displayName) || "Expression"; art.append(img); }
             let copy = document.createElement("div");
             copy.className = "expression-copy";
             let name = document.createElement("strong");
@@ -1154,15 +1160,18 @@ window.addEventListener("unhandledrejection", function (e) {
             let badge = document.createElement("img");
             badge.className = "weapon-tier-badge";
             badge.src = safeHttps(weapon.contentTierIcon);
+            badge.decoding = "async";
+            badge.loading = "lazy";
+            badge.width = 24;
+            badge.height = 24;
             badge.alt = weapon.contentTierName;
             badge.title = weapon.contentTierName;
-            badge.loading = "lazy";
             tile.append(badge);
         }
         let art = document.createElement("div");
         art.className = "weapon-art";
         let iconSrc = weapon && (weapon.skinDisplayIcon || weapon.weaponDisplayIcon);
-        if (iconSrc) { let img = document.createElement("img"); img.src = safeHttps(iconSrc); img.alt = weapon.skinDisplayName || weapon.weapon || weaponName; art.append(img); }
+        if (iconSrc) { let img = document.createElement("img"); img.src = safeHttps(iconSrc); img.decoding = "async"; img.width = 48; img.height = 48; img.alt = weapon.skinDisplayName || weapon.weapon || weaponName; art.append(img); }
         let copy = document.createElement("div");
         copy.className = "weapon-copy";
         let label = document.createElement("span");
@@ -1178,6 +1187,9 @@ window.addEventListener("unhandledrejection", function (e) {
             let buddy = document.createElement("img");
             buddy.className = "buddy";
             buddy.src = safeHttps(weapon.buddy_displayIcon);
+            buddy.decoding = "async";
+            buddy.width = 24;
+            buddy.height = 24;
             buddy.alt = weapon.buddy_displayName || "Buddy";
             buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
             tile.append(buddy);
@@ -1194,6 +1206,9 @@ window.addEventListener("unhandledrejection", function (e) {
         let img = document.createElement("img");
         img.className = "agent-avatar";
         if (selectionState === "selected") img.classList.add("is-selecting");
+        img.decoding = "async";
+        img.width = 40;
+        img.height = 40;
         img.alt = alt || "";
         img.src = safeHttps(src);
         return img;

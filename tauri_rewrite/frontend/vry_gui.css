@@ -838,3 +838,17 @@
         gap: 10px;
         align-items: center;
     }
+
+    .weapon-art img,
+    .preview-slot img,
+    .expression-art img {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+    }
+
+    .buddy,
+    .weapon-tier-badge {
+        width: 24px;
+        height: 24px;
+    }
