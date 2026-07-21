@@ -72,6 +72,12 @@ const BEFORE_ASCENDANT_SEASONS: &[&str] = &[
     "808202d6-4f2b-a8ff-1feb-b3a0590ad79f",
 ];
 
+fn before_ascendant_set() -> &'static std::collections::HashSet<&'static str> {
+    use std::sync::OnceLock;
+    static SET: OnceLock<std::collections::HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| BEFORE_ASCENDANT_SEASONS.iter().copied().collect())
+}
+
 async fn fetch_agents_raw(client: &ApiClient) -> Result<ValorantApiResponse<Vec<Agent>>, ApiError> {
     fetch_valorant_api_with_retry(client, endpoints::VAL_AGENTS).await
 }
@@ -506,5 +512,5 @@ pub async fn fetch_all_content(
 }
 
 pub fn is_before_ascendant(season_id: &str) -> bool {
-    BEFORE_ASCENDANT_SEASONS.contains(&season_id)
+    before_ascendant_set().contains(season_id)
 }
