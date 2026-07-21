@@ -75,9 +75,6 @@ pub struct ExpressionSelections {
 pub struct Expression {
     #[serde(default, alias = "AssetID")]
     pub asset_id: Option<String>,
-
-    #[serde(default, alias = "SlotID")]
-    pub slot_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

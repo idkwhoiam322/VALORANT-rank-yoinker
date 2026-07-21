@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 use crate::api::auth;
 use crate::api::client::ApiClient;
 use crate::api::content::fetch_all_content;
-use crate::api::response_helpers::{get_match_score, get_winning_team};
+
 use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
@@ -657,23 +657,40 @@ impl MainLoop {
                         .await
                     {
                         Ok(match_data) => {
-                            if let Ok(json) = serde_json::to_value(&match_data) {
-                                let winning_team = get_winning_team(&json);
-                                let score = get_match_score(&json);
-                                if let Some(winning_team) = winning_team {
-                                    snap.encounters.update_match_result(
-                                        match_id,
-                                        my_team,
-                                        &winning_team,
-                                        score.clone(),
-                                    );
-                                    snap.logger.log(&format!("Updated encounter results: winning_team={winning_team}, score={}", score.as_deref().unwrap_or("unknown")));
-                                } else {
-                                    snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
-                                }
+                            let winning_team = match_data
+                                .match_info
+                                .as_ref()
+                                .and_then(|mi| mi.winning_team.clone())
+                                .or_else(|| {
+                                    match_data.teams.as_ref().and_then(|teams| {
+                                        teams
+                                            .iter()
+                                            .find(|t| t.won == Some(true))
+                                            .and_then(|t| t.team_id.clone())
+                                    })
+                                });
+                            let score = match_data.teams.as_ref().and_then(|teams| {
+                                (teams.len() >= 2).then(|| {
+                                    format!(
+                                        "{}-{}",
+                                        teams[0].rounds_won.unwrap_or(0),
+                                        teams[1].rounds_won.unwrap_or(0)
+                                    )
+                                })
+                            });
+                            if let Some(ref winning_team) = winning_team {
+                                snap.logger.log(&format!(
+                                    "Updated encounter results: winning_team={winning_team} score={}",
+                                    score.as_deref().unwrap_or("unknown")
+                                ));
+                                snap.encounters.update_match_result(
+                                    match_id,
+                                    my_team,
+                                    winning_team,
+                                    score,
+                                );
                             } else {
-                                snap.logger
-                                    .log("Match ended but failed to serialize match details");
+                                snap.logger.log("Match ended but could not determine winning team (match details may not be ready yet)");
                             }
                         }
                         Err(e) => snap

@@ -116,8 +116,6 @@ pub struct PlayerCard {
     pub display_name: Option<String>,
     #[serde(default)]
     pub large_art: Option<String>,
-    #[serde(default)]
-    pub wide_art: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
