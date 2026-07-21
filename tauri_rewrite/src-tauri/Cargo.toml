@@ -1,6 +1,6 @@
 [package]
 name = "vry-rust"
-version = "2.99.0"
+version = "3.0.0"
 description = "VALORANT rank yoinker - Tauri rewrite"
 authors = ["idkwhoiam322"]
 edition = "2021"
