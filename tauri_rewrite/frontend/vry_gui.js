@@ -354,6 +354,11 @@ window.addEventListener("unhandledrejection", function (e) {
         }, ms);
     }
 
+    function clearImageContainer(el) {
+        el.querySelectorAll("img").forEach(function (img) { img.src = ""; });
+        el.replaceChildren();
+    }
+
     async function captureToClipboard(target, buttonEl, opts) {
         if (!target) { showToast("No target element."); return; }
         buttonEl.disabled = true;
@@ -878,6 +883,8 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     function renderPlayers() {
+        els.blueGrid.querySelectorAll("img").forEach(function (img) { img.src = ""; });
+        els.redGrid.querySelectorAll("img").forEach(function (img) { img.src = ""; });
         els.blueGrid.replaceChildren();
         els.redGrid.replaceChildren();
         state.playerButtons = new Map();
@@ -1018,6 +1025,13 @@ window.addEventListener("unhandledrejection", function (e) {
         els.emptyState.hidden = hasSelection || state.players.length > 0;
         if (!hasSelection && state.players.length === 0) { els.emptyStateTitle.textContent = "No match data"; els.emptyStateText.textContent = "Waiting for VRY backend data."; }
         else if (!hasSelection) { els.emptyStateTitle.textContent = "No player selected"; els.emptyStateText.textContent = "Click a player card to view loadout and stats."; }
+        if (!hasSelection) {
+            clearImageContainer(els.weaponGroups);
+            clearImageContainer(els.expressionGrid);
+            clearImageContainer(els.statBar);
+            els.selectedAgent.src = "";
+            els.playerCardPreview.style.backgroundImage = "";
+        }
         if (!selected) return;
         let agentNotSelected = selected.agentSelectionState === "";
         els.selectedAgent.src = safeHttps(selected.agentImgLink);
@@ -1057,12 +1071,12 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     function renderStatBar(player) {
-        els.statBar.replaceChildren();
+        clearImageContainer(els.statBar);
         els.statBar.append(buildStatChips(player, "stat-chip", false, true));
     }
 
     function renderExpressions(player) {
-        els.expressionGrid.replaceChildren();
+        clearImageContainer(els.expressionGrid);
         let expressions = [];
         let sprayKeys = player.sprays || {};
         for (let idx in sprayKeys) {
@@ -1099,7 +1113,7 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     function renderWeapons(player) {
-        els.weaponGroups.replaceChildren();
+        clearImageContainer(els.weaponGroups);
         let frag = document.createDocumentFragment();
         WEAPON_COLUMNS.forEach(function (column) {
             let columnNode = document.createElement("div");
