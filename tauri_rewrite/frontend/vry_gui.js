@@ -418,7 +418,7 @@ window.addEventListener("unhandledrejection", function (e) {
             if (opts.showBadge) document.body.classList.remove("show-you-badge");
             buttonEl.disabled = false;
             if (canvas) { canvas.width = 0; canvas.height = 0; canvas = null; }
-            setTimeout(function () { if (typeof gc === "function") gc(); }, 0);
+            setTimeout(function () { if (typeof gc === "function") gc(); else console.log("[VRY] gc not available (capture)"); }, 0);
         }
     }
 
@@ -736,6 +736,7 @@ window.addEventListener("unhandledrejection", function (e) {
         render();
         updateSelection();
         if (typeof gc === "function") gc();
+        else console.log("[VRY] gc not available (deselectPlayer)");
     }
 
     function updateSelection() {
