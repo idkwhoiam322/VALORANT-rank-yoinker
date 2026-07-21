@@ -19,6 +19,13 @@ if (!_tauriInvoke && !_tauriListen) {
     console.warn('[VRY] Tauri IPC global not detected; the app appears to be running outside the Tauri runtime. Backend-dependent features will be unavailable.');
 }
 
+// ---- frontend log forwarding ----
+// Override console methods to forward all log messages to the Rust backend
+// via the log_frontend IPC command. Each console call is serialized to a
+// string (objects are JSON.stringify'd, multiple args are space-joined) and
+// sent alongside the log level. The original console method is still called
+// so DevTools output is preserved. The .catch() silently swallows IPC errors
+// (e.g. during startup before the backend is ready) to avoid throwing.
 (function () {
     if (!_tauriInvoke) return;
     ["log", "warn", "error", "debug", "info"].forEach(function (level) {
@@ -33,6 +40,9 @@ if (!_tauriInvoke && !_tauriListen) {
     });
 })();
 
+// Global error handlers — catch anything that escapes try/catch blocks
+// (e.g. errors in third-party callbacks, async stack traces) and route them
+// through console.error so they appear in log-N.txt via the override above.
 window.addEventListener("error", function (e) {
     console.error("[VRY] Uncaught error:", e.message || e.error, e.filename || "", e.lineno || 0);
 });
@@ -591,6 +601,12 @@ window.addEventListener("unhandledrejection", function (e) {
         }
     }
 
+    // Transforms the raw heartbeat payload's player map into a sorted array.
+    // Adds derived fields: isSelf (for highlighting), _realName (original name
+    // before "You" override), _weaponMap (weapon name -> entry lookup).
+    // Filters out players with no name/agent/weapons (transient absences
+    // during PREGAME->INGAME handoff). Sorts: self first, then party groups,
+    // then alphabetically by name.
     function normalizePlayers(payload) {
         let rawPlayers = (payload && payload.players) || {};
         let myPuuid = payload && payload.puuid;
@@ -722,8 +738,7 @@ window.addEventListener("unhandledrejection", function (e) {
     // A single document-level contextmenu listener replaces the per-element
     // bindContextCopy() listeners (and the grid-level handler) that were
     // attached to ~40 freshly-created elements on every render. Those elements
-    // are destroyed on each heartbeat, so the old listeners churned GC. See
-    // so the old listeners churned GC.
+    // are destroyed on each heartbeat, so the old listeners churned GC.
     function handleDelegatedContextMenu(e) {
         try {
             // Always suppress the native webview context menu (reload, save image as,
@@ -1270,6 +1285,9 @@ window.addEventListener("unhandledrejection", function (e) {
         }
     }
 
+    // Helper: invoke a Tauri command and render its string result into a <pre>.
+    // Shows fallbackText while loading, errorText on failure. Used for the
+    // Backend Log and Heartbeat Data panels.
     function renderInvokeText(invokeMethod, preEl, fallbackText, errorText) {
         tauriInvoke(invokeMethod).then(function (text) {
             let displayText = text || fallbackText;
