@@ -17,7 +17,9 @@
         "minHeight": 600,
         "resizable": true,
         "maximized": true,
-        "center": true
+        "center": true,
+        "devtools": false,
+        "additionalBrowserArgs": "--js-flags=--max_old_space_size=64,--expose-gc --disable-background-networking --disable-component-update --disable-client-config-fetch --no-default-browser-check --no-first-run --disable-breakpad --disable-crash-reporter --disable-remote-fonts --disable-webgl --disable-webrtc --disable-databases --disable-notifications --disable-geolocation --disable-print-preview --disable-hang-monitor --disable-threaded-scrolling --msWebView2SimulateMemoryPressureWhenInactive --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,MediaRouter,ReadingList,OptimizationGuideModelDownloading,OptimizationHints,EdgeFeedback,msWebView2EnableShoppingFeatures,msWebView2EnableFamilySafety,CalculateNativeWinOcclusion"
       }
     ],
     "security": {
