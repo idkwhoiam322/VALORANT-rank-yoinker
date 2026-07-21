@@ -64,6 +64,17 @@ pub async fn get_heartbeat_log(
 }
 
 #[tauri::command]
+pub async fn log_frontend(
+    services: State<'_, Arc<RwLock<AppServices>>>,
+    msg: String,
+    level: String,
+) -> Result<(), String> {
+    let svc = services.read().await;
+    svc.log(&format!("[FRONTEND][{level}] {msg}"));
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_log_file(services: State<'_, Arc<RwLock<AppServices>>>) -> Result<(), String> {
     let svc = services.read().await;
     svc.logger.open_log_file()

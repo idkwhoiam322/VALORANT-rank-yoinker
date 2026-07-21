@@ -37,6 +37,7 @@ pub fn run() {
             commands::config::get_heartbeat_log,
             commands::config::open_log_file,
             commands::config::open_heartbeat_file,
+            commands::config::log_frontend,
             commands::system::clear_all_cache,
             commands::system::restart_application,
         ])

@@ -20,6 +20,20 @@ if (!_tauriInvoke && !_tauriListen) {
 }
 
 (function () {
+    if (!_tauriInvoke) return;
+    ["log", "warn", "error", "debug", "info"].forEach(function (level) {
+        let original = console[level];
+        console[level] = function () {
+            let msg = Array.prototype.map.call(arguments, function (a) {
+                return typeof a === "object" ? JSON.stringify(a) : String(a);
+            }).join(" ");
+            original.apply(console, arguments);
+            _tauriInvoke("log_frontend", { msg: msg, level: level }).catch(function () {});
+        };
+    });
+})();
+
+(function () {
     "use strict";
 
     let COPY_HINT = " (Right-click to copy)";
