@@ -1333,12 +1333,6 @@ window.addEventListener("unhandledrejection", function (e) {
   }
 
   function renderPlayers() {
-    els.blueGrid.querySelectorAll("img").forEach(function (img) {
-      img.src = "";
-    });
-    els.redGrid.querySelectorAll("img").forEach(function (img) {
-      img.src = "";
-    });
     els.blueGrid.replaceChildren();
     els.redGrid.replaceChildren();
     state.playerButtons = new Map();
