@@ -838,8 +838,13 @@ impl ApiClient {
                     if validate(&json) {
                         return Ok(json);
                     }
+                    let preview = serde_json::to_string(&json)
+                        .unwrap_or_default()
+                        .chars()
+                        .take(300)
+                        .collect::<String>();
                     self.app_log(&format!(
-                        "[API] retry {label}: validation failed - retrying"
+                        "[API] retry {label}: validation failed, response={preview}"
                     ));
                 }
                 Err(e) => {
@@ -894,7 +899,15 @@ impl ApiClient {
                 validate,
             )
             .await?;
-        serde_json::from_value(json).map_err(|e| {
+        serde_json::from_value(json.clone()).map_err(|e| {
+            let preview = serde_json::to_string(&json)
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect::<String>();
+            self.app_log(&format!(
+                "[API] deserialize failed for {endpoint}: {e}, response={preview}"
+            ));
             ApiError::ServerError(format!("JSON parse error: {} (endpoint: {})", e, endpoint))
         })
     }
