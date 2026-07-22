@@ -96,6 +96,7 @@ fn is_custom_game(private: &serde_json::Value) -> bool {
         || private.get("partyState").and_then(|v| v.as_str()) == Some("CUSTOM_GAME_SETUP")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_heartbeat(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -170,7 +171,7 @@ pub(crate) async fn build_heartbeat(
     let presences_slice = if ws_data { None } else { presences.as_deref() };
 
     let used_pregame_loadouts: Option<String> = match state {
-        GameState::INGAME => {
+        GameState::Ingame => {
             build_ingame_payload(
                 svc,
                 entitlements,
@@ -183,7 +184,7 @@ pub(crate) async fn build_heartbeat(
             .await;
             None
         }
-        GameState::PREGAME => {
+        GameState::Pregame => {
             build_pregame_payload(
                 svc,
                 entitlements,
@@ -196,7 +197,7 @@ pub(crate) async fn build_heartbeat(
             )
             .await
         }
-        GameState::MENUS => {
+        GameState::Menus => {
             build_menus_payload(
                 svc,
                 entitlements,
@@ -208,7 +209,7 @@ pub(crate) async fn build_heartbeat(
             .await;
             None
         }
-        GameState::DISCONNECTED => None,
+        GameState::Disconnected => None,
     };
 
     (payload, used_pregame_loadouts)
@@ -225,7 +226,7 @@ pub async fn get_match_context(
     state: GameState,
 ) -> Option<(String, String, serde_json::Value)> {
     match state {
-        GameState::INGAME => {
+        GameState::Ingame => {
             let json = svc
                 .client
                 .fetch_json_retry(
@@ -235,7 +236,7 @@ pub async fn get_match_context(
                     client_version,
                     3,
                     Duration::from_secs(1),
-                    |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                    |j| j["MatchID"].as_str().is_some_and(|s| !s.is_empty()),
                 )
                 .await
                 .ok()?;
@@ -254,8 +255,8 @@ pub async fn get_match_context(
                     3,
                     Duration::from_secs(2),
                     |j| {
-                        j["MapID"].as_str().map_or(false, |s| !s.is_empty())
-                            && j["Players"].as_array().map_or(false, |a| {
+                        j["MapID"].as_str().is_some_and(|s| !s.is_empty())
+                            && j["Players"].as_array().is_some_and(|a| {
                                 a.iter().any(|p| {
                                     p["Subject"].as_str() == Some(puuid)
                                         && p["TeamID"].as_str().is_some()
@@ -283,7 +284,7 @@ pub async fn get_match_context(
 
             Some((match_id, my_team.to_string(), match_json))
         }
-        GameState::PREGAME => {
+        GameState::Pregame => {
             let json = svc
                 .client
                 .fetch_json_retry(
@@ -293,7 +294,7 @@ pub async fn get_match_context(
                     client_version,
                     3,
                     Duration::from_secs(1),
-                    |j| j["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                    |j| j["MatchID"].as_str().is_some_and(|s| !s.is_empty()),
                 )
                 .await
                 .ok()?;
@@ -312,10 +313,10 @@ pub async fn get_match_context(
                     3,
                     Duration::from_secs(2),
                     |j| {
-                        j["MapID"].as_str().map_or(false, |s| !s.is_empty())
+                        j["MapID"].as_str().is_some_and(|s| !s.is_empty())
                             && j["AllyTeam"]["TeamID"]
                                 .as_str()
-                                .map_or(false, |s| !s.is_empty())
+                                .is_some_and(|s| !s.is_empty())
                     },
                 )
                 .await
@@ -324,7 +325,7 @@ pub async fn get_match_context(
             let my_team = match_json["AllyTeam"]["TeamID"].as_str()?;
             let resolved = svc
                 .content
-                .get_map_name(&match_json["MapID"].as_str().unwrap_or("?"))
+                .get_map_name(match_json["MapID"].as_str().unwrap_or("?"))
                 .unwrap_or_else(|| match_json["MapID"].as_str().unwrap_or("?").to_string());
             svc.logger.log(&format!(
                 "PREGAME match context: match={match_id} raw_map={} resolved_map={resolved} team={my_team}",
@@ -339,6 +340,7 @@ pub async fn get_match_context(
 /// Shared match-data fetcher for both INGAME and PREGAME heartbeat builders.
 /// Extracts the ~40-line duplicated fetch+retry block and the
 /// adjacent map/mode/server resolution block.
+#[allow(clippy::too_many_arguments)]
 async fn fetch_match_context(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -375,7 +377,7 @@ async fn fetch_match_context(
                         client_version,
                         3,
                         Duration::from_secs(2),
-                        |json| json["MatchID"].as_str().map_or(false, |s| !s.is_empty()),
+                        |json| json["MatchID"].as_str().is_some_and(|s| !s.is_empty()),
                     )
                     .await
                 {
@@ -396,7 +398,7 @@ async fn fetch_match_context(
                     client_version,
                     3,
                     Duration::from_secs(2),
-                    |json| json["MapID"].as_str().map_or(false, |s| !s.is_empty()),
+                    |json| json["MapID"].as_str().is_some_and(|s| !s.is_empty()),
                 )
                 .await
             {
@@ -568,7 +570,7 @@ async fn build_ingame_payload(
         .unwrap_or_default();
 
     // Scope the match cache before processing any player
-    if let Some(ref match_id) = known_match_id {
+    if let Some(match_id) = known_match_id {
         if !match_id.is_empty() {
             svc.set_match_cache_scope(match_id);
         }
@@ -581,7 +583,7 @@ async fn build_ingame_payload(
         };
         let subject_lower = subject.to_lowercase();
 
-        let (player_rank, player_stats) = if let Some(ref match_id) = known_match_id {
+        let (player_rank, player_stats) = if let Some(match_id) = known_match_id {
             if !match_id.is_empty() {
                 if let Some(entry) = svc.get_match_cache_entry(&subject) {
                     svc.client.cache_hit(
@@ -732,6 +734,7 @@ fn append_enemy_players_from_loadouts(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_pregame_payload(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -811,7 +814,7 @@ async fn build_pregame_payload(
                 client_version,
                 3,
                 Duration::from_secs(2),
-                |json| json["Loadouts"].as_array().map_or(false, |a| !a.is_empty()),
+                |json| json["Loadouts"].as_array().is_some_and(|a| !a.is_empty()),
             )
             .await
         {
@@ -833,7 +836,7 @@ async fn build_pregame_payload(
         .unwrap_or_default();
 
     // Scope the match cache before processing any player
-    if let Some(ref match_id) = known_match_id {
+    if let Some(match_id) = known_match_id {
         if !match_id.is_empty() {
             svc.set_match_cache_scope(match_id);
         }
@@ -848,10 +851,8 @@ async fn build_pregame_payload(
         if let Ok(structured) =
             serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
         {
-            let lj = svc
-                .loadouts
-                .build_loadout_json(&structured, &players, &svc.content);
-            lj
+            svc.loadouts
+                .build_loadout_json(&structured, &players, &svc.content)
         } else {
             Default::default()
         }
@@ -874,10 +875,8 @@ async fn build_pregame_payload(
         } else {
             let result = fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
 
-            if let Some(_) = &cache_match_id {
-                if result.0.status_good {
-                    svc.put_match_cache_entry(subject.clone(), result.clone());
-                }
+            if cache_match_id.is_some() && result.0.status_good {
+                svc.put_match_cache_entry(subject.clone(), result.clone());
             }
             result
         };

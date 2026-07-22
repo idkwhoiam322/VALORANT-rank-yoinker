@@ -37,17 +37,16 @@ fn redact_secrets(input: &str) -> String {
     let flush = |tok: &mut String, out: &mut String| {
         // A JWT is three dot-separated base64url segments; redact anything that
         // looks like one, plus any long alphanumeric blob (>= 32 chars).
-        if tok.matches('.').count() == 2 && tok.len() >= 20 {
-            out.push_str("[REDACTED]");
-        } else if tok.len() >= 32
-            && tok.chars().all(|c| {
-                c.is_ascii_alphanumeric()
-                    || c == '-'
-                    || c == '_'
-                    || c == '+'
-                    || c == '/'
-                    || c == '='
-            })
+        if tok.matches('.').count() == 2 && tok.len() >= 20
+            || tok.len() >= 32
+                && tok.chars().all(|c| {
+                    c.is_ascii_alphanumeric()
+                        || c == '-'
+                        || c == '_'
+                        || c == '+'
+                        || c == '/'
+                        || c == '='
+                })
         {
             out.push_str("[REDACTED]");
         } else {
@@ -596,7 +595,7 @@ impl MainLoop {
                 // caller's per-tick local state, mirroring the original in-loop
                 // Err branch. On the plain-expiry path these are preserved.
                 let cleared = self
-                    .handle_local_api_dead(&app, &services, &snap, &mut ws)
+                    .handle_local_api_dead(app, &services, &snap, &mut ws)
                     .await;
                 if cleared {
                     pregame_loadout_cache = None;
@@ -631,7 +630,7 @@ impl MainLoop {
 
             // During INGAME steady state: suppress all heartbeat/API processing
             // UNLESS we still don't have match_context (map unknown) - keep retrying
-            if last_state == Some(GameState::INGAME) && current_state == GameState::INGAME {
+            if last_state == Some(GameState::Ingame) && current_state == GameState::Ingame {
                 if match_context.is_some() {
                     tokio::time::sleep(Duration::from_secs(cooldown)).await;
                     continue;
@@ -641,7 +640,7 @@ impl MainLoop {
             }
 
             // State transition: INGAME -> not INGAME => update encounter results
-            if last_state == Some(GameState::INGAME) && current_state != GameState::INGAME {
+            if last_state == Some(GameState::Ingame) && current_state != GameState::Ingame {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
                     // Seed last_match_cache so the frontend renders "Last Match"
                     // without needing an API call.
@@ -710,7 +709,7 @@ impl MainLoop {
             // receives a PREGAME transition immediately followed by an INGAME-shaped
             // heartbeat and desyncs its transition handling.
             let (match_ctx, _, build_state) = match current_state {
-                GameState::INGAME => {
+                GameState::Ingame => {
                     let ctx = crate::core::payload_builder::get_match_context(
                         &snap,
                         &entitlements,
@@ -719,9 +718,9 @@ impl MainLoop {
                         current_state,
                     )
                     .await;
-                    (ctx, false, GameState::INGAME)
+                    (ctx, false, GameState::Ingame)
                 }
-                GameState::PREGAME => {
+                GameState::Pregame => {
                     let pregame_ctx = crate::core::payload_builder::get_match_context(
                         &snap,
                         &entitlements,
@@ -731,7 +730,7 @@ impl MainLoop {
                     )
                     .await;
                     match pregame_ctx {
-                        Some(ctx) => (Some(ctx), false, GameState::PREGAME),
+                        Some(ctx) => (Some(ctx), false, GameState::Pregame),
                         None => {
                             // PREGAME 404'd: player likely already in the live match.
                             snap.logger
@@ -741,7 +740,7 @@ impl MainLoop {
                                 &entitlements,
                                 &cv,
                                 &puuid,
-                                GameState::INGAME,
+                                GameState::Ingame,
                             )
                             .await;
                             let used_fallback = ingame_ctx.is_some();
@@ -749,9 +748,9 @@ impl MainLoop {
                                 ingame_ctx,
                                 used_fallback,
                                 if used_fallback {
-                                    GameState::INGAME
+                                    GameState::Ingame
                                 } else {
-                                    GameState::PREGAME
+                                    GameState::Pregame
                                 },
                             )
                         }
@@ -777,7 +776,7 @@ impl MainLoop {
                     }),
                 );
 
-                if build_state == GameState::MENUS {
+                if build_state == GameState::Menus {
                     snap.rank.invalidate_cache().await;
                     snap.stats.clear_cache().await;
                     snap.clear_match_player_cache();
@@ -796,11 +795,11 @@ impl MainLoop {
 
             // Build heartbeat on state changes or periodic MENUS refresh
             // (MENUS rebuilds every loop so the frontend gets latest party members)
-            if current_state != GameState::DISCONNECTED
+            if current_state != GameState::Disconnected
                 && (is_transition
-                    || current_state == GameState::MENUS
-                    || current_state == GameState::PREGAME
-                    || current_state == GameState::INGAME)
+                    || current_state == GameState::Menus
+                    || current_state == GameState::Pregame
+                    || current_state == GameState::Ingame)
             {
                 let (known_match_id, pre_fetched_data) = match match_ctx {
                     Some((id, team, data)) => {
@@ -821,13 +820,13 @@ impl MainLoop {
                 };
 
                 // Reuse cached pregame loadouts when the match id is unchanged.
-                let cached_pregame_loadouts = if current_state == GameState::PREGAME {
+                let cached_pregame_loadouts = if current_state == GameState::Pregame {
                     let mid = known_match_id.clone().map(|id| id.to_string());
                     mid.as_deref()
                         .filter(|id| {
                             pregame_loadout_cache
                                 .as_ref()
-                                .map_or(false, |(cid, _)| cid == id)
+                                .is_some_and(|(cid, _)| cid == id)
                         })
                         .and_then(|_id| {
                             pregame_loadout_cache.as_ref().map(|(_, text)| text.clone())
@@ -863,7 +862,7 @@ impl MainLoop {
                 heartbeat.session_id = self.session_id.load(Ordering::SeqCst);
 
                 // Store the loadouts response for reuse on the next tick.
-                if current_state == GameState::PREGAME {
+                if current_state == GameState::Pregame {
                     if let (Some(id), Some(text)) =
                         (known_match_id.as_deref(), used_pregame_loadouts)
                     {
@@ -1167,6 +1166,7 @@ impl MainLoop {
     ///
     /// When WS is disconnected or unavailable:
     ///   - Poll the presence API every `STATE_POLL_INTERVAL_SECS` (1s).
+    #[allow(clippy::too_many_arguments)]
     async fn detect_state(
         &self,
         snap: &ServiceSnapshot,
