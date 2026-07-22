@@ -1,0 +1,11 @@
+# Rust — handled by cargo fmt
+*.rs
+
+# Node modules
+node_modules/
+
+# Build output
+gen/
+
+# Generated / vendored
+package-lock.json
