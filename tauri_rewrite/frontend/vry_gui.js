@@ -477,8 +477,7 @@ window.addEventListener("unhandledrejection", function (e) {
       img.src = safeHttps(iconUrl);
       img.decoding = "async";
       img.loading = "lazy";
-      img.width = 24;
-      img.height = 24;
+
       v.append(img);
       v.append(" ");
     }
@@ -1440,8 +1439,7 @@ window.addEventListener("unhandledrejection", function (e) {
         ri.src = safeHttps(rankIconUrl);
         ri.decoding = "async";
         ri.loading = "lazy";
-        ri.width = 24;
-        ri.height = 24;
+
         rankBadge.append(ri);
         rankBadge.append(" ");
       }
@@ -1551,8 +1549,6 @@ window.addEventListener("unhandledrejection", function (e) {
         let img = document.createElement("img");
         img.src = safeHttps(weapon.skinDisplayIcon);
         img.decoding = "async";
-        img.width = 48;
-        img.height = 48;
         img.alt = weapon.skinDisplayName || weapon.weapon || "Weapon";
         slot.append(img);
       }
@@ -1603,8 +1599,6 @@ window.addEventListener("unhandledrejection", function (e) {
     if (!selected) return;
     let agentNotSelected = selected.agentSelectionState === "";
     els.selectedAgent.decoding = "async";
-    els.selectedAgent.width = 80;
-    els.selectedAgent.height = 80;
     els.selectedAgent.src = safeHttps(selected.agentImgLink || "");
     els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
     els.selectedAgent.alt = selected.agent || "";
@@ -1714,8 +1708,6 @@ window.addEventListener("unhandledrejection", function (e) {
         let img = document.createElement("img");
         img.src = safeHttps(iconSrc);
         img.decoding = "async";
-        img.width = 48;
-        img.height = 48;
         img.alt = (expression && expression.displayName) || "Expression";
         art.append(img);
       }
@@ -1789,8 +1781,6 @@ window.addEventListener("unhandledrejection", function (e) {
       badge.src = safeHttps(weapon.contentTierIcon);
       badge.decoding = "async";
       badge.loading = "lazy";
-      badge.width = 24;
-      badge.height = 24;
       badge.alt = weapon.contentTierName;
       badge.title = weapon.contentTierName;
       tile.append(badge);
@@ -1803,8 +1793,6 @@ window.addEventListener("unhandledrejection", function (e) {
       let img = document.createElement("img");
       img.src = safeHttps(iconSrc);
       img.decoding = "async";
-      img.width = 48;
-      img.height = 48;
       img.alt = weapon.skinDisplayName || weapon.weapon || weaponName;
       art.append(img);
     }
@@ -1826,8 +1814,6 @@ window.addEventListener("unhandledrejection", function (e) {
       buddy.className = "buddy";
       buddy.src = safeHttps(weapon.buddy_displayIcon);
       buddy.decoding = "async";
-      buddy.width = 24;
-      buddy.height = 24;
       buddy.alt = weapon.buddy_displayName || "Buddy";
       buddy.title = (weapon.buddy_displayName || "Buddy") + COPY_HINT;
       tile.append(buddy);
@@ -1847,8 +1833,6 @@ window.addEventListener("unhandledrejection", function (e) {
     img.className = "agent-avatar";
     if (selectionState === "selected") img.classList.add("is-selecting");
     img.decoding = "async";
-    img.width = 40;
-    img.height = 40;
     img.alt = alt || "";
     img.src = safeHttps(src);
     return img;
