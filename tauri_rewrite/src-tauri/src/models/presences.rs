@@ -18,28 +18,28 @@ pub struct PresencesResponse {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameState {
-    MENUS,
-    PREGAME,
-    INGAME,
-    DISCONNECTED,
+    Menus,
+    Pregame,
+    Ingame,
+    Disconnected,
 }
 
 impl GameState {
     pub fn from_str(s: &str) -> Self {
         match s {
-            "MENUS" => GameState::MENUS,
-            "PREGAME" => GameState::PREGAME,
-            "INGAME" => GameState::INGAME,
-            _ => GameState::DISCONNECTED,
+            "MENUS" => GameState::Menus,
+            "PREGAME" => GameState::Pregame,
+            "INGAME" => GameState::Ingame,
+            _ => GameState::Disconnected,
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            GameState::MENUS => "MENUS",
-            GameState::PREGAME => "PREGAME",
-            GameState::INGAME => "INGAME",
-            GameState::DISCONNECTED => "DISCONNECTED",
+            GameState::Menus => "MENUS",
+            GameState::Pregame => "PREGAME",
+            GameState::Ingame => "INGAME",
+            GameState::Disconnected => "DISCONNECTED",
         }
     }
 }
