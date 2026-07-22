@@ -29,6 +29,23 @@ use crate::services::rank::RankService;
 use crate::services::stats::StatsService;
 use crate::services::websocket_presence::ValorantWs;
 
+#[derive(Debug)]
+pub(crate) enum StateMachineError {
+    Auth(String),
+    Lockfile(String),
+    RegionParse(String),
+    EntitlementsCleared,
+}
+
+impl std::fmt::Display for StateMachineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auth(s) | Self::Lockfile(s) | Self::RegionParse(s) => write!(f, "{s}"),
+            Self::EntitlementsCleared => write!(f, "Entitlements cleared"),
+        }
+    }
+}
+
 /// Redact obvious secrets (JWTs, long base64/hex blobs) from text that will be
 /// surfaced to the frontend via the `auth_error` event. The backend log file may
 /// still contain the full text; this only protects what leaves the process.
@@ -372,7 +389,7 @@ impl MainLoop {
                     }
                 }
                 Err(e) => {
-                    let is_auth_error = e.starts_with("Auth:");
+                    let is_auth_error = matches!(e, StateMachineError::Auth(_));
 
                     if is_auth_error {
                         let restart_request = {
@@ -385,7 +402,7 @@ impl MainLoop {
                         let _ = app.emit(
                             "auth_error",
                             serde_json::json!({
-                                "message": redact_secrets(&e),
+                                "message": redact_secrets(&e.to_string()),
                                 "action": "Please sign in to Riot Client and click Refresh below."
                             }),
                         );
@@ -401,7 +418,7 @@ impl MainLoop {
         }
     }
 
-    async fn try_initialize(&self, app: &AppHandle) -> Result<(), String> {
+    async fn try_initialize(&self, app: &AppHandle) -> Result<(), StateMachineError> {
         let services = self.services.clone();
         let mut svc = services.write().await;
         svc.log("Initializing...");
@@ -412,18 +429,18 @@ impl MainLoop {
         let lockfile =
             match auth::ensure_lockfile_ready(std::time::Duration::from_secs(60)).await {
                 Some(lf) => lf,
-                None => return Err(
+                None => return Err(StateMachineError::Lockfile(
                     "Riot Client did not start / lockfile not found within 60s. Is it installed?"
                         .into(),
-                ),
+                )),
             };
         let _ = app.emit("riot_client_waiting", serde_json::json!({}));
         *self.lockfile_port.lock().unwrap_or_else(|e| e.into_inner()) = Some(lockfile.port);
 
         // 2. Read region from logs
         let log_path = auth::get_log_path();
-        let region =
-            auth::parse_region_from_logs(&log_path).map_err(|e| format!("Region parse: {e}"))?;
+        let region = auth::parse_region_from_logs(&log_path)
+            .map_err(|e| StateMachineError::RegionParse(format!("{e}")))?;
 
         // 3. Update API URLs
         svc.client.update_urls(region.pd_url(), region.glz_url());
@@ -431,7 +448,7 @@ impl MainLoop {
         // 4. Authenticate
         let (entitlements, client_version) = auth::authenticate(&svc.client, &lockfile)
             .await
-            .map_err(|e| format!("Auth: {e}"))?;
+            .map_err(|e| StateMachineError::Auth(format!("{e}")))?;
         svc.log(&format!("Authenticated as {}", entitlements.subject));
         // Store entitlements inside ApiClient only - never in the global
         // AppServices managed state.
@@ -494,7 +511,7 @@ impl MainLoop {
         Ok(())
     }
 
-    async fn run_main_loop(&self, app: &AppHandle) -> Result<(), String> {
+    async fn run_main_loop(&self, app: &AppHandle) -> Result<(), StateMachineError> {
         let services = self.services.clone();
         let mut last_state: Option<GameState> = None;
         let mut last_emitted: Option<HeartbeatDedupKey> = None;
@@ -552,7 +569,7 @@ impl MainLoop {
                 // state) so OAuth tokens aren't exposed through managed state
                 let entitlements = match svc.client.get_entitlements() {
                     Some(e) => e,
-                    None => return Err("Entitlements cleared - re-initializing".into()),
+                    None => return Err(StateMachineError::EntitlementsCleared),
                 };
                 let puuid = svc.puuid.clone();
                 let cooldown = svc.config.get().cooldown;
