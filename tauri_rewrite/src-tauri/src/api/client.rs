@@ -483,7 +483,7 @@ impl ApiClient {
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
-        let http_method = method.unwrap_or_else(|| match body {
+        let http_method = method.unwrap_or(match body {
             Some(_) => Method::POST,
             None => Method::GET,
         });
@@ -691,7 +691,7 @@ impl ApiClient {
         const MAX_429_RETRIES: usize = 5;
 
         let url = self.url_for(url_type, endpoint);
-        let http_method = method.unwrap_or_else(|| match body {
+        let http_method = method.unwrap_or(match body {
             Some(_) => Method::POST,
             None => Method::GET,
         });
@@ -804,6 +804,7 @@ impl ApiClient {
     /// by refreshing entitlements + client_version and retrying once.
     /// The `validate` closure determines if the response is acceptable;
     /// returns `Err` only after all retries are exhausted.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn fetch_json_retry(
         &self,
         url_type: UrlType,
@@ -864,6 +865,7 @@ impl ApiClient {
     /// Typed variant of `fetch_json_retry`: validates the raw JSON, then
     /// deserializes to `T`.  Saves callers from having to call
     /// `serde_json::from_value` themselves.
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_json_retry_typed<T: serde::de::DeserializeOwned>(
         &self,
         url_type: UrlType,
@@ -893,6 +895,7 @@ impl ApiClient {
     /// Retry + validation variant for requests with a body (PUT/POST).
     /// Same retry/validate semantics as `fetch_json_retry_typed` but passes
     /// `body` and `method` through to `fetch_json_with_reauth`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_json_retry_with_body<T: serde::de::DeserializeOwned>(
         &self,
         url_type: UrlType,

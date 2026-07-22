@@ -164,7 +164,7 @@ pub(crate) fn parse_region_from_logs(path: &PathBuf) -> Result<Region, ApiError>
     for line in content.lines().rev() {
         if line.contains(".a.pvp.net/account-xp/v1/") && pd_region.is_none() {
             if let Some(part) = line.split(".a.pvp.net/account-xp/v1/").next() {
-                if let Some(region) = part.split('.').last() {
+                if let Some(region) = part.split('.').next_back() {
                     pd_region = Some(region.to_string());
                 }
             }

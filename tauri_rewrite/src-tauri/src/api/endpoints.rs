@@ -1,6 +1,5 @@
 /// All API endpoint paths and URL templates in one place.
-
-// -- Base URL templates --
+/// -- Base URL templates --
 pub const VALORANT_API_BASE: &str = "https://valorant-api.com/v1";
 
 // -- Local endpoints (https://127.0.0.1:{port}) --
