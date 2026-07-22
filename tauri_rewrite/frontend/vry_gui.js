@@ -2021,7 +2021,7 @@ window.addEventListener("unhandledrejection", function (e) {
       })
       .catch(function (e) {
         console.error("[VRY] restart_application IPC failed:", e);
-        showToast("Connection error, retrying...");
+        showToast("Connection error: " + (e.message || e) + " — retrying...");
       })
       .finally(function () {
         setTimeout(function () {
