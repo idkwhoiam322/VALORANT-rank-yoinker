@@ -143,12 +143,12 @@ impl ApiClient {
     }
 
     pub(crate) fn set_logger(&self, logger: Arc<Logger>) {
-        *self.logger.lock().unwrap() = Some(logger);
+        *self.logger.lock().expect("logger") = Some(logger);
     }
 
     pub(crate) fn update_urls(&self, pd_url: String, glz_url: String) {
-        *self.pd_base.lock().unwrap() = pd_url.into();
-        *self.glz_base.lock().unwrap() = glz_url.into();
+        *self.pd_base.lock().expect("pd_base") = pd_url.into();
+        *self.glz_base.lock().expect("glz_base") = glz_url.into();
     }
 
     pub(crate) fn set_local_auth(&self, password: String, port: u16) {
@@ -159,31 +159,32 @@ impl ApiClient {
                 format!("riot:{password}")
             )
         );
-        *self.local_password.lock().unwrap() = SecretString::from(password);
-        *self.local_auth_header.lock().unwrap() = Some(SecretString::from(header));
-        *self.local_base.lock().unwrap() = format!("https://127.0.0.1:{}", port).into();
+        *self.local_password.lock().expect("local_password") = SecretString::from(password);
+        *self.local_auth_header.lock().expect("local_auth_header") =
+            Some(SecretString::from(header));
+        *self.local_base.lock().expect("local_base") = format!("https://127.0.0.1:{}", port).into();
     }
 
     /// Internal-only: the Riot Client lockfile password is used solely for WS
     /// auth inside the backend. Restricted to `pub(crate)` so it cannot leak
     /// through the public `ApiClient` API surface.
     pub(crate) fn get_local_password(&self) -> SecretString {
-        self.local_password.lock().unwrap().clone()
+        self.local_password.lock().expect("local_password").clone()
     }
 
     /// Replace the stored entitlements. Kept internal to `ApiClient` so the
     /// OAuth tokens are never surfaced through the global `AppServices` managed
     /// state.
     pub(crate) fn set_entitlements(&self, value: Option<Entitlements>) {
-        *self.entitlements.lock().unwrap() = value;
+        *self.entitlements.lock().expect("entitlements") = value;
     }
 
     pub(crate) fn set_client_version(&self, version: &str) {
-        *self.client_version.lock().unwrap() = version.to_string();
+        *self.client_version.lock().expect("client_version") = version.to_string();
     }
 
     pub(crate) fn get_client_version(&self) -> String {
-        self.client_version.lock().unwrap().clone()
+        self.client_version.lock().expect("client_version").clone()
     }
 
     pub(crate) fn is_local_api_dead(&self) -> bool {
@@ -195,7 +196,7 @@ impl ApiClient {
     }
 
     pub fn get_entitlements(&self) -> Option<Entitlements> {
-        self.entitlements.lock().unwrap().clone()
+        self.entitlements.lock().expect("entitlements").clone()
     }
 
     /// Refresh both entitlements and client_version from local Riot client.
@@ -219,7 +220,7 @@ impl ApiClient {
             // Then refresh entitlements
             match self.fetch_local_entitlements().await {
                 Ok(fresh) => {
-                    *self.entitlements.lock().unwrap() = Some(fresh);
+                    *self.entitlements.lock().expect("entitlements") = Some(fresh);
                     self.app_log("[AUTH] entitlements refreshed successfully");
                     return Ok(());
                 }
@@ -253,7 +254,7 @@ impl ApiClient {
             if line.contains("CI server version:") {
                 if let Some(version) = line.split("CI server version: ").nth(1) {
                     let version = version.trim().to_string();
-                    *self.client_version.lock().unwrap() = version.clone();
+                    *self.client_version.lock().expect("client_version") = version.clone();
                     self.app_log(&format!("[AUTH] client_version refreshed: {version}"));
                     return Ok(());
                 }
@@ -305,7 +306,7 @@ impl ApiClient {
     }
 
     pub(crate) fn app_log(&self, msg: &str) {
-        if let Some(logger) = self.logger.lock().unwrap().as_ref() {
+        if let Some(logger) = self.logger.lock().expect("logger").as_ref() {
             logger.log(msg);
         }
     }
@@ -446,15 +447,15 @@ impl ApiClient {
         // the string formatting work.
         match url_type {
             UrlType::Pd => {
-                let base = self.pd_base.lock().unwrap().clone();
+                let base = self.pd_base.lock().expect("pd_base").clone();
                 format!("{}{}", base, endpoint)
             }
             UrlType::Glz => {
-                let base = self.glz_base.lock().unwrap().clone();
+                let base = self.glz_base.lock().expect("glz_base").clone();
                 format!("{}{}", base, endpoint)
             }
             UrlType::Local => {
-                let base = self.local_base.lock().unwrap().clone();
+                let base = self.local_base.lock().expect("local_base").clone();
                 format!("{}{}", base, endpoint)
             }
             UrlType::Custom => endpoint.to_string(),
@@ -491,7 +492,7 @@ impl ApiClient {
         let mut header_map = HeaderMap::new();
         if url_type == UrlType::Local {
             let auth = {
-                let guard = self.local_auth_header.lock().unwrap();
+                let guard = self.local_auth_header.lock().expect("local_auth_header");
                 if let Some(h) = guard.as_ref() {
                     h.expose_secret().to_string()
                 } else {
@@ -543,7 +544,7 @@ impl ApiClient {
                 tokio::time::sleep(rem).await;
             }
             let (wait, slot) = {
-                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let mut limiter = self.rate_limiters[idx].lock().expect("rate_limiter");
                 limiter.check_rate()
             };
             if let Some(delay) = wait {
@@ -568,7 +569,10 @@ impl ApiClient {
             }
             if response.status().as_u16() == 429 {
                 if let Some(ts) = slot {
-                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                    self.rate_limiters[idx]
+                        .lock()
+                        .expect("rate_limiter")
+                        .release_slot(ts);
                 }
                 let delay = Self::retry_after_delay(&response, attempt);
                 self.set_cooldown(url_type, delay);
@@ -699,7 +703,7 @@ impl ApiClient {
         let mut header_map = HeaderMap::new();
         if url_type == UrlType::Local {
             let auth = {
-                let guard = self.local_auth_header.lock().unwrap();
+                let guard = self.local_auth_header.lock().expect("local_auth_header");
                 if let Some(h) = guard.as_ref() {
                     h.expose_secret().to_string()
                 } else {
@@ -751,7 +755,7 @@ impl ApiClient {
                 tokio::time::sleep(rem).await;
             }
             let (wait, slot) = {
-                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let mut limiter = self.rate_limiters[idx].lock().expect("rate_limiter");
                 limiter.check_rate()
             };
             if let Some(delay) = wait {
@@ -770,7 +774,10 @@ impl ApiClient {
             }
             if response.status().as_u16() == 429 {
                 if let Some(ts) = slot {
-                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                    self.rate_limiters[idx]
+                        .lock()
+                        .expect("rate_limiter")
+                        .release_slot(ts);
                 }
                 let delay = Self::retry_after_delay(&response, attempt);
                 self.set_cooldown(url_type, delay);
@@ -995,7 +1002,7 @@ impl ApiClient {
                 tokio::time::sleep(rem).await;
             }
             let (wait, slot) = {
-                let mut limiter = self.rate_limiters[idx].lock().unwrap();
+                let mut limiter = self.rate_limiters[idx].lock().expect("rate_limiter");
                 limiter.check_rate()
             };
             if let Some(delay) = wait {
@@ -1010,7 +1017,10 @@ impl ApiClient {
 
             if status.as_u16() == 429 {
                 if let Some(ts) = slot {
-                    self.rate_limiters[idx].lock().unwrap().release_slot(ts);
+                    self.rate_limiters[idx]
+                        .lock()
+                        .expect("rate_limiter")
+                        .release_slot(ts);
                 }
                 let delay = Self::retry_after_delay(&resp, attempt);
                 self.set_cooldown(UrlType::Custom, delay);

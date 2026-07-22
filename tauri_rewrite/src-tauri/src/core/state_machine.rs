@@ -172,30 +172,43 @@ impl ServiceSnapshot {
     }
 
     pub(crate) fn clear_match_player_cache(&self) {
-        let mut cache = self.match_player_cache.lock().unwrap();
+        let mut cache = self.match_player_cache.lock().expect("match_player_cache");
         cache.clear();
-        *self.current_match_id.lock().unwrap() = None;
-        *self.match_names_cache.lock().unwrap() = None;
-        self.inflight_match_fetch.lock().unwrap().clear();
+        *self.current_match_id.lock().expect("current_match_id") = None;
+        *self.match_names_cache.lock().expect("match_names_cache") = None;
+        self.inflight_match_fetch
+            .lock()
+            .expect("inflight_match_fetch")
+            .clear();
     }
 
     /// Set the current match scope. If the match_id differs from the cached
     /// scope, the entire cache is cleared and the new scope is stored.
     /// Call once per heartbeat before processing players.
     pub(crate) fn set_match_cache_scope(&self, match_id: &str) {
-        let mut current_id = self.current_match_id.lock().unwrap();
+        let mut current_id = self.current_match_id.lock().expect("current_match_id");
         if current_id.as_deref() != Some(match_id) {
             *current_id = Some(match_id.to_string());
-            self.match_player_cache.lock().unwrap().clear();
-            *self.match_names_cache.lock().unwrap() = None;
-            self.inflight_match_fetch.lock().unwrap().clear();
+            self.match_player_cache
+                .lock()
+                .expect("match_player_cache")
+                .clear();
+            *self.match_names_cache.lock().expect("match_names_cache") = None;
+            self.inflight_match_fetch
+                .lock()
+                .expect("inflight_match_fetch")
+                .clear();
         }
     }
 
     /// Get a single entry from the match-scoped cache for the given puuid.
     /// Pure getter - no side effects.
     pub(crate) fn get_match_cache_entry(&self, puuid: &str) -> Option<(PlayerRank, PlayerStats)> {
-        self.match_player_cache.lock().unwrap().get(puuid).cloned()
+        self.match_player_cache
+            .lock()
+            .expect("match_player_cache")
+            .get(puuid)
+            .cloned()
     }
 
     /// Clear all volatile service caches (rank, stats, names, match-scoped).
@@ -205,15 +218,21 @@ impl ServiceSnapshot {
         self.rank.invalidate_cache().await;
         self.stats.clear_cache().await;
         self.names.clear_cache().await;
-        *self.last_match_cache.lock().unwrap() = None;
-        *self.match_names_cache.lock().unwrap() = None;
-        self.inflight_match_fetch.lock().unwrap().clear();
+        *self.last_match_cache.lock().expect("last_match_cache") = None;
+        *self.match_names_cache.lock().expect("match_names_cache") = None;
+        self.inflight_match_fetch
+            .lock()
+            .expect("inflight_match_fetch")
+            .clear();
         self.clear_match_player_cache();
     }
 
     /// Insert or update an entry in the match-scoped cache.
     pub fn put_match_cache_entry(&self, puuid: String, entry: (PlayerRank, PlayerStats)) {
-        self.match_player_cache.lock().unwrap().insert(puuid, entry);
+        self.match_player_cache
+            .lock()
+            .expect("match_player_cache")
+            .insert(puuid, entry);
     }
 }
 
@@ -453,7 +472,7 @@ impl MainLoop {
         // Store entitlements inside ApiClient only - never in the global
         // AppServices managed state.
         svc.client.set_entitlements(Some(entitlements.clone()));
-        *self.client_version.lock().unwrap() = client_version.clone();
+        *self.client_version.lock().expect("client_version") = client_version.clone();
         svc.client.set_client_version(&client_version);
         svc.puuid = entitlements.subject.clone();
 
@@ -578,7 +597,7 @@ impl MainLoop {
                 (snap, entitlements, puuid, cooldown)
             };
             // Read client_version without the AppServices RwLock.
-            let cv = self.client_version.lock().unwrap().clone();
+            let cv = self.client_version.lock().expect("client_version").clone();
             // RwLock guard is dropped here – all processing below happens
             // without holding it, allowing concurrent writes (e.g. re-init).
 
@@ -669,7 +688,8 @@ impl MainLoop {
                 if let Some((ref match_id, ref my_team)) = match_context.take() {
                     // Seed last_match_cache so the frontend renders "Last Match"
                     // without needing an API call.
-                    *snap.last_match_cache.lock().unwrap() = Some(match_id.clone());
+                    *snap.last_match_cache.lock().expect("last_match_cache") =
+                        Some(match_id.clone());
                     // Drop the last-known snapshot so the carry-over safety net
                     // cannot leak this match's data into the next one.
                     last_known_snapshot = None;
@@ -1039,7 +1059,7 @@ impl MainLoop {
                 let fresh_cv = snap.client.get_client_version();
                 {
                     let mut svc = services.write().await;
-                    *self.client_version.lock().unwrap() = fresh_cv;
+                    *self.client_version.lock().expect("client_version") = fresh_cv;
                     if let Some(ref e) = fresh_entitlements {
                         svc.puuid = e.subject.clone();
                     }
@@ -1116,7 +1136,7 @@ impl MainLoop {
                             let fresh_cv = snap.client.get_client_version();
                             {
                                 let mut svc = services.write().await;
-                                *self.client_version.lock().unwrap() = fresh_cv;
+                                *self.client_version.lock().expect("client_version") = fresh_cv;
                                 if let Some(ref e) = fresh_entitlements {
                                     svc.puuid = e.subject.clone();
                                 }

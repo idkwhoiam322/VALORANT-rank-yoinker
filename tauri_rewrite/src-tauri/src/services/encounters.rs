@@ -119,7 +119,7 @@ impl EncounterService {
     }
 
     pub(crate) fn save_encounter(&self, puuid: &str, record: EncounterRecord) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().expect("encounter data");
         let match_id = record.match_id.clone();
 
         // Insert or merge the record; track whether a new match_id entry was added
@@ -211,7 +211,7 @@ impl EncounterService {
             "win"
         };
 
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().expect("encounter data");
         let mut changed = false;
 
         // Use the match_index to find only relevant puuids (O(1) instead of scanning all puuids)
@@ -257,7 +257,7 @@ impl EncounterService {
         // Clone the relevant history out of the lock first; the sort + dedup
         // below is O(n log n) and must not run while the mutex is held.
         let history = {
-            let data = self.data.lock().unwrap();
+            let data = self.data.lock().expect("encounter data");
             data.records.get(puuid).cloned()
         }?;
 
@@ -344,7 +344,7 @@ impl EncounterService {
         // Snapshot the whole record map out of the lock; all per-player
         // sort/dedup work below runs on the owned copy so the mutex is only
         // held for the (cheap) clone, not the O(n log n) processing.
-        let records = self.data.lock().unwrap().records.clone();
+        let records = self.data.lock().expect("encounter data").records.clone();
         let mut results = Vec::new();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

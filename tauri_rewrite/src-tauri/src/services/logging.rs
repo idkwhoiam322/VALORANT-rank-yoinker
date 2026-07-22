@@ -72,7 +72,7 @@ impl Logger {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let line = format!("[{}] {}", timestamp, message);
 
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().expect("log buffer");
         buffer.push_back(line.clone());
         while buffer.len() > self.max_buffer {
             buffer.pop_front();
@@ -90,17 +90,17 @@ impl Logger {
         #[cfg(debug_assertions)]
         println!("{}", line);
 
-        if let Some(handle) = self.app_handle.lock().unwrap().as_ref() {
+        if let Some(handle) = self.app_handle.lock().expect("app handle").as_ref() {
             let _ = handle.emit("log_update", &line);
         }
     }
 
     pub fn set_app_handle(&self, handle: AppHandle) {
-        *self.app_handle.lock().unwrap() = Some(handle);
+        *self.app_handle.lock().expect("app handle") = Some(handle);
     }
 
     pub fn get_tail(&self, count: usize) -> String {
-        let buffer = self.buffer.lock().unwrap();
+        let buffer = self.buffer.lock().expect("log buffer");
         let start = buffer.len().saturating_sub(count);
         buffer
             .range(start..)
@@ -110,7 +110,7 @@ impl Logger {
     }
 
     pub fn open_log_file(&self) -> Result<(), String> {
-        let handle = self.app_handle.lock().unwrap();
+        let handle = self.app_handle.lock().expect("app handle");
         match handle.as_ref() {
             Some(app) => {
                 use tauri_plugin_opener::OpenerExt;
