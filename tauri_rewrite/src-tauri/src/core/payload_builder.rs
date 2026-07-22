@@ -495,6 +495,12 @@ fn build_player_heartbeat(
     }
 }
 
+enum FetchAction {
+    Cached((PlayerRank, PlayerStats)),
+    Fetch,
+    Skip,
+}
+
 async fn build_ingame_payload(
     svc: &ServiceSnapshot,
     entitlements: &Entitlements,
@@ -591,31 +597,31 @@ async fn build_ingame_payload(
 
         let (player_rank, player_stats) = if let Some(match_id) = known_match_id {
             if !match_id.is_empty() {
-                if let Some(entry) = svc.get_match_cache_entry(&subject) {
-                    svc.client.cache_hit(
-                        "match player",
-                        &crate::api::client::anon_id(&subject),
-                        None,
-                    );
-                    entry
-                } else {
-                    // Only one concurrent tick should fetch rank/stats for a given
-                    // puuid. Mark the puuid in-flight under the same short critical
-                    // section we use for the cache miss check; a concurrent miss
-                    // sees the mark and skips its own fetch.
-                    let should_fetch = {
-                        let mut inflight = svc
-                            .inflight_match_fetch
-                            .lock()
-                            .expect("inflight_match_fetch");
-                        if inflight.contains(&subject) {
-                            false
-                        } else {
-                            inflight.insert(subject.clone());
-                            true
-                        }
-                    };
-                    if should_fetch {
+                // Check cache and in-flight mark atomically under one lock
+                // so a concurrent tick that wins the race to store data
+                // between our cache miss and our in-flight mark is detected.
+                let action = {
+                    let mut inflight = svc
+                        .inflight_match_fetch
+                        .lock()
+                        .expect("inflight_match_fetch");
+                    if let Some(entry) = svc.get_match_cache_entry(&subject) {
+                        svc.client.cache_hit(
+                            "match player",
+                            &crate::api::client::anon_id(&subject),
+                            None,
+                        );
+                        FetchAction::Cached(entry)
+                    } else if inflight.contains(&subject) {
+                        FetchAction::Skip
+                    } else {
+                        inflight.insert(subject.clone());
+                        FetchAction::Fetch
+                    }
+                };
+                match action {
+                    FetchAction::Cached(entry) => entry,
+                    FetchAction::Fetch => {
                         let (rank, stats) =
                             fetch_rank_and_stats(svc, entitlements, client_version, &subject).await;
                         // Re-check under lock so a concurrent tick that won the
@@ -632,7 +638,8 @@ async fn build_ingame_payload(
                             .expect("inflight_match_fetch")
                             .remove(&subject);
                         (rank, stats)
-                    } else {
+                    }
+                    FetchAction::Skip => {
                         // Another tick is fetching this puuid; surface empty data
                         // for this tick. It will be populated on the next heartbeat.
                         (PlayerRank::empty(), PlayerStats::default_stats())
