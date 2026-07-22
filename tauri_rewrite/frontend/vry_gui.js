@@ -696,7 +696,7 @@ window.addEventListener("unhandledrejection", function (e) {
       showToast("Screenshot library failed to load.");
       return;
     }
-    captureToClipboard(els.teamsLayout, els.screenshotButton, {
+    captureToClipboard(document.body, els.screenshotButton, {
       overlayStyle: "* { animation: none !important; }",
       styleId: "tmp-scr",
       styleToast: true,
