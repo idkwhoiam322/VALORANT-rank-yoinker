@@ -172,11 +172,48 @@ Step "Setting up frontend tooling" {
             $result = npm install -D typescript 2>&1
             if ($LASTEXITCODE -ne 0) { throw "npm install typescript failed: $result" }
         }
+        # Install Prettier if absent
+        $hasPrettier = Test-Command prettier
+        if ($hasPrettier) {
+            $localPrettier = Join-Path $TauriDir "node_modules" ".bin" "prettier"
+            if (!(Test-Path $localPrettier)) { $hasPrettier = $false }
+        }
+        if (!$hasPrettier) {
+            $result = npm install -D prettier 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "npm install prettier failed: $result" }
+        }
         Write-Host "OK"
     } finally { Pop-Location }
 }
 
-# ---- 9. Frontend type-check ----
+# ---- 9. Install git hooks ----
+Step "Installing git hooks" {
+    $hooksScript = Join-Path $RepoRoot "scripts" "setup-hooks.ps1"
+    if (Test-Path $hooksScript) {
+        & $hooksScript 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "setup-hooks.ps1 failed" }
+        Write-Host "OK"
+    } else {
+        throw "Hook install script not found: $hooksScript"
+    }
+}
+
+# ---- 10. Frontend format check ----
+Step "Running Prettier format check" {
+    Push-Location $TauriDir
+    try {
+        $result = npx prettier --check "frontend/**/*.{html,css,js}" 2>&1
+        $exit = $LASTEXITCODE
+        if ($exit -ne 0) {
+            Write-Host
+            Write-Host $result -ForegroundColor Yellow
+            throw "Prettier found formatting issues"
+        }
+        Write-Host "all files formatted"
+    } finally { Pop-Location }
+}
+
+# ---- 11. Frontend type-check ----
 Step "Running TypeScript check (--checkJs)" {
     Push-Location $TauriDir
     try {

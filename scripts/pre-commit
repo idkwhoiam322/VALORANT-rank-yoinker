@@ -3,6 +3,22 @@ set -e
 
 repo_root=$(git rev-parse --show-toplevel)
 
+# ---- 1. Prettier (HTML/CSS/JS) ----
+prettier_dir="$repo_root/tauri_rewrite"
+prettier_bin="$prettier_dir/node_modules/.bin/prettier"
+
+if [ -f "$prettier_bin" ]; then
+    cd "$prettier_dir"
+    if ! npx prettier --check "frontend/**/*.{html,css,js}" >/dev/null 2>&1; then
+        echo "prettier: reformatting frontend files..."
+        npx prettier --write "frontend/**/*.{html,css,js}"
+        git -C "$repo_root" add "tauri_rewrite/frontend/"
+    fi
+else
+    echo "prettier: not installed, skipping frontend formatting"
+fi
+
+# ---- 2. cargo fmt (Rust) ----
 cd "$repo_root/tauri_rewrite/src-tauri"
 
 if ! cargo fmt --check; then
