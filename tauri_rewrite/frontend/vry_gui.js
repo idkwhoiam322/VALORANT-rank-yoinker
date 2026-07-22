@@ -33,6 +33,13 @@ if (!_tauriInvoke && !_tauriListen) {
     });
 })();
 
+window.addEventListener("error", function (e) {
+    console.error("[VRY] Uncaught error:", e.message || e.error, e.filename || "", e.lineno || 0);
+});
+window.addEventListener("unhandledrejection", function (e) {
+    console.error("[VRY] Unhandled promise rejection:", e.reason);
+});
+
 (function () {
     "use strict";
 
@@ -52,7 +59,9 @@ if (!_tauriInvoke && !_tauriListen) {
         try {
             let u = new URL(url, window.location.href);
             if (u.protocol === "https:" || u.protocol === "data:") return url;
-        } catch (e) {}
+        } catch (e) {
+            console.error("[VRY] safeHttps URL parse error:", e, url);
+        }
         return "";
     };
 
@@ -361,6 +370,7 @@ if (!_tauriInvoke && !_tauriListen) {
             let blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
             if (!blob) {
                 if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
+                console.error("[VRY] Screenshot capture produced no blob");
                 showToast("Screenshot failed."); return;
             }
             if (navigator.clipboard && navigator.clipboard.write) {
@@ -370,14 +380,17 @@ if (!_tauriInvoke && !_tauriListen) {
                     showToast("Screenshot copied!");
                 } catch (e) {
                     if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
+                    console.error("[VRY] Clipboard write failed:", e);
                     showToast("Screenshot copy failed.");
                 }
             } else {
                 if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
+                console.error("[VRY] Clipboard API unavailable");
                 showToast("Clipboard API unavailable.");
             }
         } catch (e) {
             if (opts.styleToast) { els.toast.classList.add("is-error"); revertScreenshotToast(600); }
+            console.error("[VRY] Screenshot capture failed:", e);
             showToast("Screenshot failed.");
         } finally {
             // Always restore UI state, even if html2canvas throws synchronously
@@ -427,100 +440,114 @@ if (!_tauriInvoke && !_tauriListen) {
     // ---- Tauri IPC setup ----
     function setupTauriListeners() {
         tauriListen("heartbeat", function (event) {
-            setStatus("Connected", "live");
-            // Drop heartbeats from a previous backend session. After a restart the
-            // new session mints a fresh sessionId; a late heartbeat from the old
-            // session (still in flight) must not re-render stale data over the
-            // freshly-initialized UI.
-            let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
-            // When an epoch is active we drop any event that lacks a sessionId or
-            // carries a mismatched one — including events from a previous backend
-            // session still in flight. The old guard also required evSession !== null
-            // up front, which let any event without a numeric sessionId bypass the
-            // drop entirely and repaint stale data.
-            if (state.epoch !== null && evSession !== state.epoch) return;
-            if (event.payload && event.payload.players) {
-                // Snapshot the previous *genuinely different* game state so a later
-                // `state_change` event can compute the from->to transition
-                // independently of delivery order (see renderStateTransition). Only
-                // capture it when the state actually changes: during a PREGAME->
-                // INGAME handoff the backend can emit several consecutive fallback
-                // heartbeats with state "INGAME" before the real state_change fires
-                // (Riot moves the match server-side while WS/poll still reports
-                // PREGAME). Updating prevGameState on every heartbeat would let the
-                // second fallback tick overwrite it with "INGAME" and re-trigger the
-                // UI wipe. Keeping the last *different* state closes the race for any
-                // number of repeated same-state heartbeats in between.
-                if (event.payload.state !== state.lastGameState) {
-                    setState({ prevGameState: state.lastGameState });
+            try {
+                setStatus("Connected", "live");
+                // Drop heartbeats from a previous backend session. After a restart the
+                // new session mints a fresh sessionId; a late heartbeat from the old
+                // session (still in flight) must not re-render stale data over the
+                // freshly-initialized UI.
+                let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+                // When an epoch is active we drop any event that lacks a sessionId or
+                // carries a mismatched one — including events from a previous backend
+                // session still in flight. The old guard also required evSession !== null
+                // up front, which let any event without a numeric sessionId bypass the
+                // drop entirely and repaint stale data.
+                if (state.epoch !== null && evSession !== state.epoch) return;
+                if (event.payload && event.payload.players) {
+                    // Snapshot the previous *genuinely different* game state so a later
+                    // `state_change` event can compute the from->to transition
+                    // independently of delivery order (see renderStateTransition). Only
+                    // capture it when the state actually changes: during a PREGAME->
+                    // INGAME handoff the backend can emit several consecutive fallback
+                    // heartbeats with state "INGAME" before the real state_change fires
+                    // (Riot moves the match server-side while WS/poll still reports
+                    // PREGAME). Updating prevGameState on every heartbeat would let the
+                    // second fallback tick overwrite it with "INGAME" and re-trigger the
+                    // UI wipe. Keeping the last *different* state closes the race for any
+                    // number of repeated same-state heartbeats in between.
+                    if (event.payload.state !== state.lastGameState) {
+                        setState({ prevGameState: state.lastGameState });
+                    }
+                    setState({ lastGameState: event.payload.state });
+                    setPayload(event.payload);
                 }
-                setState({ lastGameState: event.payload.state });
-                setPayload(event.payload);
-            }
+            } catch (e) { console.error("[VRY] heartbeat handler error:", e); }
         });
 
         // Rank icons are emitted once at startup and cached
         // here; they are no longer carried on every heartbeat payload.
         tauriListen("rank_icons", function (event) {
-            setState({ rankIcons: event.payload || null });
-            state.dirty.players = true;
-            state.dirty.details = true;
-            render();
+            try {
+                setState({ rankIcons: event.payload || null });
+                state.dirty.players = true;
+                state.dirty.details = true;
+                render();
+            } catch (e) { console.error("[VRY] rank_icons handler error:", e); }
         });
 
         tauriListen("state_change", function (event) {
-            // Drop transitions from a previous backend session (see heartbeat guard).
-            let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
-            if (state.epoch !== null && evSession !== state.epoch) return;
-            if (event.payload && event.payload.state) {
-                renderStateTransition(event.payload.state);
-            }
+            try {
+                // Drop transitions from a previous backend session (see heartbeat guard).
+                let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+                if (state.epoch !== null && evSession !== state.epoch) return;
+                if (event.payload && event.payload.state) {
+                    renderStateTransition(event.payload.state);
+                }
+            } catch (e) { console.error("[VRY] state_change handler error:", e); }
         });
 
         tauriListen("backend_ready", function (event) {
-            setStatus("Connected", "live");
-            // Mint a new epoch for this backend session. Any heartbeats/state_change
-            // carrying an older sessionId are dropped by their guards above, which
-            // prevents stale post-restart events from desyncing the freshly cleared UI.
-            let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
-            setState({ epoch: newEpoch });
+            try {
+                setStatus("Connected", "live");
+                // Mint a new epoch for this backend session. Any heartbeats/state_change
+                // carrying an older sessionId are dropped by their guards above, which
+                // prevents stale post-restart events from desyncing the freshly cleared UI.
+                let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+                setState({ epoch: newEpoch });
+            } catch (e) { console.error("[VRY] backend_ready handler error:", e); }
         });
 
         tauriListen("riot_client_launching", function () {
-            setStatus("Launching Riot Client…", "loading");
+            try { setStatus("Launching Riot Client…", "loading"); } catch (e) { console.error("[VRY] riot_client_launching handler error:", e); }
         });
 
         tauriListen("riot_client_waiting", function () {
-            setStatus("Waiting for Riot Client…", "loading");
+            try { setStatus("Waiting for Riot Client…", "loading"); } catch (e) { console.error("[VRY] riot_client_waiting handler error:", e); }
         });
 
         tauriListen("cache_cleared", function (event) {
-            // Re-arm the epoch from the payload BEFORE clearing UI state so the
-            // stale-event guard is active. resetState() preserves the existing epoch
-            // (it only clears via the backend_ready/cache_cleared handler), so a late
-            // heartbeat from the previous session is dropped instead of repainting
-            // stale data over the cleared UI.
-            let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
-            if (newEpoch !== null) setState({ epoch: newEpoch });
-            resetState();
+            try {
+                // Re-arm the epoch from the payload BEFORE clearing UI state so the
+                // stale-event guard is active. resetState() preserves the existing epoch
+                // (it only clears via the backend_ready/cache_cleared handler), so a late
+                // heartbeat from the previous session is dropped instead of repainting
+                // stale data over the cleared UI.
+                let newEpoch = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
+                if (newEpoch !== null) setState({ epoch: newEpoch });
+                resetState();
+            } catch (e) { console.error("[VRY] cache_cleared handler error:", e); }
         });
 
         tauriListen("log_update", function (event) {
-            let line = event.payload || "";
-            logLines.push(line);
-            if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
-            if (els.loadingLogTail) {
-                els.loadingLogTail.textContent = logLines.join("\n");
-                els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
-            }
-            if (els.logPanel && els.logPanel.open) {
-                renderLogTail();
-            }
+            try {
+                let line = event.payload || "";
+                logLines.push(line);
+                if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
+                if (els.loadingLogTail) {
+                    els.loadingLogTail.textContent = logLines.join("\n");
+                    els.loadingLogTail.scrollTop = els.loadingLogTail.scrollHeight;
+                }
+                if (els.logPanel && els.logPanel.open) {
+                    renderLogTail();
+                }
+            } catch (e) { console.error("[VRY] log_update handler error:", e); }
         });
 
         tauriListen("auth_error", function (event) {
-            let message = (event.payload && event.payload.message) || "Please sign in to Riot Client and click Refresh.";
-            showAuthErrorModal(message);
+            try {
+                let message = (event.payload && event.payload.message) || "Please sign in to Riot Client and click Refresh.";
+                showAuthErrorModal(message);
+            } catch (e) { console.error("[VRY] auth_error handler error:", e); }
         });
     }
 
@@ -541,23 +568,27 @@ if (!_tauriInvoke && !_tauriListen) {
     }
 
     function setPayload(payload) {
-        let version = payload && payload.version;
-        let unchanged = version !== undefined && version === state.lastRenderKey;
-        let newMatchPuuid = payload && (payload.matchId || null);
-        setState({ payload: payload });
-        if (unchanged) { bumpTimestampOnly(payload); return; }
-        setState({ lastRenderKey: version });
-        setState({ players: normalizePlayers(payload) });
-        // Only drop the current selection when the match identity actually
-        // changes (keyed off payload.matchId, the real per-match id — NOT the
-        // account puuid, which is constant). A player can be absent from a single
-        // heartbeat (e.g. during the PREGAME->INGAME handoff before loadouts are
-        // fetched) without it being a new match, so clearing on transient absence
-        // would flicker the details panel closed and never auto-restore it.
-        if (state.selectedPuuid && state.matchPuuid !== undefined && newMatchPuuid !== state.matchPuuid) { setState({ selectedPuuid: null }); }
-        setState({ matchPuuid: newMatchPuuid });
-        markAllDirty();
-        render();
+        try {
+            let version = payload && payload.version;
+            let unchanged = version !== undefined && version === state.lastRenderKey;
+            let newMatchPuuid = payload && (payload.matchId || null);
+            setState({ payload: payload });
+            if (unchanged) { bumpTimestampOnly(payload); return; }
+            setState({ lastRenderKey: version });
+            setState({ players: normalizePlayers(payload) });
+            // Only drop the current selection when the match identity actually
+            // changes (keyed off payload.matchId, the real per-match id — NOT the
+            // account puuid, which is constant). A player can be absent from a single
+            // heartbeat (e.g. during the PREGAME->INGAME handoff before loadouts are
+            // fetched) without it being a new match, so clearing on transient absence
+            // would flicker the details panel closed and never auto-restore it.
+            if (state.selectedPuuid && state.matchPuuid !== undefined && newMatchPuuid !== state.matchPuuid) { setState({ selectedPuuid: null }); }
+            setState({ matchPuuid: newMatchPuuid });
+            markAllDirty();
+            render();
+        } catch (e) {
+            console.error("[VRY] setPayload error:", e);
+        }
     }
 
     function normalizePlayers(payload) {
@@ -678,9 +709,13 @@ if (!_tauriInvoke && !_tauriListen) {
 
     // ---- event delegation ----
     function handlePlayerGridClick(e) {
-        let button = e.target.closest(".player-button");
-        if (!button) return;
-        selectPlayer(button.dataset.puuid);
+        try {
+            let button = e.target.closest(".player-button");
+            if (!button) return;
+            selectPlayer(button.dataset.puuid);
+        } catch (err) {
+            console.error("[VRY] handlePlayerGridClick error:", err);
+        }
     }
 
     // ---- event delegation ----
@@ -690,30 +725,40 @@ if (!_tauriInvoke && !_tauriListen) {
     // are destroyed on each heartbeat, so the old listeners churned GC. See
     // so the old listeners churned GC.
     function handleDelegatedContextMenu(e) {
-        // Always suppress the native webview context menu (reload, save image as,
-        // print, back/forward, …) everywhere. Only the in-app copy action below
-        // remains; right-clicks on non-copyable elements now do nothing.
-        e.preventDefault();
-        if (e.stopPropagation) e.stopPropagation();
-        let node = e.target;
-        if (node && node.nodeType === 3) node = node.parentNode; // text node
-        let el = null;
-        while (node && node !== document && node.nodeType === 1) {
-            if (node.title && node.title.indexOf(COPY_HINT) !== -1) { el = node; break; }
-            node = node.parentNode;
+        try {
+            // Always suppress the native webview context menu (reload, save image as,
+            // print, back/forward, …) everywhere. Only the in-app copy action below
+            // remains; right-clicks on non-copyable elements now do nothing.
+            e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
+            let node = e.target;
+            if (node && node.nodeType === 3) node = node.parentNode; // text node
+            let el = null;
+            while (node && node !== document && node.nodeType === 1) {
+                if (node.title && node.title.indexOf(COPY_HINT) !== -1) { el = node; break; }
+                node = node.parentNode;
+            }
+            if (!el) return;
+            let text = stripHint(el.title || el.textContent);
+            copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function (e) { console.error("[VRY] Context menu copy failed:", e); showToast("Failed to copy."); });
+        } catch (err) {
+            console.error("[VRY] handleDelegatedContextMenu error:", err);
         }
-        if (!el) return;
-        let text = stripHint(el.title || el.textContent);
-        copyToClipboard(text).then(function () { showToast("Copied: " + text); }).catch(function () { showToast("Failed to copy."); });
     }
     document.addEventListener("contextmenu", handleDelegatedContextMenu);
 
     // Avatar <img> error fallback, delegated in the capture phase (error events
     // do not bubble) so we no longer attach an onerror listener per avatar image.
+    // Avatar <img> error fallback, delegated in the capture phase (error events
+    // do not bubble) so we no longer attach an onerror listener per avatar image.
     function handleGridImageError(e) {
-        if (e.target && e.target.tagName === "IMG" && e.target.classList && e.target.classList.contains("agent-avatar")) {
-            let ph = makeAvatarPlaceholder();
-            if (e.target.parentNode) e.target.parentNode.replaceChild(ph, e.target);
+        try {
+            if (e.target && e.target.tagName === "IMG" && e.target.classList && e.target.classList.contains("agent-avatar")) {
+                let ph = makeAvatarPlaceholder();
+                if (e.target.parentNode) e.target.parentNode.replaceChild(ph, e.target);
+            }
+        } catch (err) {
+            console.error("[VRY] handleGridImageError:", err);
         }
     }
 
@@ -1195,7 +1240,8 @@ if (!_tauriInvoke && !_tauriListen) {
     // previously-inconsistent clipboard error handling.
     function copyToClipboard(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            return navigator.clipboard.writeText(text).catch(function () {
+            return navigator.clipboard.writeText(text).catch(function (e) {
+                console.error("[VRY] Clipboard API write failed:", e);
                 return new Promise(function (resolve) { fallbackCopy(text, resolve); });
             });
         }
@@ -1211,12 +1257,17 @@ if (!_tauriInvoke && !_tauriListen) {
             if (button._copyT) clearTimeout(button._copyT);
             button._copyT = setTimeout(function () { button.textContent = original; button.classList.remove("copied"); }, 1500);
         };
-        copyToClipboard(text).then(done);
+        copyToClipboard(text).then(done).catch(function (e) { console.error("[VRY] copyText error:", e); showToast("Copy failed."); });
     }
 
     function copyJson(button) {
-        let text = state.payload ? JSON.stringify(state.payload, null, 2) : "";
-        copyText(text, button);
+        try {
+            let text = state.payload ? JSON.stringify(state.payload, null, 2) : "";
+            copyText(text, button);
+        } catch (e) {
+            console.error("[VRY] copyJson error:", e);
+            showToast("Failed to copy JSON.");
+        }
     }
 
     function renderInvokeText(invokeMethod, preEl, fallbackText, errorText) {
@@ -1225,7 +1276,8 @@ if (!_tauriInvoke && !_tauriListen) {
             if (preEl.textContent !== displayText) {
                 preEl.textContent = displayText;
             }
-        }).catch(function () {
+        }).catch(function (e) {
+            console.error("[VRY] IPC failed:", invokeMethod, e);
             if (preEl.textContent !== errorText) {
                 preEl.textContent = errorText;
             }
@@ -1251,7 +1303,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
         ta.style.opacity = "0";
         document.body.append(ta);
         ta.select();
-        try { document.execCommand("copy"); done(); } catch (e) { showToast("Copy failed."); }
+        try { document.execCommand("copy"); done(); } catch (e) { console.error("[VRY] execCommand copy failed:", e); showToast("Copy failed."); }
         ta.remove();
     }
 
@@ -1274,7 +1326,8 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
             return tauriInvoke("restart_application");
         }).then(function () {
             showToast("Reconnecting to backend...");
-        }).catch(function () {
+        }).catch(function (e) {
+            console.error("[VRY] restart_application IPC failed:", e);
             showToast("Connection error, retrying...");
         }).finally(function () {
             setTimeout(function () { setRefreshButtonsBusy(false); }, 4000);
@@ -1304,21 +1357,26 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     els.jsonCopyBtn.addEventListener("click", function () { copyJson(els.jsonCopyBtn); });
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
-        let p = (state.payload && state.selectedPuuid) ? state.payload.players[state.selectedPuuid] : null;
-        if (!p) { showToast("Nothing to copy yet."); return; }
-        let peakStr = rankName(p.peakRank, false);
-        let parts = [
-            "Player Name: " + txt(p.name, "Unknown"),
-            "Win Rate (Comp): " + winRateDisplay(p.winPercentage),
-            "Rank: " + rankName(p.rank, false),
-            "RR: " + txt(p.rr),
-            "Leaderboard: " + (isEmpty(p.leaderboard) || Number(p.leaderboard) <= 0 ? NA : "#" + p.leaderboard),
-            "Peak Rank: " + (peakStr !== NA && p.peakRankAct ? peakStr + String(p.peakRankAct).trim() : peakStr),
-            "Last Act: " + rankName(p.previousRank, false),
-            "Level: " + txt(p.level),
-            "Last Active (Comp): " + txt(p.lastActive),
-        ];
-        copyToClipboard(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }).catch(function () { showToast("Failed."); });
+        try {
+            let p = (state.payload && state.selectedPuuid) ? state.payload.players[state.selectedPuuid] : null;
+            if (!p) { showToast("Nothing to copy yet."); return; }
+            let peakStr = rankName(p.peakRank, false);
+            let parts = [
+                "Player Name: " + txt(p.name, "Unknown"),
+                "Win Rate (Comp): " + winRateDisplay(p.winPercentage),
+                "Rank: " + rankName(p.rank, false),
+                "RR: " + txt(p.rr),
+                "Leaderboard: " + (isEmpty(p.leaderboard) || Number(p.leaderboard) <= 0 ? NA : "#" + p.leaderboard),
+                "Peak Rank: " + (peakStr !== NA && p.peakRankAct ? peakStr + String(p.peakRankAct).trim() : peakStr),
+                "Last Act: " + rankName(p.previousRank, false),
+                "Level: " + txt(p.level),
+                "Last Active (Comp): " + txt(p.lastActive),
+            ];
+            copyToClipboard(parts.join(" | ")).then(function () { showToast("Copied: Stats"); }).catch(function (e) { console.error("[VRY] Stats copy failed:", e); showToast("Failed."); });
+        } catch (e) {
+            console.error("[VRY] copyStatsBtn error:", e);
+            showToast("Failed to copy stats.");
+        }
     });
     els.screenshotButton.addEventListener("click", takeScreenshot);
 
@@ -1326,7 +1384,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     let logOpenBtn = document.getElementById("logOpenBtn");
     if (logOpenBtn) {
         logOpenBtn.addEventListener("click", function () {
-            tauriInvoke("open_log_file").catch(function () { showToast("Failed to open log file"); });
+            tauriInvoke("open_log_file").catch(function (e) { console.error("[VRY] open_log_file failed:", e); showToast("Failed to open log file"); });
         });
     }
 
@@ -1334,7 +1392,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     let hbOpenBtn = document.getElementById("hbOpenBtn");
     if (hbOpenBtn) {
         hbOpenBtn.addEventListener("click", function () {
-            tauriInvoke("open_heartbeat_file").catch(function () { showToast("Failed to open heartbeat file"); });
+            tauriInvoke("open_heartbeat_file").catch(function (e) { console.error("[VRY] open_heartbeat_file failed:", e); showToast("Failed to open heartbeat file"); });
         });
     }
 
@@ -1351,7 +1409,7 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
 
     // Start-up view: Open logs buttons
     function openLogFile() {
-        tauriInvoke("open_log_file").catch(function () { showToast("Failed to open log file"); });
+        tauriInvoke("open_log_file").catch(function (e) { console.error("[VRY] open_log_file failed:", e); showToast("Failed to open log file"); });
     }
     let loadingLogBtn = document.getElementById("loadingLogBtn");
     if (loadingLogBtn) {
