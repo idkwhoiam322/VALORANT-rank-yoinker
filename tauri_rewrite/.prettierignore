@@ -9,3 +9,5 @@ gen/
 
 # Generated / vendored
 package-lock.json
+
+*.min.js

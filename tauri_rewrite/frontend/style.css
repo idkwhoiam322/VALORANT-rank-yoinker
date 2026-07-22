@@ -21,22 +21,31 @@ body {
     min-height: 100vh;
     margin: 0;
     background:
-        radial-gradient(ellipse at 0% 0%, rgba(255, 70, 85, 0.22) 0%, transparent 45%),
-        radial-gradient(ellipse at 100% 0%, rgba(241, 199, 102, 0.13) 0%, transparent 38%),
-        radial-gradient(ellipse at 50% 110%, rgba(91, 156, 246, 0.10) 0%, transparent 50%),
-        #05080f;
+        radial-gradient(ellipse at 0% 0%, rgba(255, 70, 85, 0.22) 0%, transparent 45%), radial-gradient(ellipse at 100% 0%, rgba(241, 199, 102, 0.13) 0%, transparent 38%),
+        radial-gradient(ellipse at 50% 110%, rgba(91, 156, 246, 0.1) 0%, transparent 50%), #05080f;
     color: var(--text);
     font-family: Inter, "Segoe UI", Arial, sans-serif;
 }
 
 @keyframes shimmer-gold {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 0.75; }
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.75;
+    }
 }
 
 @keyframes fade-up {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 button {
@@ -141,13 +150,14 @@ h3 {
     padding: 14px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%),
-        rgba(8, 12, 22, 0.85);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%), rgba(8, 12, 22, 0.85);
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
     overflow: hidden;
     text-align: left;
-    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    transition:
+        transform 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease;
     animation: fade-up 0.28s ease both;
 }
 
@@ -167,12 +177,10 @@ h3 {
 .player-button:focus-visible,
 .player-button.is-selected {
     border-color: rgba(241, 199, 102, 0.85);
-    background:
-        linear-gradient(135deg, rgba(241, 199, 102, 0.10), transparent 46%),
-        rgba(10, 16, 30, 0.92);
+    background: linear-gradient(135deg, rgba(241, 199, 102, 0.1), transparent 46%), rgba(10, 16, 30, 0.92);
     box-shadow:
         0 0 0 1px rgba(241, 199, 102, 0.18),
-        0 0 32px rgba(241, 199, 102, 0.10),
+        0 0 32px rgba(241, 199, 102, 0.1),
         0 28px 64px rgba(0, 0, 0, 0.55) !important;
     outline: none;
     transform: translateY(-4px);
@@ -204,14 +212,12 @@ h3 {
     border-color: rgba(241, 199, 102, 0.85);
     box-shadow:
         0 0 0 1px rgba(241, 199, 102, 0.18),
-        0 0 32px rgba(241, 199, 102, 0.10),
+        0 0 32px rgba(241, 199, 102, 0.1),
         0 28px 64px rgba(0, 0, 0, 0.55) !important;
 }
 
 .player-button.is-blue {
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%),
-        linear-gradient(160deg, rgba(10, 24, 54, 0.88), rgba(4, 10, 22, 0.92));
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%), linear-gradient(160deg, rgba(10, 24, 54, 0.88), rgba(4, 10, 22, 0.92));
     box-shadow:
         inset 4px 0 0 var(--blue),
         inset 0 0 50px rgba(91, 156, 246, 0.07),
@@ -219,9 +225,7 @@ h3 {
 }
 
 .player-button.is-red {
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%),
-        linear-gradient(160deg, rgba(44, 8, 16, 0.88), rgba(18, 4, 8, 0.92));
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 45%), linear-gradient(160deg, rgba(44, 8, 16, 0.88), rgba(18, 4, 8, 0.92));
     box-shadow:
         inset 4px 0 0 var(--ember),
         inset 0 0 50px rgba(255, 70, 85, 0.07),
@@ -361,8 +365,7 @@ h3 {
     border: 1px solid var(--line-strong);
     border-radius: 14px;
     background:
-        radial-gradient(ellipse at 80% -5%, rgba(255, 70, 85, 0.16) 0%, transparent 40%),
-        radial-gradient(ellipse at 20% -5%, rgba(241, 199, 102, 0.11) 0%, transparent 35%),
+        radial-gradient(ellipse at 80% -5%, rgba(255, 70, 85, 0.16) 0%, transparent 40%), radial-gradient(ellipse at 20% -5%, rgba(241, 199, 102, 0.11) 0%, transparent 35%),
         linear-gradient(160deg, rgba(7, 12, 22, 0.99), rgba(3, 6, 14, 0.99));
     box-shadow: var(--shadow);
     overflow: hidden;
@@ -519,9 +522,7 @@ h3 {
     min-width: 0;
     border: 1px solid rgba(229, 197, 145, 0.18);
     border-radius: 9px;
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 45%),
-        rgba(14, 23, 25, 0.62);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 45%), rgba(14, 23, 25, 0.62);
     overflow: hidden;
 }
 
@@ -538,7 +539,8 @@ h3 {
 
 .weapon-tile:hover {
     border-color: var(--tier-color, rgba(241, 199, 102, 0.65));
-    box-shadow: 0 0 18px var(--tier-color, rgba(241, 199, 102, 0.18)),
+    box-shadow:
+        0 0 18px var(--tier-color, rgba(241, 199, 102, 0.18)),
         inset 0 0 14px var(--tier-color, rgba(241, 199, 102, 0.04));
 }
 
@@ -594,9 +596,7 @@ h3 {
     width: clamp(26px, 2.05vw, 34px);
     height: clamp(36px, 2.9vw, 48px);
     object-fit: contain;
-    filter:
-        drop-shadow(0 7px 7px rgba(0, 0, 0, 0.5))
-        drop-shadow(0 0 10px rgba(241, 199, 102, 0.16));
+    filter: drop-shadow(0 7px 7px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 10px rgba(241, 199, 102, 0.16));
     transform: translateY(-50%);
 }
 
@@ -627,9 +627,7 @@ h3 {
     width: clamp(180px, 13vw, 226px);
     height: clamp(306px, 43vh, 400px);
     border: 1px solid rgba(241, 199, 102, 0.46);
-    background:
-        linear-gradient(160deg, rgba(14, 26, 44, 0.62), rgba(9, 12, 13, 0.88)),
-        rgba(17, 18, 19, 0.76);
+    background: linear-gradient(160deg, rgba(14, 26, 44, 0.62), rgba(9, 12, 13, 0.88)), rgba(17, 18, 19, 0.76);
     background-position: center;
     background-size: cover;
     clip-path: polygon(0 0, 100% 0, 100% 86%, 66% 100%, 34% 100%, 0 86%);
@@ -690,8 +688,7 @@ h3 {
     border-radius: 50%;
     background:
         linear-gradient(45deg, transparent 48.8%, rgba(229, 197, 145, 0.25) 49.2%, rgba(229, 197, 145, 0.25) 50.8%, transparent 51.2%),
-        linear-gradient(-45deg, transparent 48.8%, rgba(229, 197, 145, 0.25) 49.2%, rgba(229, 197, 145, 0.25) 50.8%, transparent 51.2%),
-        rgba(8, 12, 13, 0.24);
+        linear-gradient(-45deg, transparent 48.8%, rgba(229, 197, 145, 0.25) 49.2%, rgba(229, 197, 145, 0.25) 50.8%, transparent 51.2%), rgba(8, 12, 13, 0.24);
 }
 
 .expression-grid::before,
@@ -724,7 +721,9 @@ h3 {
 
 .expression-tile.is-flex {
     border-color: rgba(100, 228, 191, 0.85);
-    box-shadow: 0 0 14px rgba(100, 228, 191, 0.35), inset 0 0 8px rgba(100, 228, 191, 0.10);
+    box-shadow:
+        0 0 14px rgba(100, 228, 191, 0.35),
+        inset 0 0 8px rgba(100, 228, 191, 0.1);
 }
 
 .expression-slot-0 {
