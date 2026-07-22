@@ -2,7 +2,6 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "moduleResolution": "node",
     "checkJs": true,
     "strict": true,
     "noEmit": true,
@@ -10,5 +9,5 @@
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
-  "include": ["frontend/**/*.js"]
+  "include": ["frontend/**/*.js", "frontend/**/*.d.ts"]
 }
