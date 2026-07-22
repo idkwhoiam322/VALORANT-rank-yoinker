@@ -627,97 +627,62 @@ window.addEventListener("unhandledrejection", function (e) {
         if (el) el.remove();
       });
     }
-    if (opts.hideDetails) {
-      let panel = els.detailsPanel;
-      if (!panel.hidden) {
-        panel.hidden = true;
-        cleanup.push(function () {
-          panel.hidden = false;
-        });
-      }
-    }
-    if (opts.showBadge) document.body.classList.add("show-you-badge");
-
     let canvas;
+    let ctx;
     try {
-      canvas = await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#0f1115",
+      await new Promise(function (r) {
+        requestAnimationFrame(r);
       });
-      doCleanup();
-      if (opts.showBadge) document.body.classList.remove("show-you-badge");
+
+      ctx = await modernScreenshot.createContext(target, {
+        scale: window.devicePixelRatio,
+      });
+
+      canvas = await modernScreenshot.domToCanvas(ctx);
+
       let blob = await new Promise(function (resolve) {
         canvas.toBlob(resolve, "image/png");
       });
-      if (!blob) {
-        if (opts.styleToast) {
-          els.toast.classList.add("is-error");
-          revertScreenshotToast(600);
-        }
-        console.error("[VRY] Screenshot capture produced no blob");
-        showToast("Screenshot failed.");
-        return;
-      }
-      if (navigator.clipboard && navigator.clipboard.write) {
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ "image/png": blob }),
-          ]);
-          if (opts.styleToast) {
-            els.toast.classList.add("is-success");
-            revertScreenshotToast(600);
-          }
-          showToast("Screenshot copied!");
-        } catch (e) {
-          if (opts.styleToast) {
-            els.toast.classList.add("is-error");
-            revertScreenshotToast(600);
-          }
-          console.error("[VRY] Clipboard write failed:", e);
-          showToast("Screenshot copy failed.");
-        }
-      } else {
-        if (opts.styleToast) {
-          els.toast.classList.add("is-error");
-          revertScreenshotToast(600);
-        }
-        console.error("[VRY] Clipboard API unavailable");
-        showToast("Clipboard API unavailable.");
+
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob }),
+      ]);
+
+      showToast("Screenshot copied!")
+
+      if (opts.styleToast) {
+        els.toast.classList.add("is-success");
+        revertScreenshotToast(600);
       }
     } catch (e) {
+      console.error("[VRY] screenshot failed:", e);
       if (opts.styleToast) {
         els.toast.classList.add("is-error");
         revertScreenshotToast(600);
       }
-      console.error("[VRY] Screenshot capture failed:", e);
       showToast("Screenshot failed.");
     } finally {
-      // Always restore UI state, even if html2canvas throws synchronously
-      // or an early-return path above is taken.
       doCleanup();
-      if (opts.showBadge) document.body.classList.remove("show-you-badge");
       buttonEl.disabled = false;
       if (canvas) {
         canvas.width = 0;
         canvas.height = 0;
         canvas = null;
       }
-      setTimeout(function () {
-        if (typeof gc === "function") gc();
-        else console.log("[VRY] gc not available (capture)");
-      }, 0);
+      if (ctx) {
+        modernScreenshot.destroyContext(ctx);
+        ctx = null;
+      }
+      if (typeof gc === "function") gc();
     }
   }
 
-  async function loadHtml2Canvas() {
-    if (typeof html2canvas !== "undefined") return html2canvas;
+  async function loadModernScreenshot() {
+    if (typeof modernScreenshot !== "undefined") return;
     return new Promise(function (resolve, reject) {
       let script = document.createElement("script");
-      script.src = "html2canvas.min.js";
-      script.onload = function () {
-        resolve(html2canvas);
-      };
+      script.src = "modern-screenshot.min.js";
+      script.onload = resolve;
       script.onerror = reject;
       document.head.appendChild(script);
     });
@@ -725,27 +690,24 @@ window.addEventListener("unhandledrejection", function (e) {
 
   async function takeScreenshot() {
     try {
-      await loadHtml2Canvas();
+      await loadModernScreenshot();
     } catch (e) {
-      console.error("[VRY] Failed to load html2canvas:", e);
+      console.error("[VRY] Failed to load modern-screenshot:", e);
       showToast("Screenshot library failed to load.");
       return;
     }
     captureToClipboard(els.teamsLayout, els.screenshotButton, {
-      overlayStyle:
-        "body::before { display: none !important; }.player-button { background: rgba(10, 14, 24, 0.92) !important; }.player-button::after { display: none !important; }.player-button.self-card,.player-button.is-blue,.player-button.is-red { background: rgba(10, 14, 24, 0.92) !important; box-shadow: 0 18px 40px rgba(0,0,0,0.5) !important; }.player-button:hover,.player-button:focus-visible,.player-button.is-selected { transform: none !important; }* { animation: none !important; }",
+      overlayStyle: "* { animation: none !important; }",
       styleId: "tmp-scr",
-      hideDetails: true,
-      showBadge: true,
       styleToast: true,
     });
   }
 
   async function takeDetailScreenshot() {
     try {
-      await loadHtml2Canvas();
+      await loadModernScreenshot();
     } catch (e) {
-      console.error("[VRY] Failed to load html2canvas:", e);
+      console.error("[VRY] Failed to load modern-screenshot:", e);
       showToast("Screenshot library failed to load.");
       return;
     }
