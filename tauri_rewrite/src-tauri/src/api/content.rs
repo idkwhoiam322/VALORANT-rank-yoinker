@@ -452,6 +452,7 @@ pub(crate) async fn fetch_all_content(
 
     if had_error {
         log::warn!("One or more content API calls failed - some data may be missing");
+        client.app_log("[CONTENT] Some content API calls failed - game data may show 'Unknown'");
     }
 
     // Log content cache summary

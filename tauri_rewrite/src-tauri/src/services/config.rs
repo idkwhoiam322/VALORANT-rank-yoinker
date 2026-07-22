@@ -34,7 +34,9 @@ impl ConfigManager {
         } else {
             let cfg = AppConfig::default();
             if let Ok(json) = serde_json::to_string_pretty(&cfg) {
-                let _ = fs::write(&path, &json);
+                if let Err(e) = fs::write(&path, &json) {
+                    log::warn!("Failed to write config to {path:?}: {e}");
+                }
             }
             cfg
         };

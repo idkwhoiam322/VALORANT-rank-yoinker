@@ -161,12 +161,19 @@ impl ServiceSnapshot {
         // runtime is not stalled by disk I/O on every heartbeat tick.
         tokio::task::spawn_blocking(move || {
             use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
+            match std::fs::OpenOptions::new()
                 .append(true)
                 .create(true)
                 .open(&path)
             {
-                let _ = writeln!(f, "{line}");
+                Ok(mut f) => {
+                    if let Err(e) = writeln!(f, "{line}") {
+                        log::warn!("Heartbeat log write failed: {e}");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Heartbeat log open failed: {e}");
+                }
             }
         });
     }
