@@ -963,14 +963,12 @@ window.addEventListener("unhandledrejection", function (e) {
     let myPuuid = payload && payload.puuid;
     let players = [];
     for (let puuid in rawPlayers) {
-      if (!Object.prototype.hasOwnProperty.call(rawPlayers, puuid)) continue;
       let p = rawPlayers[puuid] || {};
       p.puuid = p.puuid || puuid;
       p.isSelf = !!(myPuuid && p.puuid === myPuuid);
       p._weaponMap = {};
       let w = p.weapons || {};
       for (let key in w) {
-        if (!Object.prototype.hasOwnProperty.call(w, key)) continue;
         let entry = w[key];
         if (entry && entry.weapon) p._weaponMap[entry.weapon] = entry;
       }
@@ -1622,7 +1620,6 @@ window.addEventListener("unhandledrejection", function (e) {
     let expressions = [];
     let sprayKeys = player.sprays || {};
     for (let idx in sprayKeys) {
-      if (!Object.prototype.hasOwnProperty.call(sprayKeys, idx)) continue;
       let e = sprayKeys[idx] || {};
       expressions.push(Object.assign({ index: Number(idx) }, e));
     }
@@ -1795,10 +1792,6 @@ window.addEventListener("unhandledrejection", function (e) {
   }
 
   /** @param {string} str */
-  function capitalize(str) {
-    return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
-  }
-
   function renderPlayedWith() {
     // Skip the (relatively expensive) player-map scan on every render when
     // the played-with section is collapsed - it's only useful when visible
@@ -1818,7 +1811,6 @@ window.addEventListener("unhandledrejection", function (e) {
       /** @type {Record<string, PlayerData>} */
       let pl = payload.players;
       for (let puuid in pl) {
-        if (!Object.prototype.hasOwnProperty.call(pl, puuid)) continue;
         if (puuid !== myPuuid && pl[puuid].name) {
           currentPlayerNames[pl[puuid].name] = true;
         }
@@ -1848,8 +1840,9 @@ window.addEventListener("unhandledrejection", function (e) {
       let lastAgent = txt(entry.lastAgent || entry.agent, "Unknown");
       let lastMap = txt(entry.lastMap || entry.map, "Unknown");
       let lc = document.createElement("td");
+      let relName = txt(entry.relation_name, "player") || "player";
       lc.textContent =
-        capitalize(txt(entry.relation_name, "player") || "player") +
+        relName.charAt(0).toUpperCase() + relName.slice(1) +
         " " +
         lastAgent +
         " on " +
