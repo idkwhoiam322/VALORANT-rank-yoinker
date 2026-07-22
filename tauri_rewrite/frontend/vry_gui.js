@@ -28,14 +28,16 @@ if (!_tauriInvoke && !_tauriListen) {
 // (e.g. during startup before the backend is ready) to avoid throwing.
 (function () {
     if (!_tauriInvoke) return;
-    ["log", "warn", "error", "debug", "info"].forEach(function (level) {
-        let original = console[level];
-        console[level] = function () {
+    let invoke = _tauriInvoke;
+    let levels = ["log", "warn", "error", "debug", "info"];
+    levels.forEach(function (level) {
+        let original = console[/** @type {keyof Console} */ (level)];
+        console[/** @type {keyof Console} */ (level)] = function () {
             let msg = Array.prototype.map.call(arguments, function (a) {
                 return typeof a === "object" ? JSON.stringify(a) : String(a);
             }).join(" ");
-            original.apply(console, arguments);
-            _tauriInvoke("log_frontend", { msg: msg, level: level }).catch(function () {});
+            Function.prototype.apply.call(original, console, arguments);
+            invoke("log_frontend", { msg: msg, level: level }).catch(function () {});
         };
     });
 })();
@@ -54,8 +56,9 @@ window.addEventListener("unhandledrejection", function (e) {
     "use strict";
 
     let COPY_HINT = " (Right-click to copy)";
+    /** @param {string} t */
     let stripHint = function (t) { return t ? t.replace(COPY_HINT, "") : ""; };
-    let chromaColor = function (name) { let m = name && name.match(/\(Variant \d+ (.+)\)$/); return m ? m[1] : ""; };
+    let chromaColor = function (/** @type {string|undefined} */ name) { let m = name && name.match(/\(Variant \d+ (.+)\)$/); return m ? m[1] : ""; };
 
     // Reject any URL that is not https: or data: so payload-derived values can
     // never inject javascript:/other schemes into DOM attributes (img src,
@@ -63,6 +66,7 @@ window.addEventListener("unhandledrejection", function (e) {
     // control characters, which a valid URL would carry percent-encoded; those
     // bytes would otherwise break out of a CSS url("-") or attribute context.
     // Returns "" when the input is unsafe/empty.
+    /** @param {string} url */
     let safeHttps = function (url) {
         if (!url || typeof url !== "string") return "";
         if (/["\\<>`\r\n]/.test(url)) return "";
@@ -117,6 +121,7 @@ window.addEventListener("unhandledrejection", function (e) {
     let NA = "N/A";
     let PREVIEW_WEAPONS = ["Vandal", "Phantom", "Melee"];
 
+    /** @type {StateType} */
     let state = {
         payload: null,
         players: [],
@@ -143,13 +148,16 @@ window.addEventListener("unhandledrejection", function (e) {
     // Dedicated buffer for the loading-overlay log tail. Keeping the lines in
     // an array (instead of re-parsing DOM textContent on every event) avoids
     // the O(n^2) split/join growth from re-parsing DOM textContent on every event.
+    /** @type {string[]} */
     let logLines = [];
 
     // Handle for the pending screenshot toast-revert timer.
     // Tracked so rapid re-clicks clear the previous timer instead of stacking.
+    /** @type {(number|null)} */
     let screenshotToastTimer = null;
 
-    let els = {
+    // @ts-expect-error — runtime guarantee: all IDs exist in index.html
+    let els = /** @type {ElsType} */ ({
         blueGrid: document.getElementById("blueGrid"),
         redGrid: document.getElementById("redGrid"),
         detailsPanel: document.getElementById("detailsPanel"),
@@ -206,7 +214,7 @@ window.addEventListener("unhandledrejection", function (e) {
         hbRefreshBtn: document.getElementById("hbRefreshBtn"),
         teamsLayout: document.querySelector(".teams-layout"),
         metaUpdatedChip: null,
-    };
+    });
 
     let WEAPON_COLUMNS = [
         { className: "weapon-column-sidearms", groups: [{ title: "Sidearms", slug: "sidearms", weapons: ["Classic", "Shorty", "Frenzy", "Ghost", "Bandit", "Sheriff"] }] },
@@ -225,14 +233,18 @@ window.addEventListener("unhandledrejection", function (e) {
     ];
 
     // ---- helpers ----
+    /** @param {*} v */
     function isEmpty(v) { return v === null || v === undefined || v === "" || (typeof v === "number" && Number.isNaN(v)); }
+    /** @param {*} v @param {*} [fb] */
     function txt(v, fb) { return isEmpty(v) ? (fb === undefined ? NA : fb) : String(v); }
 
     // Centralized state writer. All top-level mutations of the
     // global `state` object now flow through here so writes are explicit and
     // auditable; it pairs with the dirty-flag change detection added for 4.9/1.4.
+    /** @param {Object} partial */
     function setState(partial) { Object.assign(state, partial); }
 
+    /** @param {*} idx @param {boolean} short */
     function rankName(idx, short) {
         if (isEmpty(idx)) return NA;
         let n = Number(idx);
@@ -241,6 +253,7 @@ window.addEventListener("unhandledrejection", function (e) {
         return t[n];
     }
 
+    /** @param {*} idx */
     function rankColor(idx) {
         let n = Number(idx);
         if (isEmpty(idx) || Number.isNaN(n) || n < 0 || n >= RANK_COLORS.length) return null;
@@ -248,6 +261,7 @@ window.addEventListener("unhandledrejection", function (e) {
         return "rgb(" + rgb[0] + ", " + rgb[1] + ", " + rgb[2] + ")";
     }
 
+    /** @param {*} v */
     function winRateDisplay(v) {
         if (isEmpty(v)) return NA;
         let s = String(v);
@@ -256,11 +270,13 @@ window.addEventListener("unhandledrejection", function (e) {
         return m ? (m[1] + "%" + m[2]) : s;
     }
 
+    /** @param {string} skinName @param {string} weaponName */
     function stripWeaponName(skinName, weaponName) {
         if (!skinName) return skinName;
         return skinName.replace(new RegExp("\\b" + weaponName + "\\b", "ig"), "").replace(/\s+/g, " ").trim() || skinName;
     }
 
+    /** @param {number|string} seconds */
     function formatTimeAgo(seconds) {
         let s = Math.max(0, Math.floor(Number(seconds) || 0));
         if (s < 60) return s + (s === 1 ? " second" : " seconds");
@@ -270,6 +286,7 @@ window.addEventListener("unhandledrejection", function (e) {
         return d + (d === 1 ? " day" : " days");
     }
 
+    /** @param {EncounterEntry} entry */
     function formatEncounterTimes(entry) {
         let parts = [];
         if (entry.ally_count) parts.push(entry.ally_count + " as ally");
@@ -278,6 +295,7 @@ window.addEventListener("unhandledrejection", function (e) {
         return txt(entry.times, "0") + breakdown;
     }
 
+    /** @param {EncounterEntry} entry */
     function formatEncounterRecord(entry) {
         let parts = [];
         if (entry.ally_count) {
@@ -293,6 +311,15 @@ window.addEventListener("unhandledrejection", function (e) {
         return parts.length ? parts.join(" / ") : NA;
     }
 
+    /**
+     * @param {HTMLElement|DocumentFragment} container
+     * @param {string} label
+     * @param {*} value
+     * @param {boolean} isNA
+     * @param {string} [chipClass]
+     * @param {string|null} [textColor]
+     * @param {string|null} [iconUrl]
+     */
     function setStatChip(container, label, value, isNA, chipClass, textColor, iconUrl) {
         let chip = document.createElement("div");
         chip.className = chipClass || "stat-chip";
@@ -318,20 +345,23 @@ window.addEventListener("unhandledrejection", function (e) {
         container.append(chip);
     }
 
+    /** @param {PlayerData} player @param {string} chipClass @param {boolean} shortName @param {boolean} [compSuffix] */
     function buildStatChips(player, chipClass, shortName, compSuffix) {
         let frag = document.createDocumentFragment();
         let comp = compSuffix ? " (Comp)" : "";
+        let ri = state.rankIcons;
         setStatChip(frag, "Win Rate" + comp, winRateDisplay(player.winPercentage), isEmpty(player.winPercentage), chipClass);
-        setStatChip(frag, "Rank", rankName(player.rank, shortName), isEmpty(player.rank), chipClass, rankColor(player.rank), state.rankIcons && state.rankIcons[player.rank]);
+        setStatChip(frag, "Rank", rankName(player.rank, shortName), isEmpty(player.rank), chipClass, rankColor(player.rank), ri && player.rank != null ? ri[player.rank] : undefined);
         setStatChip(frag, "RR", txt(player.rr), isEmpty(player.rr), chipClass);
         setStatChip(frag, "Leaderboard", isEmpty(player.leaderboard) ? NA : (Number(player.leaderboard) <= 0 ? NA : "#" + player.leaderboard), isEmpty(player.leaderboard), chipClass);
-        setStatChip(frag, "Peak Rank", (function(rn){return rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn})(rankName(player.peakRank, shortName)), isEmpty(player.peakRank), chipClass, rankColor(player.peakRank), state.rankIcons && state.rankIcons[player.peakRank]);
-        setStatChip(frag, "Last Act", rankName(player.previousRank, shortName), isEmpty(player.previousRank), chipClass, rankColor(player.previousRank), state.rankIcons && state.rankIcons[player.previousRank]);
+        setStatChip(frag, "Peak Rank", (function(rn){return rn!==NA&&player.peakRankAct?rn+String(player.peakRankAct).trim():rn})(rankName(player.peakRank, shortName)), isEmpty(player.peakRank), chipClass, rankColor(player.peakRank), ri && player.peakRank != null ? ri[player.peakRank] : undefined);
+        setStatChip(frag, "Last Act", rankName(player.previousRank, shortName), isEmpty(player.previousRank), chipClass, rankColor(player.previousRank), ri && player.previousRank != null ? ri[player.previousRank] : undefined);
         setStatChip(frag, "Level", txt(player.level), isEmpty(player.level), chipClass);
         setStatChip(frag, "Last Active" + comp, txt(player.lastActive), isEmpty(player.lastActive), chipClass);
         return frag;
     }
 
+    /** @param {PlayerData} player */
     function buildCardStats(player) {
         let grid = document.createElement("div");
         grid.className = "card-stats";
@@ -339,15 +369,19 @@ window.addEventListener("unhandledrejection", function (e) {
         return grid;
     }
 
+    /** @param {string} message */
     function showToast(message) {
         els.toast.textContent = message;
         els.toast.classList.add("show");
+        // @ts-expect-error — _t is an expando on the function
         clearTimeout(showToast._t);
+        // @ts-expect-error — _t is an expando on the function
         showToast._t = setTimeout(function () { els.toast.classList.remove("show"); }, 3200);
     }
 
     // Revert the screenshot success/error toast state after `ms`, clearing any
     // previously scheduled revert first so timers don't pile up.
+    /** @param {number} ms */
     function revertScreenshotToast(ms) {
         if (screenshotToastTimer) clearTimeout(screenshotToastTimer);
         screenshotToastTimer = setTimeout(function () {
@@ -357,11 +391,17 @@ window.addEventListener("unhandledrejection", function (e) {
         }, ms);
     }
 
+    /** @param {HTMLElement} el */
     function clearImageContainer(el) {
         el.querySelectorAll("img").forEach(function (img) { img.src = ""; });
         el.replaceChildren();
     }
 
+    /**
+     * @param {HTMLElement} target
+     * @param {HTMLButtonElement} buttonEl
+     * @param {{ overlayStyle?: string; styleId?: string; styleToast?: boolean }} opts
+     */
     async function captureToClipboard(target, buttonEl, opts) {
         if (!target) { showToast("No target element."); return; }
         buttonEl.disabled = true;
@@ -453,6 +493,7 @@ window.addEventListener("unhandledrejection", function (e) {
             styleId: "tmp-scr-det"
         });
     }
+    /** @param {string} text @param {string} cls */
     function setStatus(text, cls) {
         els.statusPill.className = "pill status-pill " + cls;
         els.statusText.textContent = text;
@@ -523,7 +564,7 @@ window.addEventListener("unhandledrejection", function (e) {
                 let evSession = event.payload && typeof event.payload.sessionId === "number" ? event.payload.sessionId : null;
                 if (state.epoch !== null && evSession !== state.epoch) return;
                 if (event.payload && event.payload.state) {
-                    renderStateTransition(event.payload.state);
+                    renderStateTransition(/** @type {string} */ (event.payload.state));
                 }
             } catch (e) { console.error("[VRY] state_change handler error:", e); }
         });
@@ -562,7 +603,7 @@ window.addEventListener("unhandledrejection", function (e) {
 
         tauriListen("log_update", function (event) {
             try {
-                let line = event.payload || "";
+                let line = /** @type {string} */ (/** @type {unknown} */ (event.payload)) || "";
                 logLines.push(line);
                 if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
                 if (els.loadingLogTail) {
@@ -577,18 +618,20 @@ window.addEventListener("unhandledrejection", function (e) {
 
         tauriListen("auth_error", function (event) {
             try {
-                let message = (event.payload && event.payload.message) || "Please sign in to Riot Client and click Refresh.";
+                let message = (event.payload && String(event.payload.message)) || "Please sign in to Riot Client and click Refresh.";
                 showAuthErrorModal(message);
             } catch (e) { console.error("[VRY] auth_error handler error:", e); }
         });
     }
 
     // ---- loading overlay ----
+    /** @param {string} cls */
     function updateLoadingOverlay(cls) {
         els.loadingOverlay.hidden = cls === "live";
     }
 
     // ---- state / rendering ----
+    /** @param {HeartbeatPayload} payload */
     function bumpTimestampOnly(payload) {
         if (!payload || !payload.time) return;
         // Re-query the chip live: renderMeta() rebuilds matchMeta via
@@ -599,6 +642,7 @@ window.addEventListener("unhandledrejection", function (e) {
         if (chip) chip.textContent = "Updated " + new Date(payload.time * 1000).toLocaleTimeString();
     }
 
+    /** @param {HeartbeatPayload} payload */
     function setPayload(payload) {
         try {
             let version = payload && payload.version;
@@ -629,6 +673,7 @@ window.addEventListener("unhandledrejection", function (e) {
     // Filters out players with no name/agent/weapons (transient absences
     // during PREGAME->INGAME handoff). Sorts: self first, then party groups,
     // then alphabetically by name.
+    /** @param {HeartbeatPayload} payload */
     function normalizePlayers(payload) {
         let rawPlayers = (payload && payload.players) || {};
         let myPuuid = payload && payload.puuid;
@@ -667,7 +712,9 @@ window.addEventListener("unhandledrejection", function (e) {
         });
     }
 
+    /** @param {string|undefined} team */
     function teamRank(team) { if (team === "Blue") return 0; if (team === "Red") return 1; return 2; }
+    /** @param {string|undefined} team */
     function teamClass(team) { if (team === "Blue") return "is-blue"; if (team === "Red") return "is-red"; return ""; }
 
     function markAllDirty() {
@@ -713,9 +760,10 @@ window.addEventListener("unhandledrejection", function (e) {
                 link.disabled = true;
                 return;
             }
+            let n = self.name || "";
             let href = link === els.topTrnLink
-                ? "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(self.name) + "/overview"
-                : "https://vtl.lol/id/" + encodeURIComponent(self.name.replace("#", "_"));
+                ? "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(n) + "/overview"
+                : "https://vtl.lol/id/" + encodeURIComponent(n.replace("#", "_"));
             link.href = href;
             link.title = href + COPY_HINT;
             link.disabled = false;
@@ -723,6 +771,7 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     // ---- targeted rendering for click interactions ----
+    /** @param {string} puuid */
     function selectPlayer(puuid) {
         setState({ selectedPuuid: puuid });
         updateSelection();
@@ -748,11 +797,13 @@ window.addEventListener("unhandledrejection", function (e) {
     }
 
     // ---- event delegation ----
+    /** @param {MouseEvent} e */
     function handlePlayerGridClick(e) {
         try {
-            let button = e.target.closest(".player-button");
+            let target = /** @type {Element|null} */ (e.target);
+            let button = /** @type {HTMLElement|null} */ (target && target.closest(".player-button"));
             if (!button) return;
-            selectPlayer(button.dataset.puuid);
+            selectPlayer(button.dataset.puuid || "");
         } catch (err) {
             console.error("[VRY] handlePlayerGridClick error:", err);
         }
@@ -763,6 +814,7 @@ window.addEventListener("unhandledrejection", function (e) {
     // bindContextCopy() listeners (and the grid-level handler) that were
     // attached to ~40 freshly-created elements on every render. Those elements
     // are destroyed on each heartbeat, so the old listeners churned GC.
+    /** @param {MouseEvent} e */
     function handleDelegatedContextMenu(e) {
         try {
             // Always suppress the native webview context menu (reload, save image as,
@@ -770,12 +822,12 @@ window.addEventListener("unhandledrejection", function (e) {
             // remains; right-clicks on non-copyable elements now do nothing.
             e.preventDefault();
             if (e.stopPropagation) e.stopPropagation();
-            let node = e.target;
-            if (node && node.nodeType === 3) node = node.parentNode; // text node
+            let node = /** @type {Node} */ (e.target);
+            if (node && node.nodeType === 3) node = /** @type {Node} */ (node.parentNode) || node; // text node
             let el = null;
             while (node && node !== document && node.nodeType === 1) {
-                if (node.title && node.title.indexOf(COPY_HINT) !== -1) { el = node; break; }
-                node = node.parentNode;
+                if (/** @type {HTMLElement} */ (node).title && /** @type {HTMLElement} */ (node).title.indexOf(COPY_HINT) !== -1) { el = /** @type {HTMLElement} */ (node); break; }
+                node = /** @type {Node} */ (node.parentNode) || document;
             }
             if (!el) return;
             let text = stripHint(el.title || el.textContent);
@@ -788,22 +840,25 @@ window.addEventListener("unhandledrejection", function (e) {
 
     // Avatar <img> error fallback, delegated in the capture phase (error events
     // do not bubble) so we no longer attach an onerror listener per avatar image.
-    // Avatar <img> error fallback, delegated in the capture phase (error events
-    // do not bubble) so we no longer attach an onerror listener per avatar image.
+    /** @param {Event} e */
     function handleGridImageError(e) {
         try {
-            if (e.target && e.target.tagName === "IMG" && e.target.classList && e.target.classList.contains("agent-avatar")) {
+            if (e.target && /** @type {HTMLElement} */ (e.target).tagName === "IMG" && /** @type {HTMLElement} */ (e.target).classList && /** @type {HTMLElement} */ (e.target).classList.contains("agent-avatar")) {
                 let ph = makeAvatarPlaceholder();
-                if (e.target.parentNode) e.target.parentNode.replaceChild(ph, e.target);
+                let pn = /** @type {HTMLElement} */ (e.target).parentNode;
+                if (pn) pn.replaceChild(ph, /** @type {HTMLElement} */ (e.target));
             }
         } catch (err) {
             console.error("[VRY] handleGridImageError:", err);
         }
     }
 
+    /** @type {{ [key: string]: string }} */
     let STATE_LABELS = { INGAME: "In-Game", PREGAME: "Agent Select", MENUS: "In-Menus", DISCONNECTED: "Disconnected" };
+    /** @type {{ [key: string]: string }} */
     let STATE_CLASSES = { INGAME: "state-ingame", PREGAME: "state-pregame", MENUS: "state-menus", DISCONNECTED: "state-disconnected" };
 
+    /** @param {string} label */
     function showLoadingChip(label) {
         els.matchMeta.replaceChildren();
         let chip = document.createElement("span");
@@ -814,6 +869,7 @@ window.addEventListener("unhandledrejection", function (e) {
         els.matchMeta.append(chip);
     }
 
+    /** @param {string} newState */
     function renderStateTransition(newState) {
         // Decide whether to keep the current player UI or wipe it based on the
         // actual from->to transition. We use `prevGameState` (the state of the
@@ -877,7 +933,8 @@ window.addEventListener("unhandledrejection", function (e) {
             return;
         }
         let segments = [];
-        segments.push({ text: STATE_LABELS[p.state] || txt(p.state, "Unknown"), cls: STATE_CLASSES[p.state] || "" });
+        let st = p.state || "";
+        segments.push({ text: STATE_LABELS[st] || txt(p.state, "Unknown"), cls: STATE_CLASSES[st] || "" });
         if (p.mode) segments.push({ text: p.mode, cls: "mode" });
         let mapVal = p.map;
         if (Array.isArray(mapVal)) mapVal = mapVal[0];
@@ -890,6 +947,7 @@ window.addEventListener("unhandledrejection", function (e) {
         });
     }
 
+    /** @param {string} text @param {string|undefined} cls @param {string|undefined} id */
     function appendMetaChip(text, cls, id) {
         let chip = document.createElement("span");
         chip.className = "meta-chip" + (cls ? " " + cls : "");
@@ -943,7 +1001,8 @@ window.addEventListener("unhandledrejection", function (e) {
             metaRow.className = "player-meta-row";
             let rankBadge = document.createElement("span");
             rankBadge.className = "player-meta";
-            let rankIconUrl = state.rankIcons && state.rankIcons[player.rank];
+            let riMap = state.rankIcons;
+            let rankIconUrl = riMap && player.rank != null ? riMap[player.rank] : undefined;
             if (rankIconUrl) { let ri = document.createElement("img"); ri.className = "rank-icon"; ri.src = safeHttps(rankIconUrl); ri.decoding = "async"; ri.loading = "lazy"; ri.width = 24; ri.height = 24; rankBadge.append(ri); rankBadge.append(" "); }
             rankBadge.append(document.createTextNode(rankName(player.rank, true)));
             let bc = rankColor(player.rank);
@@ -963,12 +1022,14 @@ window.addEventListener("unhandledrejection", function (e) {
         els.redGrid.append(redFrag);
     }
 
+    /** @param {HeartbeatPayload|null|undefined} payload */
     function myTeam(payload) {
         if (!payload || !payload.players) return null;
         for (let k in payload.players) { if (payload.players[k].isSelf) return payload.players[k].team; }
         return null;
     }
 
+    /** @param {string|undefined} team */
     function teamSide(team) {
         if (team === "Blue") return "DEF";
         if (team === "Red") return "ATK";
@@ -1011,6 +1072,7 @@ window.addEventListener("unhandledrejection", function (e) {
         }
     }
 
+    /** @param {PlayerData} player */
     function buildPreviewRow(player) {
         let row = document.createElement("div");
         row.className = "preview-row";
@@ -1056,7 +1118,7 @@ window.addEventListener("unhandledrejection", function (e) {
         els.selectedAgent.decoding = "async";
         els.selectedAgent.width = 80;
         els.selectedAgent.height = 80;
-        els.selectedAgent.src = safeHttps(selected.agentImgLink);
+        els.selectedAgent.src = safeHttps(selected.agentImgLink || "");
         els.selectedAgent.hidden = !selected.agentImgLink || agentNotSelected;
         els.selectedAgent.alt = selected.agent || "";
         els.selectedAgent.classList.toggle("is-selecting", selected.agentSelectionState === "selected");
@@ -1065,8 +1127,9 @@ window.addEventListener("unhandledrejection", function (e) {
         els.selectedName.title = txt(selected.name, "Unknown Player") + COPY_HINT;
         let hasName = selected.name && selected.name.indexOf("#") !== -1;
         if (hasName) {
-            let trnHref = "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(selected.name) + "/overview";
-            let vtlHref = "https://vtl.lol/id/" + encodeURIComponent(selected.name.replace("#", "_"));
+            let sn = selected.name || "";
+            let trnHref = "https://tracker.gg/valorant/profile/riot/" + encodeURIComponent(sn) + "/overview";
+            let vtlHref = "https://vtl.lol/id/" + encodeURIComponent(sn.replace("#", "_"));
             els.trnLink.href = trnHref; els.trnLink.title = trnHref + COPY_HINT; els.trnLink.rel = "noopener noreferrer"; els.trnLink.hidden = false;
             els.vtlLink.href = vtlHref; els.vtlLink.title = vtlHref + COPY_HINT; els.vtlLink.rel = "noopener noreferrer"; els.vtlLink.hidden = false;
         } else { els.trnLink.hidden = true; els.vtlLink.hidden = true; }
@@ -1092,11 +1155,13 @@ window.addEventListener("unhandledrejection", function (e) {
 
     }
 
+    /** @param {PlayerData} player */
     function renderStatBar(player) {
         clearImageContainer(els.statBar);
         els.statBar.append(buildStatChips(player, "stat-chip", false, true));
     }
 
+    /** @param {PlayerData} player */
     function renderExpressions(player) {
         clearImageContainer(els.expressionGrid);
         let expressions = [];
@@ -1108,7 +1173,7 @@ window.addEventListener("unhandledrejection", function (e) {
         }
         expressions.sort(function (a, b) { return a.index - b.index; });
         let slots = expressions.slice(0, 4);
-        while (slots.length < 4) slots.push(null);
+        while (slots.length < 4) slots.push(/** @type {SprayEntry & {index: number}} */ (/** @type {unknown} */ (null)));
         let frag = document.createDocumentFragment();
         slots.forEach(function (expression, idx) {
             let tile = document.createElement("div");
@@ -1134,6 +1199,7 @@ window.addEventListener("unhandledrejection", function (e) {
         els.expressionGrid.append(frag);
     }
 
+    /** @param {PlayerData} player */
     function renderWeapons(player) {
         clearImageContainer(els.weaponGroups);
         let frag = document.createDocumentFragment();
@@ -1160,12 +1226,13 @@ window.addEventListener("unhandledrejection", function (e) {
         els.weaponGroups.append(frag);
     }
 
+    /** @param {PlayerData} player @param {string} weaponName */
     function buildWeaponTile(player, weaponName) {
         let weapon = getWeapon(player, weaponName);
         let tile = document.createElement("div");
         tile.className = "weapon-tile";
         tile.classList.toggle("is-empty", !weapon);
-        let vc = chromaColor(weapon && weapon.chromaDisplayName);
+        let vc = chromaColor(weapon ? weapon.chromaDisplayName : undefined);
         vc = vc ? " (" + vc + ")" : "";
         tile.title = (weapon ? (weaponName + ": " + (weapon.skinDisplayName || weapon.weapon || "Unknown skin") + vc) : (weaponName + ": " + NA)) + COPY_HINT;
         if (weapon && weapon.contentTierColor) {
@@ -1213,10 +1280,12 @@ window.addEventListener("unhandledrejection", function (e) {
         return tile;
     }
 
+    /** @param {PlayerData} player @param {string} weaponName */
     function getWeapon(player, weaponName) {
         return (player._weaponMap || {})[weaponName] || null;
     }
 
+    /** @param {string|undefined} src @param {string|undefined} alt @param {string|undefined} selectionState */
     function buildAgentAvatar(src, alt, selectionState) {
         if (!src || selectionState === "") return makeAvatarPlaceholder();
         let img = document.createElement("img");
@@ -1238,6 +1307,7 @@ window.addEventListener("unhandledrejection", function (e) {
         return el;
     }
 
+    /** @param {string} str */
     function capitalize(str) { return str ? str.charAt(0).toUpperCase() + str.slice(1) : ""; }
 
     function renderPlayedWith() {
@@ -1249,9 +1319,11 @@ window.addEventListener("unhandledrejection", function (e) {
         let entries = (payload && Array.isArray(payload.alreadyPlayedWith)) ? payload.alreadyPlayedWith : [];
 
         // Only show players currently in this lobby/game
+        /** @type {Record<string, boolean>} */
         let currentPlayerNames = {};
         if (payload && payload.players) {
             let myPuuid = payload.puuid;
+            /** @type {Record<string, PlayerData>} */
             let pl = payload.players;
             for (let puuid in pl) {
                 if (!Object.prototype.hasOwnProperty.call(pl, puuid)) continue;
@@ -1261,7 +1333,7 @@ window.addEventListener("unhandledrejection", function (e) {
             }
         }
         entries = entries.filter(function (entry) {
-            return currentPlayerNames[entry.name] === true;
+            return entry.name ? currentPlayerNames[entry.name] === true : false;
         });
 
         els.playedWithEmpty.hidden = entries.length > 0;
@@ -1277,7 +1349,7 @@ window.addEventListener("unhandledrejection", function (e) {
             let tc = document.createElement("td"); tc.textContent = formatEncounterTimes(entry); row.append(tc);
             let lastAgent = txt(entry.lastAgent || entry.agent, "Unknown");
             let lastMap = txt(entry.lastMap || entry.map, "Unknown");
-            let lc = document.createElement("td"); lc.textContent = capitalize(txt(entry.relation_name, "player")) + " " + lastAgent + " on " + lastMap + " \u2014 " + formatTimeAgo(entry.time_diff) + " ago"; row.append(lc);
+            let lc = document.createElement("td"); lc.textContent = capitalize(txt(entry.relation_name, "player") || "player") + " " + lastAgent + " on " + lastMap + " \u2014 " + formatTimeAgo(/** @type {string|number} */ (entry.time_diff)) + " ago"; row.append(lc);
             let rc = document.createElement("td"); rc.textContent = formatEncounterRecord(entry); row.append(rc);
             frag.append(row);
         });
@@ -1298,6 +1370,7 @@ window.addEventListener("unhandledrejection", function (e) {
     // is on the clipboard (via the async Clipboard API or the execCommand
     // fallback) so callers only need a success handler. Centralises the
     // previously-inconsistent clipboard error handling.
+    /** @param {string} text */
     function copyToClipboard(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             return navigator.clipboard.writeText(text).catch(function (e) {
@@ -1308,18 +1381,22 @@ window.addEventListener("unhandledrejection", function (e) {
         return new Promise(function (resolve) { fallbackCopy(text, resolve); });
     }
 
+    /** @param {string} text @param {HTMLButtonElement} button */
     function copyText(text, button) {
         if (!text) { showToast("Nothing to copy yet."); return; }
         let done = function () {
             let original = button.textContent;
             button.textContent = "Copied!";
             button.classList.add("copied");
+            // @ts-expect-error — _copyT is an expando on the button
             if (button._copyT) clearTimeout(button._copyT);
+            // @ts-expect-error — _copyT is an expando on the button
             button._copyT = setTimeout(function () { button.textContent = original; button.classList.remove("copied"); }, 1500);
         };
         copyToClipboard(text).then(done).catch(function (e) { console.error("[VRY] copyText error:", e); showToast("Copy failed."); });
     }
 
+    /** @param {HTMLButtonElement} button */
     function copyJson(button) {
         try {
             let text = state.payload ? JSON.stringify(state.payload, null, 2) : "";
@@ -1333,9 +1410,10 @@ window.addEventListener("unhandledrejection", function (e) {
     // Helper: invoke a Tauri command and render its string result into a <pre>.
     // Shows fallbackText while loading, errorText on failure. Used for the
     // Backend Log and Heartbeat Data panels.
+    /** @param {string} invokeMethod @param {HTMLElement} preEl @param {string} fallbackText @param {string} errorText */
     function renderInvokeText(invokeMethod, preEl, fallbackText, errorText) {
         tauriInvoke(invokeMethod).then(function (text) {
-            let displayText = text || fallbackText;
+            let displayText = String(text || fallbackText);
             if (preEl.textContent !== displayText) {
                 preEl.textContent = displayText;
             }
@@ -1349,6 +1427,7 @@ window.addEventListener("unhandledrejection", function (e) {
 
 function renderHeartbeatTail() { renderInvokeText("get_heartbeat_log", els.hbPre, "(no heartbeat data yet)", "Failed to fetch heartbeat log."); }
 
+/** @param {string} message */
 function showAuthErrorModal(message) {
     let modal = document.getElementById("authErrorModal");
     let messageEl = document.getElementById("authErrorMessage");
@@ -1359,6 +1438,7 @@ function showAuthErrorModal(message) {
 
 function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(empty log)", "Failed to fetch log."); }
 
+    /** @param {string} text @param {Function} done */
     function fallbackCopy(text, done) {
         let ta = document.createElement("textarea");
         ta.value = text;
@@ -1374,9 +1454,10 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
     function openModal() { els.confirmModal.hidden = false; }
     function closeModal() { els.confirmModal.hidden = true; }
 
+    /** @param {boolean} busy */
     function setRefreshButtonsBusy(busy) {
         document.querySelectorAll(".refresh-btn").forEach(function (btn) {
-            btn.disabled = busy;
+            /** @type {HTMLButtonElement} */ (btn).disabled = busy;
             btn.classList.toggle("is-spinning", busy);
         });
     }
@@ -1421,7 +1502,8 @@ function renderLogTail() { renderInvokeText("get_gui_log_tail", els.logPre, "(em
         els.screenshotPlayerBtn.addEventListener("click", takeDetailScreenshot);
     els.copyStatsBtn.addEventListener("click", function () {
         try {
-            let p = (state.payload && state.selectedPuuid) ? state.payload.players[state.selectedPuuid] : null;
+            let payload = state.payload;
+            let p = (payload && state.selectedPuuid && payload.players) ? payload.players[state.selectedPuuid] : null;
             if (!p) { showToast("Nothing to copy yet."); return; }
             let peakStr = rankName(p.peakRank, false);
             let parts = [

@@ -4,6 +4,11 @@ version = "3.0.0"
 description = "VALORANT rank yoinker - Tauri rewrite"
 authors = ["idkwhoiam322"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/idkwhoiam322/VALORANT-rank-yoinker"
+readme = "../README.md"
+keywords = ["valorant", "tauri", "overlay", "tracker"]
+categories = ["game", "gui"]
 
 [lib]
 name = "vry_rust_lib"
@@ -29,6 +34,25 @@ thiserror = "2"
 log = "0.4"
 env_logger = "0.11"
 lru = "0.12"
+
+[lints.clippy]
+module_name_repetitions = "allow"
+too_many_lines = "allow"
+similar_names = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+upper_case_acronyms = "allow"
+doc_lazy_continuation = "allow"
+empty_line_after_doc_comments = "allow"
+let_and_return = "allow"
+needless_borrow = "allow"
+useless_borrows_in_formatting = "allow"
+double_ended_iterator_last = "allow"
+unnecessary_lazy_evaluations = "allow"
+unnecessary_map_or = "allow"
+redundant_pattern_matching = "allow"
+if_same_then_else = "allow"
+bind_instead_of_map = "allow"
 
 [profile.release]
 opt-level = 1

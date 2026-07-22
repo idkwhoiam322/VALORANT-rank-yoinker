@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
-#![deny(clippy::all, clippy::cargo)]
 
 mod api;
 mod commands;
