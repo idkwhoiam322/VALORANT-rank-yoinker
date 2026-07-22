@@ -16,6 +16,7 @@ use crate::core::payload_builder::build_heartbeat;
 use crate::models::auth::Entitlements;
 use crate::models::content::ContentCache;
 use crate::models::heartbeat::{EncounterEntry, HeartbeatPayload, PlayerHeartbeat};
+use crate::models::loadout::CoregameLoadoutsResponse;
 use crate::models::mmr::{PlayerRank, PlayerStats};
 use crate::models::presences::{GameState, Presence};
 use crate::services::config::ConfigManager;
@@ -492,9 +493,9 @@ impl MainLoop {
         let mut last_emitted: Option<HeartbeatDedupKey> = None;
         let mut last_presences: Option<(Vec<Presence>, GameState)> = None;
         let mut match_context: Option<(String, String)> = None;
-        // Pregame loadouts are immutable during agent select, so cache the raw
-        // response per match_id and reuse it across ticks. (match_id, loadouts text)
-        let mut pregame_loadout_cache: Option<(String, String)> = None;
+        // Pregame loadouts are immutable during agent select, so cache the parsed
+        // response per match_id and reuse it across ticks. (match_id, loadouts)
+        let mut pregame_loadout_cache: Option<(String, CoregameLoadoutsResponse)> = None;
         // Last fully-populated heartbeat, retained per match_id so a tick whose
         // fresh build comes back empty (e.g. a PREGAME->INGAME 404 handoff) never
         // downgrades known data (map/server/players) to unknown within the same
@@ -829,7 +830,9 @@ impl MainLoop {
                                 .is_some_and(|(cid, _)| cid == id)
                         })
                         .and_then(|_id| {
-                            pregame_loadout_cache.as_ref().map(|(_, text)| text.clone())
+                            pregame_loadout_cache
+                                .as_ref()
+                                .map(|(_, loadouts)| loadouts.clone())
                         })
                 } else {
                     pregame_loadout_cache = None;
@@ -863,10 +866,10 @@ impl MainLoop {
 
                 // Store the loadouts response for reuse on the next tick.
                 if current_state == GameState::Pregame {
-                    if let (Some(id), Some(text)) =
+                    if let (Some(id), Some(loadouts)) =
                         (known_match_id.as_deref(), used_pregame_loadouts)
                     {
-                        pregame_loadout_cache = Some((id.to_string(), text));
+                        pregame_loadout_cache = Some((id.to_string(), loadouts));
                     }
                 }
 

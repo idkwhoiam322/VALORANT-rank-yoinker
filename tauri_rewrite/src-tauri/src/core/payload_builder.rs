@@ -7,6 +7,7 @@ use crate::api::endpoints;
 use crate::core::state_machine::ServiceSnapshot;
 use crate::models::auth::Entitlements;
 use crate::models::heartbeat::{HeartbeatPayload, PlayerHeartbeat};
+use crate::models::loadout::CoregameLoadoutsResponse;
 use crate::models::match_data::CoregamePlayer;
 use crate::models::mmr::{PlayerRank, PlayerStats};
 use crate::models::presences::{GameState, Presence};
@@ -106,8 +107,8 @@ pub(crate) async fn build_heartbeat(
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
     ws_presences: Option<&[Presence]>,
-    cached_pregame_loadouts: Option<String>,
-) -> (HeartbeatPayload, Option<String>) {
+    cached_pregame_loadouts: Option<CoregameLoadoutsResponse>,
+) -> (HeartbeatPayload, Option<CoregameLoadoutsResponse>) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -170,7 +171,7 @@ pub(crate) async fn build_heartbeat(
     // WS-cached presences may be incomplete and are not safe for party detection.
     let presences_slice = if ws_data { None } else { presences.as_deref() };
 
-    let used_pregame_loadouts: Option<String> = match state {
+    let used_pregame_loadouts: Option<CoregameLoadoutsResponse> = match state {
         GameState::Ingame => {
             build_ingame_payload(
                 svc,
@@ -703,32 +704,26 @@ async fn build_ingame_payload(
 /// so both produce an identical player list. Loadouts are immutable during agent
 /// select, so reusing a previous tick's response is safe.
 fn append_enemy_players_from_loadouts(
-    loadouts_text: &str,
+    loadouts: &CoregameLoadoutsResponse,
     players: &mut Vec<CoregamePlayer>,
     match_data: &serde_json::Value,
 ) {
-    let loadouts_json_value: serde_json::Value = match serde_json::from_str(loadouts_text) {
-        Ok(v) => v,
-        Err(_) => return,
+    let ally_puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
+    let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
+        "Red"
+    } else {
+        "Blue"
     };
-    if let Some(loadouts) = loadouts_json_value["Loadouts"].as_array() {
-        let ally_puuids: Vec<String> = players.iter().filter_map(|p| p.subject.clone()).collect();
-        let enemy_team_id = if match_data["AllyTeam"]["TeamID"].as_str() == Some("Blue") {
-            "Red"
-        } else {
-            "Blue"
-        };
-        for l in loadouts {
-            if let Some(l_subject) = l["Subject"].as_str() {
-                if !ally_puuids.iter().any(|s| s == l_subject) {
-                    players.push(CoregamePlayer {
-                        subject: Some(l_subject.to_string()),
-                        team_id: Some(enemy_team_id.to_string()),
-                        character_id: l["CharacterID"].as_str().map(|s| s.to_string()),
-                        character_selection_state: None,
-                        player_identity: None,
-                    });
-                }
+    for l in &loadouts.loadouts {
+        if let Some(ref l_subject) = l.subject {
+            if !ally_puuids.iter().any(|s| s == l_subject) {
+                players.push(CoregamePlayer {
+                    subject: Some(l_subject.clone()),
+                    team_id: Some(enemy_team_id.to_string()),
+                    character_id: l.character_id.clone(),
+                    character_selection_state: None,
+                    player_identity: None,
+                });
             }
         }
     }
@@ -743,8 +738,8 @@ async fn build_pregame_payload(
     payload: &mut HeartbeatPayload,
     known_match_id: Option<&str>,
     existing_match_data: Option<serde_json::Value>,
-    cached_loadouts_text: Option<String>,
-) -> Option<String> {
+    cached_loadouts: Option<CoregameLoadoutsResponse>,
+) -> Option<CoregameLoadoutsResponse> {
     let (match_data, match_id) = match fetch_match_context(
         svc,
         entitlements,
@@ -795,19 +790,20 @@ async fn build_pregame_payload(
     // the match), so fetch once per match and reuse on unchanged ticks. When the
     // caller supplies a cached response, skip the HTTP call and just re-extract
     // enemies from it.
-    let saved_loadouts_text: Option<String> = match cached_loadouts_text {
-        Some(text) => {
+    // Cache the parsed struct directly to avoid Value→String→Value round trips.
+    let saved_loadouts: Option<CoregameLoadoutsResponse> = match cached_loadouts {
+        Some(loadouts) => {
             svc.client.cache_hit(
                 "pregame loadouts",
                 &crate::api::client::anon_id(&match_id),
                 None,
             );
-            append_enemy_players_from_loadouts(&text, &mut players, &match_data);
-            Some(text)
+            append_enemy_players_from_loadouts(&loadouts, &mut players, &match_data);
+            Some(loadouts)
         }
         None => match svc
             .client
-            .fetch_json_retry(
+            .fetch_json_retry_typed::<CoregameLoadoutsResponse>(
                 crate::api::client::UrlType::Glz,
                 &endpoints::glz_pregame_loadouts(&match_id),
                 entitlements,
@@ -818,10 +814,9 @@ async fn build_pregame_payload(
             )
             .await
         {
-            Ok(loadouts_json_value) => {
-                let text = loadouts_json_value.to_string();
-                append_enemy_players_from_loadouts(&text, &mut players, &match_data);
-                Some(text)
+            Ok(loadouts) => {
+                append_enemy_players_from_loadouts(&loadouts, &mut players, &match_data);
+                Some(loadouts)
             }
             Err(_) => None,
         },
@@ -846,16 +841,10 @@ async fn build_pregame_payload(
         .filter(|id| !id.is_empty())
         .map(|id| id.to_string());
 
-    // Build loadout_json from saved response (no second HTTP call)
-    let loadout_json = if let Some(ref text) = saved_loadouts_text {
-        if let Ok(structured) =
-            serde_json::from_str::<crate::models::loadout::CoregameLoadoutsResponse>(text)
-        {
-            svc.loadouts
-                .build_loadout_json(&structured, &players, &svc.content)
-        } else {
-            Default::default()
-        }
+    // Build loadout_json from saved response (no second HTTP call or re-parse)
+    let loadout_json = if let Some(ref structured) = saved_loadouts {
+        svc.loadouts
+            .build_loadout_json(structured, &players, &svc.content)
     } else {
         Default::default()
     };
@@ -905,7 +894,7 @@ async fn build_pregame_payload(
     // Populate already_played_with from stored encounters
     payload.already_played_with = Arc::new(svc.encounters.get_all_summaries(puuid));
 
-    saved_loadouts_text
+    saved_loadouts
 }
 
 async fn build_menus_payload(
