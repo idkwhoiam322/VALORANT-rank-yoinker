@@ -135,16 +135,23 @@ impl std::ops::Deref for ServiceSnapshot {
 
 impl ServiceSnapshot {
     pub(crate) fn log_heartbeat(&self, heartbeat: &HeartbeatPayload) {
-        use std::io::Write;
-        if let Ok(line) = serde_json::to_string(heartbeat) {
-            if let Ok(mut f) = fs::OpenOptions::new()
+        let line = match serde_json::to_string(heartbeat) {
+            Ok(l) => l,
+            Err(_) => return,
+        };
+        let path = self.heartbeat_log_path.clone();
+        // Offload the file open/write to a blocking thread so the async
+        // runtime is not stalled by disk I/O on every heartbeat tick.
+        tokio::task::spawn_blocking(move || {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(&self.heartbeat_log_path)
+                .open(&path)
             {
                 let _ = writeln!(f, "{line}");
             }
-        }
+        });
     }
 
     pub(crate) fn clear_match_player_cache(&self) {

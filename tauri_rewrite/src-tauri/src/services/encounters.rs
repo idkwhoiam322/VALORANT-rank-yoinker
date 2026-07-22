@@ -427,8 +427,16 @@ impl EncounterService {
     }
 
     fn save_to_disk(&self, data: &HashMap<String, Vec<EncounterRecord>>) {
-        if let Ok(json) = serde_json::to_string_pretty(data) {
-            let _ = fs::write(&self.stats_path, &json);
-        }
+        let json = match serde_json::to_string_pretty(data) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+        let path = self.stats_path.clone();
+        // Offload the file write to a blocking thread so the async runtime
+        // is not stalled by disk I/O. JSON serialization (CPU-only) already
+        // happened above while the caller's mutex lock is still held.
+        tokio::task::spawn_blocking(move || {
+            let _ = std::fs::write(&path, &json);
+        });
     }
 }

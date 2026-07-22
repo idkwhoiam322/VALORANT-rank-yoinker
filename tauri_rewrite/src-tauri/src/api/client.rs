@@ -238,7 +238,6 @@ impl ApiClient {
 
     /// Refresh client_version by parsing ShooterGame.log
     async fn refresh_client_version(&self) -> Result<(), ApiError> {
-        use std::fs;
         use std::path::PathBuf;
 
         let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
@@ -246,7 +245,8 @@ impl ApiClient {
         });
         let log_path = PathBuf::from(localappdata).join(r"VALORANT\Saved\Logs\ShooterGame.log");
 
-        let content = fs::read_to_string(&log_path)
+        let content = tokio::fs::read_to_string(&log_path)
+            .await
             .map_err(|e| ApiError::Auth(format!("Cannot read log file for version: {}", e)))?;
 
         for line in content.lines().rev() {
