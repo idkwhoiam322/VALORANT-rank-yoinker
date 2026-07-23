@@ -35,7 +35,15 @@ log = "0.4"
 env_logger = "0.11"
 lru = "0.12"
 
+[lints.rust]
+unsafe_code = "deny"
+dead_code = "deny"
+unused_imports = "deny"
+unused_must_use = "deny"
+unreachable_patterns = "deny"
+
 [lints.clippy]
+all = "deny"
 
 [profile.release]
 opt-level = 1
