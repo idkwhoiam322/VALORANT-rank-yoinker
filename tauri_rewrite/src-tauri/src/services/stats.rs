@@ -65,7 +65,7 @@ impl StatsService {
             Err(e) => {
                 log::warn!(
                     "stats: competitive updates failed for {}: {e:?}",
-                    &crate::api::client::anon_id(puuid)
+                    crate::api::client::anon_id(puuid)
                 );
                 return PlayerStats::default_stats();
             }
@@ -74,7 +74,7 @@ impl StatsService {
         log::debug!(
             "stats: got {} updates for {}",
             updates.matches.len(),
-            &crate::api::client::anon_id(puuid)
+            crate::api::client::anon_id(puuid)
         );
 
         let match_summary = match updates.matches.first() {
@@ -82,7 +82,7 @@ impl StatsService {
             None => {
                 log::debug!(
                     "stats: no matches for {}",
-                    &crate::api::client::anon_id(puuid)
+                    crate::api::client::anon_id(puuid)
                 );
                 return PlayerStats::default_stats();
             }
@@ -141,7 +141,7 @@ impl StatsService {
             Err(e) => {
                 log::warn!(
                     "stats: match details fetch failed for {}: {e:?}",
-                    &crate::api::client::anon_id(match_id)
+                    crate::api::client::anon_id(match_id)
                 );
                 Err(e)
             }

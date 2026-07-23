@@ -193,7 +193,7 @@ impl PresenceService {
                         packed_raw,
                     )
                     .ok()
-                    .and_then(|b| Some(String::from_utf8_lossy(&b[..b.len().min(300)]).to_string()))
+                    .map(|b| String::from_utf8_lossy(&b[..b.len().min(300)]).to_string())
                     .unwrap_or_default();
                     let msg = format!("detect_game_state: failed to decode private presence (b64 len={}, decoded_preview={:?})", packed_raw.len(), decoded_preview);
                     log::warn!("{msg}");

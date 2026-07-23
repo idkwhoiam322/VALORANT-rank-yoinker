@@ -29,6 +29,8 @@ use crate::services::rank::RankService;
 use crate::services::stats::StatsService;
 use crate::services::websocket_presence::ValorantWs;
 
+type MatchNamesCache = Arc<std::sync::Mutex<Option<(String, HashMap<String, String>)>>>;
+
 #[derive(Debug)]
 pub(crate) enum StateMachineError {
     Auth(String),
@@ -137,7 +139,7 @@ pub(crate) struct ServiceSnapshot {
     pub last_match_cache: Arc<std::sync::Mutex<Option<String>>>,
     /// Names cache scoped to the current match — cleared on match transition.
     /// Avoids redundant name-resolution calls every INGAME tick.
-    pub match_names_cache: Arc<std::sync::Mutex<Option<(String, HashMap<String, String>)>>>,
+    pub match_names_cache: MatchNamesCache,
 }
 
 // Field access to the shared services is forwarded via `Deref` so existing
@@ -272,7 +274,7 @@ pub(crate) struct AppServices {
     pub last_match_cache: Arc<std::sync::Mutex<Option<String>>>,
     /// Names cache scoped to the current match — cleared on match transition.
     /// Avoids redundant name-resolution calls every INGAME tick.
-    pub match_names_cache: Arc<std::sync::Mutex<Option<(String, HashMap<String, String>)>>>,
+    pub match_names_cache: MatchNamesCache,
     /// Set by clear_all_cache so the running main loop drops its per-match
     /// carry-over locals (match_context / last_known_snapshot /
     /// pregame_loadout_cache) on the next tick, preventing stale match data

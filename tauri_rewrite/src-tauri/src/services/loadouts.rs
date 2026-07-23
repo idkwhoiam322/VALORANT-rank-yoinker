@@ -95,7 +95,7 @@ impl LoadoutService {
             };
 
             // Resolve title and player card from the CoregamePlayer's identity
-            if let Some(ref identity) = player.and_then(|p| p.player_identity.as_ref()) {
+            if let Some(identity) = player.and_then(|p| p.player_identity.as_ref()) {
                 if let Some(ref title_id) = identity.player_title_id {
                     if let Some(title_obj) = content.player_titles.get(&title_id.to_lowercase()) {
                         player_data.title = title_obj.title_text.clone();

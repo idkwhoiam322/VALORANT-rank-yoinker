@@ -2,7 +2,7 @@
 //!
 //! Previously every service re-implemented the same `Mutex<LruCache<K, (V, Instant)>>`
 //! + TTL-expiry pattern by hand. This module centralises it so
-//! the expiry logic lives in exactly one place.
+//!   the expiry logic lives in exactly one place.
 
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
