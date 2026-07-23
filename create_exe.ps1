@@ -93,6 +93,8 @@ function Invoke-Cargo {
     param([string]$Dir, [string]$Profile)
     Push-Location -Path $Dir
     $ErrorActionPreference = "Continue"
+    cargo clippy --profile $Profile --locked 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "cargo clippy failed (exit code $($LASTEXITCODE)) -- fix lints before building." }
     cargo build --profile $Profile --locked 2>&1 | ForEach-Object { Write-Host $_ }
     $rc = $LASTEXITCODE
     Pop-Location
